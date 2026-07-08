@@ -1,0 +1,13 @@
+[package]
+name = "reform"
+version = "0.1.0"
+edition = "2024"
+
+[profile.dev]
+opt-level = 3
+
+[dependencies]
+crfs = "0.4.1"
+conllu = { package = "rs-conllu", version = "0.4.1" }
+salsa = "0.27.2"
+anyhow = "1.0.103"
