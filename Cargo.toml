@@ -11,6 +11,5 @@ crfs = "0.4.1"
 conllu = { package = "rs-conllu", version = "0.4.1" }
 salsa = "0.27.2"
 anyhow = "1.0.103"
-
-[dev-dependencies]
-serde_json = "1.0.150"
+rkyv = "0.8.17"
+flate2 = "1.1.9"

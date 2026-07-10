@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,12 +31,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Write JSON
-    let json = serde_json::to_string_pretty(&entries)?;
-    fs::write(data_dir.join("lemmas.json"), &json)?;
+    let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entries)?;
+    let mut compressed = Vec::with_capacity(bytes.len());
+    let mut gze = flate2::write::GzEncoder::new(&mut compressed, Default::default());
+    gze.write_all(&bytes)?;
+    gze.finish()?;
+    std::fs::write(data_dir.join("lemmas.rkyv.gz"), compressed)?;
 
     println!("\nTotal: {} entries", entries.len());
-    println!("Output: {}/lemmas.json", data_dir.display());
+    println!("Output: {}/lemmas.rkyv.gz", data_dir.display());
     Ok(())
 }
 
