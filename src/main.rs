@@ -166,10 +166,10 @@ impl CliTaggerTrainArgs {
         let wordtrees = load_wordtrees(&self.wordtrees)?;
 
         // Create a trainer for the pos-tagger
-        let mut trainer = crfs::Trainer::averaged_perceptron();
+        let mut trainer = crfs::Trainer::l2sgd();
         {
             let params = trainer.params_mut();
-            params.set_max_iterations(10)?;
+            params.set_c2(1.0)?;
         }
         trainer.verbose(true);
 
