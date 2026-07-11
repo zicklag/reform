@@ -68,7 +68,7 @@ enum CliLemmatizerCmd {
 /// Train the part of speech tagger on one or more conllu wordtrees.
 #[derive(clap::Args)]
 struct CliTaggerTrainArgs {
-    #[arg(short = 'o', default_value = "./data/tagger.bin")]
+    #[arg(short = 't', default_value = "./data/tagger.bin")]
     output: PathBuf,
 
     /// The list of conllu word tree files to train the tagger from.
@@ -78,7 +78,7 @@ struct CliTaggerTrainArgs {
 /// Run the tagger on a list of words to predict their part of speech.
 #[derive(clap::Args)]
 struct CliTaggerRunArgs {
-    #[arg(short = 'M', default_value = "./data/tagger.bin")]
+    #[arg(short = 't', default_value = "./data/tagger.bin")]
     model: PathBuf,
 
     /// The list of words in the sentence to classify
@@ -88,7 +88,7 @@ struct CliTaggerRunArgs {
 #[derive(clap::Args)]
 struct CliTaggerEvalArgs {
     /// The trained tagger model file.
-    #[arg(short = 'M', default_value = "./data/tagger.bin")]
+    #[arg(short = 't', default_value = "./data/tagger.bin")]
     model: PathBuf,
     /// The conllu word tree files to evaluate against.
     wordtrees: Vec<PathBuf>,
@@ -166,10 +166,11 @@ impl CliTaggerTrainArgs {
         let wordtrees = load_wordtrees(&self.wordtrees)?;
 
         // Create a trainer for the pos-tagger
-        let mut trainer = crfs::Trainer::l2sgd();
+        let mut trainer = crfs::Trainer::averaged_perceptron();
         {
             let params = trainer.params_mut();
-            params.set_c2(1.0)?;
+            params.set_shuffle_seed(Some(42));
+            params.set_epsilon(0.001)?;
         }
         trainer.verbose(true);
 
