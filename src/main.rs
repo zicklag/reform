@@ -1,7 +1,12 @@
-use std::{path::PathBuf, sync::LazyLock};
+use std::{
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use anyhow::Error;
 use clap::Parser;
+use conllu::{UPOS, parsers::ParsedDoc};
+use crfs::Attribute;
 use reform::lemmatizer::Lemmatizer;
 
 /// The parsed CLI arguments.
@@ -29,6 +34,20 @@ struct CliArgs {
 #[derive(clap::Subcommand)]
 enum CliCommand {
     Lemmatizer(CliLemmatizerArgs),
+    Tagger(CliTaggerArgs),
+}
+
+/// Run & train the part-of-speech tagger.
+#[derive(clap::Args)]
+struct CliTaggerArgs {
+    #[clap(subcommand)]
+    command: CliTaggerCmd,
+}
+
+#[derive(clap::Subcommand)]
+enum CliTaggerCmd {
+    Train(CliTaggerTrainArgs),
+    Run(CliTaggerRunArgs),
 }
 
 /// Lemmatize words or build / inspect the lemmatizer dictionary.
@@ -43,6 +62,26 @@ enum CliLemmatizerCmd {
     Build(CliLemmatizerBuildArgs),
     Dump(CliLemmatizerDumpArgs),
     Run(CliLemmatizerRunArgs),
+}
+
+/// Train the part of speech tagger on one or more conllu wordtrees.
+#[derive(clap::Args)]
+struct CliTaggerTrainArgs {
+    #[arg(short = 'o', default_value = "./data/tagger.bin")]
+    output: PathBuf,
+
+    /// The list of conllu word tree files to train the tagger from.
+    wordtrees: Vec<PathBuf>,
+}
+
+/// Run the tagger on a list of words to predict their part of speech.
+#[derive(clap::Args)]
+struct CliTaggerRunArgs {
+    #[arg(short = 'M', default_value = "./data/tagger.bin")]
+    model: PathBuf,
+
+    /// The list of words in the sentence to classify
+    words: Vec<String>,
 }
 
 /// Build the lemma dictionary file from a set of conllu word trees.
@@ -84,6 +123,16 @@ impl CliArgs {
     fn execute(&self) -> anyhow::Result<()> {
         match &self.command {
             CliCommand::Lemmatizer(args) => args.command.execute(),
+            CliCommand::Tagger(args) => args.command.execute(),
+        }
+    }
+}
+
+impl CliTaggerCmd {
+    fn execute(&self) -> anyhow::Result<()> {
+        match self {
+            CliTaggerCmd::Train(args) => args.execute(),
+            CliTaggerCmd::Run(args) => args.execute(),
         }
     }
 }
@@ -99,21 +148,132 @@ impl CliLemmatizerCmd {
     }
 }
 
+impl CliTaggerTrainArgs {
+    /// Execute `tagger train`.
+    fn execute(&self) -> anyhow::Result<()> {
+        // Load the wordtrees
+        let wordtrees = load_wordtrees(&self.wordtrees)?;
+
+        // Create a trainer for the pos-tagger
+        let mut trainer = crfs::Trainer::averaged_perceptron();
+        {
+            let params = trainer.params_mut();
+            params.set_max_iterations(10)?;
+        }
+        trainer.verbose(true);
+
+        for doc in wordtrees {
+            for sentence in doc.iter() {
+                let sentence = sentence.iter().as_slice();
+                let len = sentence.len();
+                let mut x = Vec::with_capacity(sentence.len());
+                let mut y = Vec::with_capacity(sentence.len());
+
+                for (i, token) in sentence.iter().enumerate() {
+                    let upos = token.upos.unwrap_or(UPOS::X);
+                    let lemma = token.lemma.as_deref().unwrap_or("_");
+                    let form = &token.form;
+                    let lower = &token.form.to_lowercase();
+                    let suffix1 = suffix(lower, 1);
+                    let suffix2 = suffix(lower, 2);
+                    let suffix3 = suffix(lower, 3);
+                    let suffix4 = suffix(lower, 4);
+
+                    let mut attrs = vec![
+                        Attribute::new(format!("form={form}"), 1.0),
+                        Attribute::new(format!("lowerform={}", form.to_lowercase()), 1.0),
+                        Attribute::new(format!("lemma={lemma}"), 1.0),
+                        Attribute::new(format!("suffix1={suffix1}"), 1.0),
+                        Attribute::new(format!("suffix2={suffix2}"), 1.0),
+                        Attribute::new(format!("suffix3={suffix3}"), 1.0),
+                        Attribute::new(format!("suffix4={suffix4}"), 1.0),
+                        Attribute::new("len", form.len() as f64),
+                        Attribute::new("pos", i as f64 / len as f64),
+                    ];
+
+                    if let Some(features) = &token.features {
+                        for (k, v) in features.iter() {
+                            attrs.push(Attribute::new(format!("feature.{k}={v}"), 1.0));
+                        }
+                    }
+
+                    if i == 0 {
+                        attrs.push(Attribute::new("first", 1.0));
+                    } else if i == sentence.len() {
+                        attrs.push(Attribute::new("last", 1.0));
+                    }
+
+                    if form.chars().all(|x| x.is_uppercase()) {
+                        attrs.push(Attribute::new("uppercase", 1.0));
+                    } else if form
+                        .chars()
+                        .nth(0)
+                        .map(|x| x.is_uppercase())
+                        .unwrap_or(false)
+                    {
+                        attrs.push(Attribute::new("capitalized", 1.0));
+                    } else {
+                        attrs.push(Attribute::new("lowercase", 1.0));
+                    }
+
+                    static POS: &[isize] = &[-3, -2, -1, 1, 2, 3];
+
+                    for p in POS {
+                        let n = i as isize + p;
+                        if n >= 0 && n < len as isize {
+                            let n = n as usize;
+                            let w = &sentence[n];
+                            attrs.push(Attribute::new(
+                                format!("relative{n}={}", w.lemma.as_ref().unwrap_or(&w.form)),
+                                1.0,
+                            ));
+                        }
+                    }
+                    
+                    x.push(attrs);
+                    y.push(upos.to_string());
+                }
+
+                trainer.append(&x, &y)?;
+            }
+        }
+
+        trainer.train(&self.output)?;
+
+        Ok(())
+    }
+}
+
+impl CliTaggerRunArgs {
+    /// Execute `tagger train`.
+    fn execute(&self) -> anyhow::Result<()> {
+        let model_data = std::fs::read(&self.model)?;
+        let model = crfs::Model::new(&model_data)?;
+        let tagger = model.tagger()?;
+
+        let x = self
+            .words
+            .iter()
+            .map(|word| vec![Attribute::new(format!("form={word}"), 1.0)])
+            .collect::<Vec<_>>();
+        let result = tagger.tag(&x)?;
+
+        for (word, upos) in self.words.iter().zip(result) {
+            println!("{word} - {upos}");
+        }
+
+        Ok(())
+    }
+}
+
 impl CliLemmatizerBuildArgs {
     /// Execute `lemmatizer build`.
     fn execute(&self) -> anyhow::Result<()> {
-        let docs = self
-            .wordtrees
-            .iter()
-            // Open file for each wordtree
-            .map(|path| std::fs::File::open(path).map_err(Error::from))
-            // Parse the conllu format
-            .map(|f| f.and_then(|file| conllu::parse_file(file).map_err(Error::from)))
-            // Collect result
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        // Load the wordtrees
+        let wordtrees = load_wordtrees(&self.wordtrees)?;
 
         // Build a lemmatizer
-        let lemmatizer = Lemmatizer::build(&docs);
+        let lemmatizer = Lemmatizer::build(&wordtrees);
 
         // Open the dictionary file
         let mut outfile = std::fs::OpenOptions::new()
@@ -161,5 +321,43 @@ impl CliLemmatizerRunArgs {
         println!("{lemma}");
 
         Ok(())
+    }
+}
+
+//
+// Helpers
+//
+
+fn load_wordtrees<P: AsRef<Path>>(paths: &[P]) -> anyhow::Result<Vec<ParsedDoc>> {
+    paths
+        .iter()
+        // Open file for each wordtree
+        .map(|path| std::fs::File::open(path.as_ref()).map_err(Error::from))
+        // Parse the conllu format
+        .map(|f| f.and_then(|file| conllu::parse_file(file).map_err(Error::from)))
+        // Collect result
+        .collect::<anyhow::Result<Vec<_>>>()
+}
+
+/// Get the suffix of a string.
+fn suffix(s: &str, n: usize) -> &str {
+    if let Some((i, _char)) = s.char_indices().rev().nth(n - 1) {
+        &s[i..]
+    } else {
+        s
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn str_suffix_helper() {
+        let s1 = "testing";
+        assert_eq!("ting", suffix(s1, 4));
+        assert_eq!("ing", suffix(s1, 3));
+        assert_eq!("ng", suffix(s1, 2));
+        assert_eq!("g", suffix(s1, 1));
     }
 }
