@@ -43,11 +43,12 @@ struct CliTaggerArgs {
     #[clap(subcommand)]
     command: CliTaggerCmd,
 }
-
+/// Run & train the part-of-speech tagger.
 #[derive(clap::Subcommand)]
 enum CliTaggerCmd {
     Train(CliTaggerTrainArgs),
     Run(CliTaggerRunArgs),
+    Eval(CliTaggerEvalArgs),
 }
 
 /// Lemmatize words or build / inspect the lemmatizer dictionary.
@@ -82,6 +83,15 @@ struct CliTaggerRunArgs {
 
     /// The list of words in the sentence to classify
     words: Vec<String>,
+}
+/// Evaluate the tagger accuracy against conllu data.
+#[derive(clap::Args)]
+struct CliTaggerEvalArgs {
+    /// The trained tagger model file.
+    #[arg(short = 'M', default_value = "./data/tagger.bin")]
+    model: PathBuf,
+    /// The conllu word tree files to evaluate against.
+    wordtrees: Vec<PathBuf>,
 }
 
 /// Build the lemma dictionary file from a set of conllu word trees.
@@ -133,6 +143,7 @@ impl CliTaggerCmd {
         match self {
             CliTaggerCmd::Train(args) => args.execute(),
             CliTaggerCmd::Run(args) => args.execute(),
+            CliTaggerCmd::Eval(args) => args.execute(),
         }
     }
 }
@@ -165,75 +176,7 @@ impl CliTaggerTrainArgs {
         for doc in wordtrees {
             for sentence in doc.iter() {
                 let sentence = sentence.iter().as_slice();
-                let len = sentence.len();
-                let mut x = Vec::with_capacity(sentence.len());
-                let mut y = Vec::with_capacity(sentence.len());
-
-                for (i, token) in sentence.iter().enumerate() {
-                    let upos = token.upos.unwrap_or(UPOS::X);
-                    let lemma = token.lemma.as_deref().unwrap_or("_");
-                    let form = &token.form;
-                    let lower = &token.form.to_lowercase();
-                    let suffix1 = suffix(lower, 1);
-                    let suffix2 = suffix(lower, 2);
-                    let suffix3 = suffix(lower, 3);
-                    let suffix4 = suffix(lower, 4);
-
-                    let mut attrs = vec![
-                        Attribute::new(format!("form={form}"), 1.0),
-                        Attribute::new(format!("lowerform={}", form.to_lowercase()), 1.0),
-                        Attribute::new(format!("lemma={lemma}"), 1.0),
-                        Attribute::new(format!("suffix1={suffix1}"), 1.0),
-                        Attribute::new(format!("suffix2={suffix2}"), 1.0),
-                        Attribute::new(format!("suffix3={suffix3}"), 1.0),
-                        Attribute::new(format!("suffix4={suffix4}"), 1.0),
-                        Attribute::new("len", form.len() as f64),
-                        Attribute::new("pos", i as f64 / len as f64),
-                    ];
-
-                    if let Some(features) = &token.features {
-                        for (k, v) in features.iter() {
-                            attrs.push(Attribute::new(format!("feature.{k}={v}"), 1.0));
-                        }
-                    }
-
-                    if i == 0 {
-                        attrs.push(Attribute::new("first", 1.0));
-                    } else if i == sentence.len() {
-                        attrs.push(Attribute::new("last", 1.0));
-                    }
-
-                    if form.chars().all(|x| x.is_uppercase()) {
-                        attrs.push(Attribute::new("uppercase", 1.0));
-                    } else if form
-                        .chars()
-                        .nth(0)
-                        .map(|x| x.is_uppercase())
-                        .unwrap_or(false)
-                    {
-                        attrs.push(Attribute::new("capitalized", 1.0));
-                    } else {
-                        attrs.push(Attribute::new("lowercase", 1.0));
-                    }
-
-                    static POS: &[isize] = &[-3, -2, -1, 1, 2, 3];
-
-                    for p in POS {
-                        let n = i as isize + p;
-                        if n >= 0 && n < len as isize {
-                            let n = n as usize;
-                            let w = &sentence[n];
-                            attrs.push(Attribute::new(
-                                format!("relative{n}={}", w.lemma.as_ref().unwrap_or(&w.form)),
-                                1.0,
-                            ));
-                        }
-                    }
-                    
-                    x.push(attrs);
-                    y.push(upos.to_string());
-                }
-
+                let (x, y) = extract_features(sentence);
                 trainer.append(&x, &y)?;
             }
         }
@@ -261,6 +204,41 @@ impl CliTaggerRunArgs {
         for (word, upos) in self.words.iter().zip(result) {
             println!("{word} - {upos}");
         }
+
+        Ok(())
+    }
+}
+
+impl CliTaggerEvalArgs {
+    /// Execute `tagger eval`.
+    fn execute(&self) -> anyhow::Result<()> {
+        let model_data = std::fs::read(&self.model)?;
+        let model = crfs::Model::new(&model_data)?;
+        let tagger = model.tagger()?;
+
+        let wordtrees = load_wordtrees(&self.wordtrees)?;
+
+        let mut total = 0usize;
+        let mut correct = 0usize;
+
+        for doc in wordtrees {
+            for sentence in doc.iter() {
+                let sentence = sentence.iter().as_slice();
+                let (x, y_true) = extract_features(sentence);
+
+                let y_pred = tagger.tag(&x)?;
+
+                for (pred, true_) in y_pred.iter().zip(&y_true) {
+                    total += 1;
+                    if pred == true_ {
+                        correct += 1;
+                    }
+                }
+            }
+        }
+
+        let accuracy = correct as f64 / total as f64;
+        println!("Accuracy: {correct}/{total} = {:.4}%", accuracy * 100.0);
 
         Ok(())
     }
@@ -346,6 +324,80 @@ fn suffix(s: &str, n: usize) -> &str {
     } else {
         s
     }
+}
+
+/// Extract CRF features and labels from a sentence of tokens.
+fn extract_features(sentence: &[conllu::Token]) -> (Vec<Vec<Attribute>>, Vec<String>) {
+    let len = sentence.len();
+    let mut x = Vec::with_capacity(len);
+    let mut y = Vec::with_capacity(len);
+
+    for (i, token) in sentence.iter().enumerate() {
+        let upos = token.upos.unwrap_or(UPOS::X);
+        // let lemma = token.lemma.as_deref().unwrap_or("_");
+        let form = &token.form;
+        let lower = &token.form.to_lowercase();
+        let suffix1 = suffix(lower, 1);
+        let suffix2 = suffix(lower, 2);
+        let suffix3 = suffix(lower, 3);
+        let suffix4 = suffix(lower, 4);
+
+        let mut attrs = vec![
+            Attribute::new(format!("form={form}"), 1.0),
+            Attribute::new(format!("lowerform={}", form.to_lowercase()), 1.0),
+            // Attribute::new(format!("lemma={lemma}"), 1.0),
+            Attribute::new(format!("suffix1={suffix1}"), 1.0),
+            Attribute::new(format!("suffix2={suffix2}"), 1.0),
+            Attribute::new(format!("suffix3={suffix3}"), 1.0),
+            Attribute::new(format!("suffix4={suffix4}"), 1.0),
+            Attribute::new("len", form.len() as f64),
+            Attribute::new("pos", i as f64 / len as f64),
+        ];
+
+        // if let Some(features) = &token.features {
+        //     for (k, v) in features.iter() {
+        //         attrs.push(Attribute::new(format!("feature.{k}={v}"), 1.0));
+        //     }
+        // }
+
+        if i == 0 {
+            attrs.push(Attribute::new("first", 1.0));
+        } else if i == len - 1 {
+            attrs.push(Attribute::new("last", 1.0));
+        }
+
+        if form.chars().all(|x| x.is_uppercase()) {
+            attrs.push(Attribute::new("uppercase", 1.0));
+        } else if form
+            .chars()
+            .next()
+            .map(|x| x.is_uppercase())
+            .unwrap_or(false)
+        {
+            attrs.push(Attribute::new("capitalized", 1.0));
+        } else {
+            attrs.push(Attribute::new("lowercase", 1.0));
+        }
+
+        static POS: &[isize] = &[-3, -2, -1, 1, 2, 3];
+
+        for p in POS {
+            let n = i as isize + p;
+            if n >= 0 && n < len as isize {
+                let n = n as usize;
+                let w = &sentence[n];
+                attrs.push(Attribute::new(
+                    format!("relative{n}={}", w.lemma.as_ref().unwrap_or(&w.form)),
+                    1.0,
+                ));
+            }
+        }
+
+        x.push(attrs);
+        y.push(upos.to_string());
+    }
+
+    (x, y)
 }
 
 #[cfg(test)]
