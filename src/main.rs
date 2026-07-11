@@ -194,11 +194,7 @@ impl CliTaggerRunArgs {
         let model = crfs::Model::new(&model_data)?;
         let tagger = model.tagger()?;
 
-        let x = self
-            .words
-            .iter()
-            .map(|word| vec![Attribute::new(format!("form={word}"), 1.0)])
-            .collect::<Vec<_>>();
+        let x = word_features(&self.words);
         let result = tagger.tag(&x)?;
 
         for (word, upos) in self.words.iter().zip(result) {
@@ -326,26 +322,22 @@ fn suffix(s: &str, n: usize) -> &str {
     }
 }
 
-/// Extract CRF features and labels from a sentence of tokens.
-fn extract_features(sentence: &[conllu::Token]) -> (Vec<Vec<Attribute>>, Vec<String>) {
-    let len = sentence.len();
+/// Build CRF features from a raw sentence.
+fn word_features<S: AsRef<str>>(words: &[S]) -> Vec<Vec<Attribute>> {
+    let len = words.len();
     let mut x = Vec::with_capacity(len);
-    let mut y = Vec::with_capacity(len);
 
-    for (i, token) in sentence.iter().enumerate() {
-        let upos = token.upos.unwrap_or(UPOS::X);
-        // let lemma = token.lemma.as_deref().unwrap_or("_");
-        let form = &token.form;
-        let lower = &token.form.to_lowercase();
-        let suffix1 = suffix(lower, 1);
-        let suffix2 = suffix(lower, 2);
-        let suffix3 = suffix(lower, 3);
-        let suffix4 = suffix(lower, 4);
+    for (i, word) in words.iter().enumerate() {
+        let form = word.as_ref();
+        let lower = form.to_lowercase();
+        let suffix1 = suffix(&lower, 1);
+        let suffix2 = suffix(&lower, 2);
+        let suffix3 = suffix(&lower, 3);
+        let suffix4 = suffix(&lower, 4);
 
         let mut attrs = vec![
             Attribute::new(format!("form={form}"), 1.0),
-            Attribute::new(format!("lowerform={}", form.to_lowercase()), 1.0),
-            // Attribute::new(format!("lemma={lemma}"), 1.0),
+            Attribute::new(format!("lowerform={lower}"), 1.0),
             Attribute::new(format!("suffix1={suffix1}"), 1.0),
             Attribute::new(format!("suffix2={suffix2}"), 1.0),
             Attribute::new(format!("suffix3={suffix3}"), 1.0),
@@ -353,12 +345,6 @@ fn extract_features(sentence: &[conllu::Token]) -> (Vec<Vec<Attribute>>, Vec<Str
             Attribute::new("len", form.len() as f64),
             Attribute::new("pos", i as f64 / len as f64),
         ];
-
-        // if let Some(features) = &token.features {
-        //     for (k, v) in features.iter() {
-        //         attrs.push(Attribute::new(format!("feature.{k}={v}"), 1.0));
-        //     }
-        // }
 
         if i == 0 {
             attrs.push(Attribute::new("first", 1.0));
@@ -385,18 +371,27 @@ fn extract_features(sentence: &[conllu::Token]) -> (Vec<Vec<Attribute>>, Vec<Str
             let n = i as isize + p;
             if n >= 0 && n < len as isize {
                 let n = n as usize;
-                let w = &sentence[n];
                 attrs.push(Attribute::new(
-                    format!("relative{n}={}", w.lemma.as_ref().unwrap_or(&w.form)),
+                    format!("relative{n}={}", words[n].as_ref()),
                     1.0,
                 ));
             }
         }
 
         x.push(attrs);
-        y.push(upos.to_string());
     }
 
+    x
+}
+
+/// Extract CRF features and labels from a sentence of conllu tokens.
+fn extract_features(sentence: &[conllu::Token]) -> (Vec<Vec<Attribute>>, Vec<String>) {
+    let words: Vec<&str> = sentence.iter().map(|t| t.form.as_str()).collect();
+    let x = word_features(&words);
+    let y: Vec<String> = sentence
+        .iter()
+        .map(|t| t.upos.unwrap_or(UPOS::X).to_string())
+        .collect();
     (x, y)
 }
 
