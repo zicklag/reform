@@ -11,6 +11,7 @@ rule:north_of_south:north_of(?a, ?b):south_of(?b, ?a)
 rule:south_of_north:south_of(?a, ?b):north_of(?b, ?a)
 
 rule:go_north:n,here(?h),north_of(?g,?h):here(?g):0,1
+rule:cant_go_north:n::0
 
 n
 run

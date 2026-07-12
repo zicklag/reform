@@ -42,7 +42,10 @@ impl Rule {
         for fact in facts {
             if let Some(new_bindings) = match_pattern(pattern, fact) {
                 // Merge bindings
-                let merged = merge_bindings(bindings, &new_bindings)?;
+                let merged = match merge_bindings(bindings, &new_bindings) {
+                    Some(m) => m,
+                    None => continue,
+                };
                 // Recurse to match remaining patterns
                 if let Some((final_bindings, mut matched)) =
                     self.find_match_from(facts, pattern_idx + 1, &merged)
@@ -97,4 +100,177 @@ fn merge_bindings(a: &Bindings, b: &Bindings) -> Option<Bindings> {
         }
     }
     Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fact::Pat;
+
+    fn pat(s: &str) -> Pattern {
+        if let Some(paren) = s.find('(') {
+            let pred = &s[..paren];
+            let args_str = &s[paren + 1..s.len() - 1];
+            let mut pattern = if pred.starts_with('?') {
+                vec![Pat::Var(pred[1..].to_string())]
+            } else {
+                vec![Pat::Atom(pred.to_string())]
+            };
+            for arg in args_str.split(',') {
+                let arg = arg.trim();
+                if arg.starts_with('?') {
+                    pattern.push(Pat::Var(arg[1..].to_string()));
+                } else {
+                    pattern.push(Pat::Atom(arg.to_string()));
+                }
+            }
+            pattern
+        } else {
+            vec![Pat::Atom(s.to_string())]
+        }
+    }
+
+    fn fact(s: &str) -> Fact {
+        if let Some(paren) = s.find('(') {
+            let pred = &s[..paren];
+            let args_str = &s[paren + 1..s.len() - 1];
+            let mut f = vec![pred.to_string()];
+            for arg in args_str.split(',') {
+                f.push(arg.trim().to_string());
+            }
+            f
+        } else {
+            vec![s.to_string()]
+        }
+    }
+
+    /// Regression test: when a variable is bound by an earlier pattern,
+    /// and a later pattern has multiple candidate facts, a conflicting
+    /// binding from one candidate must not abort the entire search —
+    /// the next candidate should be tried.
+    #[test]
+    fn find_match_skips_conflicting_binding() {
+        // go_north rule: n, here(?h), north_of(?g, ?h) -> here(?g)
+        let rule = Rule {
+            name: "go_north".into(),
+            matches: vec![
+                pat("n"),
+                pat("here(?h)"),
+                pat("north_of(?g, ?h)"),
+            ],
+            not_matches: vec![],
+            consumes: vec![0, 1],
+            effects: vec![pat("here(?g)")],
+        };
+
+        let facts = vec![
+            fact("n"),
+            fact("here(frontroom)"),
+            // north_of(kitchen, bedroom) has h=bedroom — conflicts with h=frontroom
+            fact("north_of(kitchen, bedroom)"),
+            // north_of(bedroom, frontroom) has h=frontroom — matches!
+            fact("north_of(bedroom, frontroom)"),
+        ];
+
+        let result = rule.find_match(&facts);
+        assert!(result.is_some(), "should find a match despite conflicting candidate");
+        let (bindings, matched) = result.unwrap();
+        assert_eq!(bindings.iter().find(|(n, _)| n == "h").unwrap().1[0], "frontroom");
+        assert_eq!(bindings.iter().find(|(n, _)| n == "g").unwrap().1[0], "bedroom");
+        assert_eq!(matched.len(), 3);
+    }
+
+    /// Basic match: all patterns match with no conflicts.
+    #[test]
+    fn find_match_basic() {
+        let rule = Rule {
+            name: "test".into(),
+            matches: vec![
+                pat("a(?x)"),
+                pat("b(?x)"),
+            ],
+            not_matches: vec![],
+            consumes: vec![],
+            effects: vec![],
+        };
+
+        let facts = vec![
+            fact("a(hello)"),
+            fact("b(hello)"),
+        ];
+
+        let result = rule.find_match(&facts);
+        assert!(result.is_some());
+    }
+
+    /// No match when no fact satisfies a pattern.
+    #[test]
+    fn find_match_no_match() {
+        let rule = Rule {
+            name: "test".into(),
+            matches: vec![
+                pat("a(?x)"),
+                pat("b(?x)"),
+            ],
+            not_matches: vec![],
+            consumes: vec![],
+            effects: vec![],
+        };
+
+        let facts = vec![
+            fact("a(hello)"),
+            fact("b(world)"),
+        ];
+
+        let result = rule.find_match(&facts);
+        assert!(result.is_none());
+    }
+
+    /// Negation blocks a match.
+    #[test]
+    fn find_match_negation_blocks() {
+        let rule = Rule {
+            name: "test".into(),
+            matches: vec![
+                pat("a(?x)"),
+            ],
+            not_matches: vec![
+                pat("b(?x)"),
+            ],
+            consumes: vec![],
+            effects: vec![],
+        };
+
+        let facts = vec![
+            fact("a(hello)"),
+            fact("b(hello)"),
+        ];
+
+        let result = rule.find_match(&facts);
+        assert!(result.is_none());
+    }
+
+    /// Negation does not block when the negated pattern doesn't match.
+    #[test]
+    fn find_match_negation_allows() {
+        let rule = Rule {
+            name: "test".into(),
+            matches: vec![
+                pat("a(?x)"),
+            ],
+            not_matches: vec![
+                pat("b(?x)"),
+            ],
+            consumes: vec![],
+            effects: vec![],
+        };
+
+        let facts = vec![
+            fact("a(hello)"),
+            fact("b(world)"),
+        ];
+
+        let result = rule.find_match(&facts);
+        assert!(result.is_some());
+    }
 }
