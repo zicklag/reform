@@ -90,6 +90,9 @@ struct CliTaggerEvalArgs {
     /// The trained tagger model file.
     #[arg(short = 't', default_value = "./data/tagger.bin")]
     model: PathBuf,
+    /// Show sentences with errors, marking wrong words with *.
+    #[arg(short = 'e')]
+    show_errors: bool,
     /// The conllu word tree files to evaluate against.
     wordtrees: Vec<PathBuf>,
 }
@@ -225,10 +228,12 @@ impl CliTaggerEvalArgs {
 
                 let y_pred = tagger.tag(&x)?;
 
-                for (pred, true_) in y_pred.iter().zip(&y_true) {
+                for (i, (pred, true_)) in y_pred.iter().zip(&y_true).enumerate() {
                     total += 1;
                     if pred == true_ {
                         correct += 1;
+                    } else if self.show_errors {
+                        println!("{}  true: {}  pred: {}", sentence[i].form, true_, pred);
                     }
                 }
             }
