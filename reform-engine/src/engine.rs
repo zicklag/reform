@@ -1,4 +1,4 @@
-use crate::fact::{Bindings, Fact, format_fact, parse_pattern_from_str, split_top_level};
+use crate::fact::{Bindings, Fact, format_fact, parse_pattern_from_str, split_patterns};
 use crate::rule::Rule;
 
 /// A snapshot of the engine state for checkpoint/restore.
@@ -87,7 +87,7 @@ impl Engine {
     }
 
     /// Rebuild rules from rule(...) facts in the fact base.
-    fn rebuild_rules(&mut self) {
+    pub fn rebuild_rules(&mut self) {
         self.rules.clear();
 
         for fact in self.facts.iter() {
@@ -96,41 +96,31 @@ impl Engine {
             }
             let name = fact[1].clone();
 
-            // Parse patterns from the remaining args.
-            // Format: rule(name, match_patterns, effect_patterns, consume_indices)
+            // Format: rule(name, match_patterns, effect_patterns)
             // match_patterns and effect_patterns are comma-separated strings.
-            let mut consume_indices: Vec<usize> = Vec::new();
-            let mut pattern_args: Vec<&str> = Vec::new();
+            // `-` prefix on a match means consume it.
+            // `!` prefix on a match means negation.
+            let match_str = &fact[2];
+            let effect_str = &fact[3];
 
-            for arg in &fact[2..] {
-                if arg.contains(',') && arg.chars().all(|c| c.is_ascii_digit() || c == ',') {
-                    consume_indices = arg.split(',')
-                        .filter_map(|s| s.trim().parse().ok())
-                        .collect();
-                } else {
-                    pattern_args.push(arg);
-                }
-            }
+            // Split match patterns respecting quotes and parens
+            let match_strs = split_patterns(match_str);
+            let effect_strs = split_patterns(effect_str);
 
-            // First pattern arg is the comma-separated match patterns,
-            // second is the comma-separated effect patterns.
-            let match_strs: Vec<&str> = if let Some(s) = pattern_args.first() {
-                split_top_level(s)
-            } else {
-                continue;
-            };
-            let effect_strs: Vec<&str> = if pattern_args.len() > 1 {
-                split_top_level(pattern_args[1])
-            } else {
-                continue;
-            };
-
-            // Parse match and effect patterns independently from their comma-separated strings.
+            // Parse match patterns, tracking consume and negation
             let mut matches = Vec::new();
             let mut not_matches = Vec::new();
-            for m in match_strs {
+            let mut consume_indices: Vec<usize> = Vec::new();
+
+            for (i, m) in match_strs.iter().enumerate() {
                 let m = m.trim();
-                if let Some(rest) = m.strip_prefix('!') {
+                if let Some(rest) = m.strip_prefix('-') {
+                    // Consume this match
+                    if let Some(mp) = parse_pattern_from_str(rest) {
+                        matches.push(mp);
+                        consume_indices.push(i);
+                    }
+                } else if let Some(rest) = m.strip_prefix('!') {
                     if let Some(mp) = parse_pattern_from_str(rest) {
                         not_matches.push(mp);
                     }

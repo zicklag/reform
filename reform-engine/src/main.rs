@@ -19,7 +19,8 @@ fn main() -> anyhow::Result<()> {
         println!("Usage: reform-engine [file1 file2 ...]");
         println!("  Load files, then enter interactive REPL.");
         println!();
+        repl::run_repl(&mut engine)
+    } else {
+        repl::run_repl_quiet(&mut engine)
     }
-
-    repl::run_repl(&mut engine)
 }

@@ -1,24 +1,38 @@
 use std::io::{self, BufRead};
 
 use crate::engine::Engine;
-use crate::fact::{Fact, split_top_level};
+use crate::fact::parse_fact_from_str;
 
 /// Run a simple REPL that reads lines and processes them.
+/// `show_help` controls whether the command list is printed on startup.
 pub fn run_repl(engine: &mut Engine) -> anyhow::Result<()> {
+    run_repl_with_help(engine, true)
+}
+
+/// Run the REPL without printing the command list.
+pub fn run_repl_quiet(engine: &mut Engine) -> anyhow::Result<()> {
+    run_repl_with_help(engine, false)
+}
+
+fn run_repl_with_help(engine: &mut Engine, show_help: bool) -> anyhow::Result<()> {
     let stdin = io::stdin();
     println!("Reform Engine REPL");
-    println!("Commands:");
-    println!("  pred(arg1, arg2)    - assert a fact");
-    println!("  rule:name:pat:eff   - add a rule (pat/eff comma-separated)");
-    println!("  run                 - run fixed-point loop");
-    println!("  facts               - dump all facts");
-    println!("  rules               - dump all rules");
-    println!("  load <file>         - load and execute a script file");
-    println!("  checkpoint          - save state checkpoint");
-    println!("  restore             - restore to last checkpoint");
-    println!("  step                - run one iteration of fixed-point");
-    println!("  quit                - exit");
-    println!();
+    if show_help {
+        println!("Commands:");
+        println!("  pred(arg1, arg2)    - assert a fact");
+        println!("  rule name: pat -> eff - add a rule");
+        println!("  run                 - run fixed-point loop");
+        println!("  facts               - dump all facts");
+        println!("  rules               - dump all rules");
+        println!("  load <file>         - load and execute a script file");
+        println!("  checkpoint          - save state checkpoint");
+        println!("  restore             - restore to last checkpoint");
+        println!("  step                - run one iteration of fixed-point");
+        println!("  assert pred(arg1,..) - crash if fact doesn't exist");
+        println!("  assert not pred(..)  - crash if fact exists");
+        println!("  quit                - exit");
+        println!();
+    }
 
     for line in stdin.lock().lines() {
         let line = line?;
@@ -43,6 +57,7 @@ pub fn run_repl(engine: &mut Engine) -> anyhow::Result<()> {
                 engine.dump_facts();
             }
             "rules" => {
+                engine.rebuild_rules();
                 println!("Rules ({}):", engine.rules().len());
                 engine.dump_rules();
             }
@@ -68,18 +83,15 @@ pub fn run_repl(engine: &mut Engine) -> anyhow::Result<()> {
                     } else {
                         println!("Loaded '{}'.", path);
                     }
-                } else if line.starts_with("rule:") {
+                } else if line.starts_with("rule ") {
                     handle_rule(engine, &line);
                 } else if line.starts_with("assert") {
                     handle_assert(engine, &line);
+                } else if let Some(fact) = parse_fact_from_str(&line) {
+                    engine.assert(fact);
+                    println!("Fact asserted.");
                 } else {
-                    // Try to parse as a fact: pred(arg1, arg2)
-                    if let Some(fact) = parse_fact(&line) {
-                        engine.assert(fact);
-                        println!("Fact asserted.");
-                    } else {
-                        println!("Unknown command. Try: pred(arg1, arg2) or rule:name:pat:eff");
-                    }
+                    println!("Unknown command. Try: pred(arg1, arg2) or rule name: pat -> eff");
                 }
             }
         }
@@ -96,7 +108,7 @@ pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
         if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
             continue;
         }
-        if line.starts_with("rule:") {
+        if line.starts_with("rule ") {
             handle_rule(engine, line);
         } else if line == "run" {
             let firings = engine.run_fixedpoint();
@@ -112,7 +124,7 @@ pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
             println!("  [restored]");
         } else if line.starts_with("assert") {
             handle_assert(engine, line);
-        } else if let Some(fact) = parse_fact(line) {
+        } else if let Some(fact) = parse_fact_from_str(line) {
             engine.assert(fact);
         } else {
             println!("  [warning: could not parse line: {}]", line);
@@ -121,30 +133,44 @@ pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Handle a rule: command by asserting a rule(...) fact.
+/// Handle a rule command by asserting a rule(...) fact.
+///
+/// Syntax:
+///   rule name: match1, match2 -> effect1, effect2
+///   rule name: -match1, match2 -> effect1
+///
+/// The `-` prefix on a match means it will be consumed.
+/// The `!` prefix on a match means it must NOT exist (negation).
 fn handle_rule(engine: &mut Engine, line: &str) {
-    // Format: rule:name:pat1,pat2:eff1,eff2:consume_idx1,consume_idx2
-    let parts: Vec<&str> = line.splitn(5, ':').collect();
-    if parts.len() < 4 {
-        println!("Usage: rule:name:pattern1,pattern2:effect1,effect2");
-        println!("   or: rule:name:pattern1,pattern2:effect1,effect2:0,1");
-        return;
-    }
-    let name = parts[1].to_string();
-    let match_str = parts[2].to_string();
-    let effect_str = parts[3].to_string();
-    let consume_str = if parts.len() > 4 && !parts[4].is_empty() {
-        parts[4].to_string()
+    // Format: rule name: match_patterns -> effect_patterns
+    let rest = line["rule".len()..].trim();
+
+    // Split on "->" to separate matches from effects
+    let arrow_pos = rest.find("->");
+    let (left, right) = if let Some(pos) = arrow_pos {
+        (rest[..pos].trim(), rest[pos + 2..].trim())
     } else {
-        String::new()
+        println!("Usage: rule name: match1, match2 -> effect1, effect2");
+        return;
     };
 
-    // Build the rule(...) fact: rule(name, match_patterns, effect_patterns, consume_indices)
-    // Match and effect patterns are stored as comma-separated strings.
-    let mut fact = vec!["rule".to_string(), name, match_str, effect_str];
-    if !consume_str.is_empty() {
-        fact.push(consume_str);
+    // Split left side on first ":" to get name and match patterns
+    let colon_pos = left.find(':');
+    let (name, match_str) = if let Some(pos) = colon_pos {
+        (left[..pos].trim().to_string(), left[pos + 1..].trim())
+    } else {
+        println!("Usage: rule name: match1, match2 -> effect1, effect2");
+        return;
+    };
+
+    if name.is_empty() || match_str.is_empty() || right.is_empty() {
+        println!("Usage: rule name: match1, match2 -> effect1, effect2");
+        return;
     }
+
+    // Build the rule(...) fact: rule(name, match_patterns, effect_patterns)
+    // Match and effect patterns are stored as comma-separated strings.
+    let fact = vec!["rule".to_string(), name, match_str.to_string(), right.to_string()];
 
     engine.assert(fact);
     println!("Rule added.");
@@ -161,7 +187,7 @@ fn handle_assert(engine: &mut Engine, line: &str) {
         (false, rest)
     };
 
-    if let Some(fact) = parse_fact(fact_str) {
+    if let Some(fact) = parse_fact_from_str(fact_str) {
         let exists = engine.facts().contains(&fact);
         if negated {
             if exists {
@@ -177,24 +203,5 @@ fn handle_assert(engine: &mut Engine, line: &str) {
     } else {
         eprintln!("Could not parse assertion: {}", line);
         std::process::exit(1);
-    }
-}
-
-/// Parse a fact string like "pred(arg1, arg2)" into a Fact.
-fn parse_fact(s: &str) -> Option<Fact> {
-    let s = s.trim();
-    if let Some(paren) = s.find('(') {
-        let pred = &s[..paren];
-        let args_str = &s[paren + 1..s.len() - 1];
-        let mut fact = vec![pred.to_string()];
-        for arg in split_top_level(args_str) {
-            let arg = arg.trim();
-            if !arg.is_empty() {
-                fact.push(arg.to_string());
-            }
-        }
-        Some(fact)
-    } else {
-        Some(vec![s.to_string()])
     }
 }
