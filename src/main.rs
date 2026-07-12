@@ -170,7 +170,7 @@ impl CliTaggerTrainArgs {
         {
             let params = trainer.params_mut();
             params.set_shuffle_seed(Some(42));
-            params.set_epsilon(0.001)?;
+            params.set_epsilon(0.0025)?;
         }
         trainer.verbose(true);
 
@@ -215,8 +215,8 @@ impl CliTaggerEvalArgs {
 
         let wordtrees = load_wordtrees(&self.wordtrees)?;
 
-        let mut total = 0usize;
-        let mut correct = 0usize;
+        let mut total = 0;
+        let mut correct = 0;
 
         for doc in wordtrees {
             for sentence in doc.iter() {
@@ -314,48 +314,27 @@ fn load_wordtrees<P: AsRef<Path>>(paths: &[P]) -> anyhow::Result<Vec<ParsedDoc>>
         .collect::<anyhow::Result<Vec<_>>>()
 }
 
-/// Get the suffix of a string.
-fn suffix(s: &str, n: usize) -> &str {
-    if let Some((i, _char)) = s.char_indices().rev().nth(n - 1) {
-        &s[i..]
-    } else {
-        s
-    }
-}
-
 /// Build CRF features from a raw sentence.
 fn word_features<S: AsRef<str>>(words: &[S]) -> Vec<Vec<Attribute>> {
     let len = words.len();
     let mut x = Vec::with_capacity(len);
 
     for (i, word) in words.iter().enumerate() {
-        let form = word.as_ref();
-        let lower = form.to_lowercase();
-        let suffix1 = suffix(&lower, 1);
-        let suffix2 = suffix(&lower, 2);
-        let suffix3 = suffix(&lower, 3);
-        let suffix4 = suffix(&lower, 4);
-
+        let word = word.as_ref();
         let mut attrs = vec![
-            Attribute::new(format!("form={form}"), 1.0),
-            Attribute::new(format!("lowerform={lower}"), 1.0),
-            Attribute::new(format!("suffix1={suffix1}"), 1.0),
-            Attribute::new(format!("suffix2={suffix2}"), 1.0),
-            Attribute::new(format!("suffix3={suffix3}"), 1.0),
-            Attribute::new(format!("suffix4={suffix4}"), 1.0),
-            Attribute::new("len", form.len() as f64),
-            Attribute::new("pos", i as f64 / len as f64),
+            Attribute::new(format!("form={}", word), 1.0),
+            Attribute::new(format!("form.lowercase={}", word.to_lowercase()), 1.0),
+            Attribute::new(format!("suffix1={}", suffix(word, 1)), 1.0),
+            Attribute::new(format!("suffix2={}", suffix(word, 2)), 1.0),
+            Attribute::new(format!("suffix3={}", suffix(word, 3)), 1.0),
+            Attribute::new(format!("suffix4={}", suffix(word, 4)), 1.0),
+            Attribute::new(format!("prefix3={}", prefix(word, 3)), 1.0),
+            Attribute::new(format!("prefix2={}", prefix(word, 2)), 1.0),
         ];
 
-        if i == 0 {
-            attrs.push(Attribute::new("first", 1.0));
-        } else if i == len - 1 {
-            attrs.push(Attribute::new("last", 1.0));
-        }
-
-        if form.chars().all(|x| x.is_uppercase()) {
+        if word.chars().all(|x| x.is_uppercase()) {
             attrs.push(Attribute::new("uppercase", 1.0));
-        } else if form
+        } else if word
             .chars()
             .next()
             .map(|x| x.is_uppercase())
@@ -364,6 +343,10 @@ fn word_features<S: AsRef<str>>(words: &[S]) -> Vec<Vec<Attribute>> {
             attrs.push(Attribute::new("capitalized", 1.0));
         } else {
             attrs.push(Attribute::new("lowercase", 1.0));
+        }
+
+        if word.parse::<f32>().is_ok() {
+            attrs.push(Attribute::new("numeric", 1.0));
         }
 
         static POS: &[isize] = &[-3, -2, -1, 1, 2, 3];
@@ -396,6 +379,24 @@ fn extract_features(sentence: &[conllu::Token]) -> (Vec<Vec<Attribute>>, Vec<Str
     (x, y)
 }
 
+/// Get the suffix of a string.
+fn suffix(s: &str, n: usize) -> &str {
+    if let Some((i, _char)) = s.char_indices().rev().nth(n - 1) {
+        &s[i..]
+    } else {
+        s
+    }
+}
+
+/// Get the prefix of a string.
+fn prefix(s: &str, n: usize) -> &str {
+    if let Some((i, _char)) = s.char_indices().nth(n) {
+        &s[..i]
+    } else {
+        s
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -407,5 +408,14 @@ mod test {
         assert_eq!("ing", suffix(s1, 3));
         assert_eq!("ng", suffix(s1, 2));
         assert_eq!("g", suffix(s1, 1));
+    }
+
+    #[test]
+    fn str_prefix_helper() {
+        let s1 = "testing";
+        assert_eq!("test", prefix(s1, 4));
+        assert_eq!("tes", prefix(s1, 3));
+        assert_eq!("te", prefix(s1, 2));
+        assert_eq!("t", prefix(s1, 1));
     }
 }
