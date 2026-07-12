@@ -1,4 +1,5 @@
 use std::{
+    fs::OpenOptions,
     io::{Read, Write},
     path::Path,
     sync::Arc,
@@ -6,6 +7,10 @@ use std::{
 
 use conllu::UPOS;
 use crfs::{Attribute, Model};
+use flate2::{
+    Compression,
+    write::{GzDecoder, GzEncoder},
+};
 use yoke::Yoke;
 
 /// A part-of-speech tagger
@@ -61,15 +66,29 @@ impl Tagger {
             trainer.append(&x, &y)?;
         }
 
+        // Train the model
         trainer.train(out_model_file.as_ref())?;
+
+        // Load the trained model and gzip it
+        let output_file_data = std::fs::read(out_model_file.as_ref())?;
+        let mut gze = GzEncoder::new(
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(out_model_file)?,
+            Compression::best(),
+        );
+        gze.write_all(&output_file_data)?;
 
         Ok(())
     }
 
     /// Load a tagger from a trained tagger model file.
     pub fn load<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf)?;
+        let buf = Vec::new();
+        let mut gzd = GzDecoder::new(buf);
+        std::io::copy(reader, &mut gzd)?;
+        let buf = gzd.finish()?;
         let buf: Arc<[u8]> = buf.into();
 
         let model = Yoke::try_attach_to_cart(buf, |buf| {
