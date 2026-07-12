@@ -120,7 +120,7 @@ struct CliLemmatizerBuildArgs {
 #[derive(clap::Args)]
 struct CliLemmatizerDumpArgs {
     /// The Dictionary file to dump
-    #[arg(long, short = 'D', default_value = "./data/lemmas.bin")]
+    #[arg(long, short = 'l', default_value = "./data/lemmas.bin")]
     dictionary: PathBuf,
 }
 
@@ -128,12 +128,12 @@ struct CliLemmatizerDumpArgs {
 #[derive(clap::Args)]
 struct CliLemmatizerRunArgs {
     /// The Dictionary file to use
-    #[arg(long, short = 'D', default_value = "./data/lemmas.bin")]
-    dictionary: PathBuf,
-    /// The part of speech of the word to lemmatize
-    part_of_speech: conllu::UPOS,
-    /// The word to lemmatize
-    word: String,
+    #[arg(long, short = 'l', default_value = "./data/lemmas.bin")]
+    lemmas: PathBuf,
+    #[arg(long, short = 't', default_value = "./data/tagger.bin")]
+    tagger: PathBuf,
+    // The words to lemmatize.
+    words: Vec<String>,
 }
 
 //
@@ -308,15 +308,16 @@ impl CliLemmatizerDumpArgs {
 impl CliLemmatizerRunArgs {
     /// Execute `lemmatizer run`.
     fn execute(&self) -> anyhow::Result<()> {
-        let mut dictionary_file = std::fs::OpenOptions::new()
-            .read(true)
-            .open(&self.dictionary)?;
+        let lemmatizer = Lemmatizer::load(&mut OpenOptions::new().read(true).open(&self.lemmas)?)?;
+        let tagger = Tagger::load(&mut OpenOptions::new().read(true).open(&self.tagger)?)?;
+        let tagger_ctx = tagger.start()?;
 
-        let lemmatizer = Lemmatizer::load(&mut dictionary_file)?;
+        let parts_of_speech = tagger_ctx.tag_sentence(&self.words)?;
 
-        let lemma = lemmatizer.lemmatize(&self.word, self.part_of_speech);
-
-        println!("{lemma}");
+        for (word, pos) in self.words.iter().zip(parts_of_speech) {
+            let lemma = lemmatizer.lemmatize(word, pos);
+            println!("{word} {pos} - {lemma}");
+        }
 
         Ok(())
     }
