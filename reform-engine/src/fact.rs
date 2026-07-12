@@ -11,6 +11,26 @@ pub enum Pat {
 /// The first atom is the predicate name.
 pub type Pattern = Vec<Pat>;
 
+/// Split a string on commas that are not inside parentheses.
+pub fn split_top_level(s: &str) -> Vec<&str> {
+    let mut result = Vec::new();
+    let mut depth = 0;
+    let mut start = 0;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                result.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    result.push(&s[start..]);
+    result
+}
+
 /// A ground fact: a list of strings.
 /// The first string is the predicate name.
 pub type Fact = Vec<String>;

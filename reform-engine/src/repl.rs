@@ -1,7 +1,7 @@
 use std::io::{self, BufRead};
 
 use crate::engine::Engine;
-use crate::fact::{Fact, Pat};
+use crate::fact::{Fact, split_top_level};
 
 /// Run a simple REPL that reads lines and processes them.
 pub fn run_repl(engine: &mut Engine) -> anyhow::Result<()> {
@@ -70,6 +70,8 @@ pub fn run_repl(engine: &mut Engine) -> anyhow::Result<()> {
                     }
                 } else if line.starts_with("rule:") {
                     handle_rule(engine, &line);
+                } else if line.starts_with("assert") {
+                    handle_assert(engine, &line);
                 } else {
                     // Try to parse as a fact: pred(arg1, arg2)
                     if let Some(fact) = parse_fact(&line) {
@@ -108,8 +110,8 @@ pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
         } else if line == "restore" {
             engine.restore_checkpoint();
             println!("  [restored]");
-        } else if line.starts_with("//") || line.starts_with('#') {
-            // comment
+        } else if line.starts_with("assert") {
+            handle_assert(engine, line);
         } else if let Some(fact) = parse_fact(line) {
             engine.assert(fact);
         } else {
@@ -119,7 +121,7 @@ pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Handle a rule: command.
+/// Handle a rule: command by asserting a rule(...) fact.
 fn handle_rule(engine: &mut Engine, line: &str) {
     // Format: rule:name:pat1,pat2:eff1,eff2:consume_idx1,consume_idx2
     let parts: Vec<&str> = line.splitn(5, ':').collect();
@@ -129,103 +131,52 @@ fn handle_rule(engine: &mut Engine, line: &str) {
         return;
     }
     let name = parts[1].to_string();
-    let match_strs = split_top_level(parts[2]);
-    let effect_strs = split_top_level(parts[3]);
-    let consume_indices: Vec<usize> = if parts.len() > 4 && !parts[4].is_empty() {
-        parts[4].split(',').filter_map(|s| s.trim().parse().ok()).collect()
+    let match_str = parts[2].to_string();
+    let effect_str = parts[3].to_string();
+    let consume_str = if parts.len() > 4 && !parts[4].is_empty() {
+        parts[4].to_string()
     } else {
-        Vec::new()
+        String::new()
     };
 
-    let mut matches = Vec::new();
-    let mut not_matches = Vec::new();
-    for s in &match_strs {
-        let s = s.trim();
-        if let Some(rest) = s.strip_prefix('!') {
-            // Negation pattern
-            if let Some(p) = parse_pattern(rest.trim()) {
-                not_matches.push(p);
-            } else {
-                println!("Error: could not parse negation pattern: {}", s);
-                return;
-            }
-        } else {
-            if let Some(p) = parse_pattern(s) {
-                matches.push(p);
-            } else {
-                println!("Error: could not parse pattern: {}", s);
-                return;
-            }
-        }
-    }
-    let effects: Vec<_> = effect_strs
-        .iter()
-        .map(|s| parse_pattern(s.trim()))
-        .collect();
-
-    if effects.iter().any(|p| p.is_none()) {
-        println!("Error: could not parse patterns. Use format: pred(arg1, arg2)");
-        return;
+    // Build the rule(...) fact: rule(name, match_patterns, effect_patterns, consume_indices)
+    // Match and effect patterns are stored as comma-separated strings.
+    let mut fact = vec!["rule".to_string(), name, match_str, effect_str];
+    if !consume_str.is_empty() {
+        fact.push(consume_str);
     }
 
-    let rule = crate::rule::Rule {
-        name,
-        matches,
-        not_matches,
-        consumes: consume_indices,
-        effects: effects.into_iter().map(|p| p.unwrap()).collect(),
-    };
-    engine.add_rule(rule);
+    engine.assert(fact);
     println!("Rule added.");
 }
 
-/// Split a string on commas that are not inside parentheses.
-fn split_top_level(s: &str) -> Vec<&str> {
-    let mut result = Vec::new();
-    let mut depth = 0;
-    let mut start = 0;
-    for (i, c) in s.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            ',' if depth == 0 => {
-                result.push(&s[start..i]);
-                start = i + 1;
-            }
-            _ => {}
-        }
-    }
-    result.push(&s[start..]);
-    result
-}
-
-/// Parse a pattern string like "pred(arg1, ?var)" into a Pattern.
-fn parse_pattern(s: &str) -> Option<Vec<Pat>> {
-    let s = s.trim();
-    if let Some(paren) = s.find('(') {
-        let pred = &s[..paren];
-        let args_str = &s[paren + 1..s.len() - 1];
-        let mut pattern = if pred.starts_with('?') {
-            vec![Pat::Var(pred[1..].to_string())]
-        } else {
-            vec![Pat::Atom(pred.to_string())]
-        };
-        for arg in split_top_level(args_str) {
-            let arg = arg.trim();
-            if arg.is_empty() {
-                continue;
-            }
-            if arg.starts_with('?') {
-                pattern.push(Pat::Var(arg[1..].to_string()));
-            } else {
-                pattern.push(Pat::Atom(arg.to_string()));
-            }
-        }
-        Some(pattern)
-    } else if s.starts_with('?') {
-        Some(vec![Pat::Var(s[1..].to_string())])
+/// Handle an assert command.
+/// Format: assert pred(arg1, arg2)  — crashes if fact does not exist
+///         assert not pred(arg1, arg2) — crashes if fact exists
+fn handle_assert(engine: &mut Engine, line: &str) {
+    let rest = line["assert".len()..].trim();
+    let (negated, fact_str) = if let Some(r) = rest.strip_prefix("not ") {
+        (true, r.trim())
     } else {
-        Some(vec![Pat::Atom(s.to_string())])
+        (false, rest)
+    };
+
+    if let Some(fact) = parse_fact(fact_str) {
+        let exists = engine.facts().contains(&fact);
+        if negated {
+            if exists {
+                eprintln!("Assertion failed: {} should not exist", fact_str);
+                std::process::exit(1);
+            }
+        } else {
+            if !exists {
+                eprintln!("Assertion failed: {} should exist", fact_str);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        eprintln!("Could not parse assertion: {}", line);
+        std::process::exit(1);
     }
 }
 

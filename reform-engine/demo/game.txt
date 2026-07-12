@@ -16,4 +16,5 @@ rule:cant_go_north:n::0
 n
 run
 
-facts
+assert not n
+assert here(bedroom)

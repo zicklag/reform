@@ -1,11 +1,10 @@
-use crate::fact::{Bindings, Fact, format_fact, parse_pattern_from_str};
+use crate::fact::{Bindings, Fact, format_fact, parse_pattern_from_str, split_top_level};
 use crate::rule::Rule;
 
 /// A snapshot of the engine state for checkpoint/restore.
 #[derive(Debug, Clone)]
 pub struct Checkpoint {
     facts: Vec<Fact>,
-    rules: Vec<Rule>,
 }
 
 /// The engine: a fact base + rule set + fixed-point loop.
@@ -13,10 +12,8 @@ pub struct Checkpoint {
 pub struct Engine {
     /// All current facts.
     facts: Vec<Fact>,
-    /// Built-in rules (added via add_rule, persist forever).
-    builtin_rules: Vec<Rule>,
     /// Rules derived from rule(...) facts (rebuilt each iteration).
-    fact_rules: Vec<Rule>,
+    rules: Vec<Rule>,
     /// Checkpoints for LSP-style incremental editing.
     checkpoints: Vec<Checkpoint>,
 }
@@ -26,8 +23,7 @@ impl Engine {
     pub fn new() -> Self {
         Engine {
             facts: Vec::new(),
-            builtin_rules: Vec::new(),
-            fact_rules: Vec::new(),
+            rules: Vec::new(),
             checkpoints: Vec::new(),
         }
     }
@@ -44,29 +40,20 @@ impl Engine {
         self.facts.retain(|f| f != fact);
     }
 
-    /// Add a built-in rule to the engine.
-    pub fn add_rule(&mut self, rule: Rule) {
-        self.builtin_rules.push(rule);
-    }
-
     /// Get all current facts.
     pub fn facts(&self) -> &[Fact] {
         &self.facts
     }
 
-    /// Get all current rules (built-in + fact-derived).
-    pub fn rules(&self) -> Vec<&Rule> {
-        self.builtin_rules
-            .iter()
-            .chain(self.fact_rules.iter())
-            .collect()
+    /// Get all current rules.
+    pub fn rules(&self) -> &[Rule] {
+        &self.rules
     }
 
     /// Save a checkpoint of the current state.
     pub fn save_checkpoint(&mut self) {
         self.checkpoints.push(Checkpoint {
             facts: self.facts.clone(),
-            rules: self.builtin_rules.clone(),
         });
     }
 
@@ -74,8 +61,7 @@ impl Engine {
     pub fn restore_checkpoint(&mut self) -> bool {
         if let Some(cp) = self.checkpoints.pop() {
             self.facts = cp.facts;
-            self.builtin_rules = cp.rules;
-            self.fact_rules.clear();
+            self.rules.clear();
             true
         } else {
             false
@@ -88,8 +74,7 @@ impl Engine {
             let cp = self.checkpoints[index].clone();
             self.checkpoints.truncate(index);
             self.facts = cp.facts;
-            self.builtin_rules = cp.rules;
-            self.fact_rules.clear();
+            self.rules.clear();
             true
         } else {
             false
@@ -101,9 +86,9 @@ impl Engine {
         self.checkpoints.len()
     }
 
-    /// Rebuild fact_rules from rule(...) facts in the fact base.
-    fn rebuild_fact_rules(&mut self) {
-        self.fact_rules.clear();
+    /// Rebuild rules from rule(...) facts in the fact base.
+    fn rebuild_rules(&mut self) {
+        self.rules.clear();
 
         for fact in self.facts.iter() {
             if fact.len() < 3 || fact[0] != "rule" {
@@ -111,7 +96,9 @@ impl Engine {
             }
             let name = fact[1].clone();
 
-            // Parse patterns from the remaining args
+            // Parse patterns from the remaining args.
+            // Format: rule(name, match_patterns, effect_patterns, consume_indices)
+            // match_patterns and effect_patterns are comma-separated strings.
             let mut consume_indices: Vec<usize> = Vec::new();
             let mut pattern_args: Vec<&str> = Vec::new();
 
@@ -125,29 +112,48 @@ impl Engine {
                 }
             }
 
-            // Pair up match/effect patterns
+            // First pattern arg is the comma-separated match patterns,
+            // second is the comma-separated effect patterns.
+            let match_strs: Vec<&str> = if let Some(s) = pattern_args.first() {
+                split_top_level(s)
+            } else {
+                continue;
+            };
+            let effect_strs: Vec<&str> = if pattern_args.len() > 1 {
+                split_top_level(pattern_args[1])
+            } else {
+                continue;
+            };
+
+            // Parse match and effect patterns independently from their comma-separated strings.
             let mut matches = Vec::new();
-            let mut effects = Vec::new();
-            let mut i = 0;
-            while i + 1 < pattern_args.len() {
-                if let (Some(mp), Some(ep)) = (
-                    parse_pattern_from_str(pattern_args[i]),
-                    parse_pattern_from_str(pattern_args[i + 1]),
-                ) {
+            let mut not_matches = Vec::new();
+            for m in match_strs {
+                let m = m.trim();
+                if let Some(rest) = m.strip_prefix('!') {
+                    if let Some(mp) = parse_pattern_from_str(rest) {
+                        not_matches.push(mp);
+                    }
+                } else if let Some(mp) = parse_pattern_from_str(m) {
                     matches.push(mp);
-                    effects.push(ep);
                 }
-                i += 2;
+            }
+
+            let mut effects = Vec::new();
+            for e in effect_strs {
+                let e = e.trim();
+                if !e.is_empty() {
+                    if let Some(ep) = parse_pattern_from_str(e) {
+                        effects.push(ep);
+                    }
+                }
             }
 
             if !matches.is_empty() && !effects.is_empty() {
-                if consume_indices.is_empty() {
-                    consume_indices = (0..matches.len()).collect();
-                }
-                self.fact_rules.push(Rule {
+                self.rules.push(Rule {
                     name,
                     matches,
-                    not_matches: Vec::new(),
+                    not_matches,
                     consumes: consume_indices,
                     effects,
                 });
@@ -160,17 +166,13 @@ impl Engine {
     pub fn run_fixedpoint(&mut self) -> usize {
         let mut total_firings = 0;
         loop {
-            // Phase 1: Rebuild fact-derived rules from rule(...) facts
-            self.rebuild_fact_rules();
+            // Phase 1: Rebuild rules from rule(...) facts
+            self.rebuild_rules();
 
             let mut fired = false;
 
             // Collect all matches first (to avoid borrow issues)
-            let all_rules: Vec<Rule> = self.builtin_rules
-                .iter()
-                .chain(self.fact_rules.iter())
-                .cloned()
-                .collect();
+            let all_rules: Vec<Rule> = self.rules.clone();
 
             let matches: Vec<(usize, Bindings, Vec<Fact>)> = all_rules
                 .iter()
@@ -244,19 +246,13 @@ impl Engine {
 
     /// Print all current rules.
     pub fn dump_rules(&self) {
-        let all: Vec<&Rule> = self.rules();
-        if all.is_empty() {
+        if self.rules.is_empty() {
             println!("  (no rules)");
             return;
         }
-        for rule in &all {
-            let source = if self.builtin_rules.iter().any(|r| r.name == rule.name) {
-                "builtin"
-            } else {
-                "fact"
-            };
-            println!("  {} [{}]: {} patterns, {} effects, {} consumed",
-                rule.name, source, rule.matches.len(), rule.effects.len(), rule.consumes.len());
+        for rule in &self.rules {
+            println!("  {}: {} patterns, {} effects, {} consumed",
+                rule.name, rule.matches.len(), rule.effects.len(), rule.consumes.len());
         }
     }
 }

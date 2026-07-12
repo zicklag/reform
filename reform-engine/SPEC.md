@@ -143,10 +143,22 @@ rule:override:override(?name,?new_pat,?new_eff),rule(?name,?old_pat,?old_eff):ru
 rule:disable:disable(?name),rule(?name,?pat,?eff):disabled(?name):0,1
 ```
 
-### Built-in vs fact-derived rules
+### All rules are fact-derived
 
-Rules added via the `rule:` command are **built-in** — they persist forever. Rules created from `rule(...)` facts are **fact-derived** — they are rebuilt each iteration and disappear if the `rule(...)` fact is consumed.
+Every rule — whether added via the `rule:` command or created programmatically — is stored as a `rule(...)` fact in the fact base. The engine rebuilds all executable rules from `rule(...)` facts at the start of each fixed-point iteration. If a `rule(...)` fact is consumed, the rule disappears.
 
+This means self-modification works uniformly on all rules:
+
+```
+# Learn: create a new rule from a fact
+rule:learn:learn(?name,?pat,?eff):rule(?name,?pat,?eff):0
+
+# Override: replace an existing rule
+rule:override:override(?name,?new_pat,?new_eff),rule(?name,?old_pat,?old_eff):rule(?name,?new_pat,?new_eff):0,1
+
+# Disable: remove a rule
+rule:disable:disable(?name),rule(?name,?pat,?eff):disabled(?name):0,1
+```
 ## 4. Script Commands
 
 Script files and the REPL support these commands:
@@ -154,15 +166,17 @@ Script files and the REPL support these commands:
 | Command | Effect |
 |---|---|
 | `pred(arg1, ...)` | Assert a fact |
-| `rule:name:pat:eff:del` | Add a built-in rule |
+| `rule:name:pat:eff:del` | Add a rule (asserts a `rule(...)` fact) |
 | `run` | Run the fixed-point loop to completion |
+| `step` | Run one iteration of the fixed-point loop |
 | `facts` | Print all current facts |
 | `rules` | Print all current rules |
+| `assert pred(arg1, ...)` | Crash if the fact does not exist |
+| `assert not pred(arg1, ...)` | Crash if the fact exists |
 | `checkpoint` | Save a state snapshot |
 | `restore` | Restore to the last checkpoint |
 | `load <file>` | Load and execute a script file |
 | `quit` | Exit |
-
 ## 5. Execution Model
 
 ### Fixed-point semantics
@@ -211,7 +225,7 @@ When `at(apple, kitchen)` is asserted, the inference rules automatically derive 
 
 ## 7. Checkpoints
 
-Checkpoints save the full engine state (facts + built-in rules). They enable LSP-style incremental editing:
+Checkpoints save the full engine state (facts). They enable LSP-style incremental editing:
 
 ```
 checkpoint    # save state
