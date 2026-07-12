@@ -350,9 +350,15 @@ fn word_features<S: AsRef<str>>(words: &[S]) -> Vec<Vec<Attribute>> {
             attrs.push(Attribute::new("lowercase", 1.0));
         }
 
-        if word.parse::<f32>().is_ok() {
-            attrs.push(Attribute::new("numeric", 1.0));
-        }
+        // Thes haven't improved accuracy in tests yet, so we comment them out
+        // for now.
+        //
+        // if word.chars().any(|x| x.is_ascii_digit()) {
+        //     attrs.push(Attribute::new("has-digit", 1.0));
+        // }
+        // if word.chars().any(|x| x.is_ascii_punctuation()) {
+        //     attrs.push(Attribute::new("has-punctuation", 1.0));
+        // }
 
         static POS: &[isize] = &[-3, -2, -1, 1, 2, 3];
 
