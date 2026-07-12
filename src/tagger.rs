@@ -143,14 +143,14 @@ pub fn sentence_features<S: AsRef<str>>(words: &[S]) -> Vec<Vec<Attribute>> {
         //     attrs.push(Attribute::new("has-punctuation", 1.0));
         // }
 
-        static POS: &[isize] = &[-3, -2, -1, 1, 2, 3];
+        static POS: &[isize] = &[-1, 1];
 
         for p in POS {
             let n = i as isize + p;
             if n >= 0 && n < len as isize {
                 let n = n as usize;
                 attrs.push(Attribute::new(
-                    format!("relative{n}={}", words[n].as_ref()),
+                    format!("relative.{n}={}", words[n].as_ref()),
                     1.0,
                 ));
             }
