@@ -1,0 +1,99 @@
+# Example 4: Self-Modifying Rules
+#
+# This demonstrates the reflective nature of the engine:
+# rules can create, modify, and delete other rules at runtime.
+#
+# Key insight: rules are just facts (rule(...) facts). The engine
+# converts rule(...) facts to executable rules in each iteration
+# of the fixed-point loop. So a rule that produces a rule(...) fact
+# is creating a new rule that will fire in the next iteration.
+
+# ============================================================
+# Step 1: A rule that learns new rules
+# ============================================================
+
+# The "learn" rule: when you assert learn(name, pattern, effect),
+# it creates a new rule fact. The engine converts it to an
+# executable rule in the next iteration.
+#
+# Consumes: learn(?name, ?pat, ?eff) [0] — so it only fires once
+# Produces: rule(?name, ?pat, ?eff) — a new rule fact
+
+rule:learn:learn(?name,?pat,?eff):rule(?name,?pat,?eff):0
+
+# ============================================================
+# Step 2: A rule that overrides existing rules
+# ============================================================
+
+# The "override" rule: when you assert override(name, new_pat, new_eff),
+# it consumes the override fact AND the old rule fact, and produces
+# a new rule fact with the new pattern/effect.
+#
+# Consumes: override(?name, ?new_pat, ?new_eff) [0], rule(?name, ?old_pat, ?old_eff) [1]
+# Produces: rule(?name, ?new_pat, ?new_eff)
+
+rule:override:override(?name,?new_pat,?new_eff),rule(?name,?old_pat,?old_eff):rule(?name,?new_pat,?new_eff):0,1
+
+# ============================================================
+# Step 3: A rule that disables other rules
+# ============================================================
+
+# The "disable" rule: when you assert disable(name),
+# it consumes the rule fact entirely, removing the rule.
+#
+# Consumes: disable(?name) [0], rule(?name, ?pat, ?eff) [1]
+# Produces: disabled(?name) — a record that it was disabled
+
+rule:disable:disable(?name),rule(?name,?pat,?eff):disabled(?name):0,1
+
+# ============================================================
+# Step 4: Test learning
+# ============================================================
+
+# Learn a new rule: "if at(?x, ?y), then found(?x, ?y)"
+learn(test_rule, at(?x,?y), found(?x,?y))
+
+# Run to convert the learn fact into a rule fact
+run
+
+# Now there should be a rule(test_rule, at(?x,?y), found(?x,?y)) fact
+# The engine should have converted it to an executable rule
+
+# Test the learned rule
+at(hello, world)
+run
+facts
+
+# Expected: found(hello, world) is produced
+
+# ============================================================
+# Step 5: Test overriding
+# ============================================================
+
+# Override the test_rule to produce a different effect
+override(test_rule, at(?x,?y), overridden(?x,?y))
+
+run
+
+# Test the overridden rule
+at(foo, bar)
+run
+facts
+
+# Expected: overridden(foo, bar) is produced, NOT found(foo, bar)
+
+# ============================================================
+# Step 6: Test disabling
+# ============================================================
+
+# Disable the test_rule
+disable(test_rule)
+
+run
+
+# Test that the rule no longer fires
+at(baz, qux)
+run
+facts
+
+# Expected: at(baz, qux) stays, no new facts from test_rule

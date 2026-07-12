@@ -1,0 +1,18 @@
+room(kitchen)
+room(bedroom)
+room(frontroom)
+
+north_of(kitchen, bedroom)
+south_of(frontroom, bedroom)
+
+here(frontroom)
+
+rule:north_of_south:north_of(?a, ?b):south_of(?b, ?a)
+rule:south_of_north:south_of(?a, ?b):north_of(?b, ?a)
+
+rule:go_north:n,here(?h),north_of(?g,?h):here(?g):0,1
+
+n
+run
+
+facts
