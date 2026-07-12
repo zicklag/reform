@@ -10,8 +10,8 @@ mkdir -p "$DATA_DIR"
 TREEBANKS=(
     "UD_English-EWT:https://raw.githubusercontent.com/UniversalDependencies/UD_English-EWT/master"
     "UD_English-GUM:https://raw.githubusercontent.com/UniversalDependencies/UD_English-GUM/master"
-    "UD_English-GUMReddit:https://raw.githubusercontent.com/UniversalDependencies/UD_English-GUMReddit/master"
     "UD_English-LinES:https://raw.githubusercontent.com/UniversalDependencies/UD_English-LinES/master"
+    "UD_English-CHILDES:https://raw.githubusercontent.com/UniversalDependencies/UD_English-CHILDES/master"
 )
 
 for tb in "${TREEBANKS[@]}"; do

@@ -1,4 +1,5 @@
 use std::{
+    fs::OpenOptions,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -6,8 +7,10 @@ use std::{
 use anyhow::Error;
 use clap::Parser;
 use conllu::{UPOS, parsers::ParsedDoc};
-use crfs::Attribute;
-use reform::lemmatizer::Lemmatizer;
+use reform::{
+    lemmatizer::Lemmatizer,
+    tagger::{Tagger, TaggerTrainConfig},
+};
 
 /// The parsed CLI arguments.
 static ARGS: LazyLock<CliArgs> = LazyLock::new(CliArgs::parse);
@@ -68,8 +71,14 @@ enum CliLemmatizerCmd {
 /// Train the part of speech tagger on one or more conllu wordtrees.
 #[derive(clap::Args)]
 struct CliTaggerTrainArgs {
-    #[arg(short = 't', default_value = "./data/tagger.bin")]
+    #[arg(long, short = 't', default_value = "./data/tagger.bin")]
     output: PathBuf,
+
+    #[arg(long, short = 'e', default_value = "0.0025")]
+    epsilon: f64,
+
+    #[arg(long, short = 'E', default_value = "100")]
+    max_epochs: usize,
 
     /// The list of conllu word tree files to train the tagger from.
     wordtrees: Vec<PathBuf>,
@@ -78,7 +87,7 @@ struct CliTaggerTrainArgs {
 /// Run the tagger on a list of words to predict their part of speech.
 #[derive(clap::Args)]
 struct CliTaggerRunArgs {
-    #[arg(short = 't', default_value = "./data/tagger.bin")]
+    #[arg(long, short = 't', default_value = "./data/tagger.bin")]
     model: PathBuf,
 
     /// The list of words in the sentence to classify
@@ -88,10 +97,10 @@ struct CliTaggerRunArgs {
 #[derive(clap::Args)]
 struct CliTaggerEvalArgs {
     /// The trained tagger model file.
-    #[arg(short = 't', default_value = "./data/tagger.bin")]
+    #[arg(long, short = 't', default_value = "./data/tagger.bin")]
     model: PathBuf,
     /// Show sentences with errors, marking wrong words with *.
-    #[arg(short = 'e')]
+    #[arg(long, short = 'e')]
     show_errors: bool,
     /// The conllu word tree files to evaluate against.
     wordtrees: Vec<PathBuf>,
@@ -101,7 +110,7 @@ struct CliTaggerEvalArgs {
 #[derive(clap::Args)]
 struct CliLemmatizerBuildArgs {
     /// The file to output the dictionary to.
-    #[arg(short = 'o', default_value = "./data/lemmas.bin")]
+    #[arg(long, short = 'o', default_value = "./data/lemmas.bin")]
     output: PathBuf,
     /// The list of conllu word tree files to build the lemma dictionary from.
     wordtrees: Vec<PathBuf>,
@@ -111,7 +120,7 @@ struct CliLemmatizerBuildArgs {
 #[derive(clap::Args)]
 struct CliLemmatizerDumpArgs {
     /// The Dictionary file to dump
-    #[arg(short = 'D', default_value = "./data/lemmas.bin")]
+    #[arg(long, short = 'D', default_value = "./data/lemmas.bin")]
     dictionary: PathBuf,
 }
 
@@ -119,7 +128,7 @@ struct CliLemmatizerDumpArgs {
 #[derive(clap::Args)]
 struct CliLemmatizerRunArgs {
     /// The Dictionary file to use
-    #[arg(short = 'D', default_value = "./data/lemmas.bin")]
+    #[arg(long, short = 'D', default_value = "./data/lemmas.bin")]
     dictionary: PathBuf,
     /// The part of speech of the word to lemmatize
     part_of_speech: conllu::UPOS,
@@ -168,24 +177,18 @@ impl CliTaggerTrainArgs {
         // Load the wordtrees
         let wordtrees = load_wordtrees(&self.wordtrees)?;
 
-        // Create a trainer for the pos-tagger
-        let mut trainer = crfs::Trainer::averaged_perceptron();
-        {
-            let params = trainer.params_mut();
-            params.set_shuffle_seed(Some(42));
-            params.set_epsilon(0.0025)?;
-        }
-        trainer.verbose(true);
+        // Extract sentences
+        let sentences = wordtrees.into_iter().flatten().map(|x| x.into_iter());
 
-        for doc in wordtrees {
-            for sentence in doc.iter() {
-                let sentence = sentence.iter().as_slice();
-                let (x, y) = extract_features(sentence);
-                trainer.append(&x, &y)?;
-            }
-        }
-
-        trainer.train(&self.output)?;
+        // Train the model
+        Tagger::train(
+            sentences,
+            TaggerTrainConfig {
+                epsilon: Some(self.epsilon),
+                max_epochs: Some(self.max_epochs),
+            },
+            &self.output,
+        )?;
 
         Ok(())
     }
@@ -194,13 +197,14 @@ impl CliTaggerTrainArgs {
 impl CliTaggerRunArgs {
     /// Execute `tagger train`.
     fn execute(&self) -> anyhow::Result<()> {
-        let model_data = std::fs::read(&self.model)?;
-        let model = crfs::Model::new(&model_data)?;
-        let tagger = model.tagger()?;
+        // Load and start the tagger
+        let tagger = Tagger::load(&mut OpenOptions::new().read(true).open(&self.model)?)?;
+        let ctx = tagger.start()?;
 
-        let x = word_features(&self.words);
-        let result = tagger.tag(&x)?;
+        // Tag the sentence
+        let result = ctx.tag_sentence(&self.words)?;
 
+        // Print the results
         for (word, upos) in self.words.iter().zip(result) {
             println!("{word} - {upos}");
         }
@@ -212,28 +216,42 @@ impl CliTaggerRunArgs {
 impl CliTaggerEvalArgs {
     /// Execute `tagger eval`.
     fn execute(&self) -> anyhow::Result<()> {
-        let model_data = std::fs::read(&self.model)?;
-        let model = crfs::Model::new(&model_data)?;
-        let tagger = model.tagger()?;
+        // Load and start the tagger
+        let tagger = Tagger::load(&mut OpenOptions::new().read(true).open(&self.model)?)?;
+        let ctx = tagger.start()?;
 
+        // Load the wordtrees we will be evaluating against
         let wordtrees = load_wordtrees(&self.wordtrees)?;
 
+        // Count success and total
         let mut total = 0;
         let mut correct = 0;
 
         for doc in wordtrees {
             for sentence in doc.iter() {
                 let sentence = sentence.iter().as_slice();
-                let (x, y_true) = extract_features(sentence);
 
-                let y_pred = tagger.tag(&x)?;
+                // Get the sentence's plain words
+                let plain_sentence = sentence.iter().map(|x| &x.form).collect::<Vec<_>>();
+                // Get the true parts of speach for the words
+                let y_true = sentence
+                    .iter()
+                    .map(|x| x.upos.unwrap_or(UPOS::X))
+                    .collect::<Vec<_>>();
 
-                for (i, (pred, true_)) in y_pred.iter().zip(&y_true).enumerate() {
+                // Tag the sentence to predict the parts of speech
+                let y_pred = ctx.tag_sentence(&plain_sentence)?;
+
+                // Check each predicted part of speech against it's actual part of speech
+                for (i, (pred_pos, true_pos)) in y_pred.iter().zip(&y_true).enumerate() {
                     total += 1;
-                    if pred == true_ {
+                    if pred_pos == true_pos {
                         correct += 1;
                     } else if self.show_errors {
-                        println!("{}  true: {}  pred: {}", sentence[i].form, true_, pred);
+                        println!(
+                            "{}  true: {}  pred: {}",
+                            sentence[i].form, true_pos, pred_pos
+                        );
                     }
                 }
             }
@@ -317,116 +335,4 @@ fn load_wordtrees<P: AsRef<Path>>(paths: &[P]) -> anyhow::Result<Vec<ParsedDoc>>
         .map(|f| f.and_then(|file| conllu::parse_file(file).map_err(Error::from)))
         // Collect result
         .collect::<anyhow::Result<Vec<_>>>()
-}
-
-/// Build CRF features from a raw sentence.
-fn word_features<S: AsRef<str>>(words: &[S]) -> Vec<Vec<Attribute>> {
-    let len = words.len();
-    let mut x = Vec::with_capacity(len);
-
-    for (i, word) in words.iter().enumerate() {
-        let word = word.as_ref();
-        let mut attrs = vec![
-            Attribute::new(format!("form={}", word), 1.0),
-            Attribute::new(format!("form.lowercase={}", word.to_lowercase()), 1.0),
-            Attribute::new(format!("suffix1={}", suffix(word, 1)), 1.0),
-            Attribute::new(format!("suffix2={}", suffix(word, 2)), 1.0),
-            Attribute::new(format!("suffix3={}", suffix(word, 3)), 1.0),
-            Attribute::new(format!("suffix4={}", suffix(word, 4)), 1.0),
-            Attribute::new(format!("prefix3={}", prefix(word, 3)), 1.0),
-            Attribute::new(format!("prefix2={}", prefix(word, 2)), 1.0),
-        ];
-
-        if word.chars().all(|x| x.is_uppercase()) {
-            attrs.push(Attribute::new("uppercase", 1.0));
-        } else if word
-            .chars()
-            .next()
-            .map(|x| x.is_uppercase())
-            .unwrap_or(false)
-        {
-            attrs.push(Attribute::new("capitalized", 1.0));
-        } else {
-            attrs.push(Attribute::new("lowercase", 1.0));
-        }
-
-        // Thes haven't improved accuracy in tests yet, so we comment them out
-        // for now.
-        //
-        // if word.chars().any(|x| x.is_ascii_digit()) {
-        //     attrs.push(Attribute::new("has-digit", 1.0));
-        // }
-        // if word.chars().any(|x| x.is_ascii_punctuation()) {
-        //     attrs.push(Attribute::new("has-punctuation", 1.0));
-        // }
-
-        static POS: &[isize] = &[-3, -2, -1, 1, 2, 3];
-
-        for p in POS {
-            let n = i as isize + p;
-            if n >= 0 && n < len as isize {
-                let n = n as usize;
-                attrs.push(Attribute::new(
-                    format!("relative{n}={}", words[n].as_ref()),
-                    1.0,
-                ));
-            }
-        }
-
-        x.push(attrs);
-    }
-
-    x
-}
-
-/// Extract CRF features and labels from a sentence of conllu tokens.
-fn extract_features(sentence: &[conllu::Token]) -> (Vec<Vec<Attribute>>, Vec<String>) {
-    let words: Vec<&str> = sentence.iter().map(|t| t.form.as_str()).collect();
-    let x = word_features(&words);
-    let y: Vec<String> = sentence
-        .iter()
-        .map(|t| t.upos.unwrap_or(UPOS::X).to_string())
-        .collect();
-    (x, y)
-}
-
-/// Get the suffix of a string.
-fn suffix(s: &str, n: usize) -> &str {
-    if let Some((i, _char)) = s.char_indices().rev().nth(n - 1) {
-        &s[i..]
-    } else {
-        s
-    }
-}
-
-/// Get the prefix of a string.
-fn prefix(s: &str, n: usize) -> &str {
-    if let Some((i, _char)) = s.char_indices().nth(n) {
-        &s[..i]
-    } else {
-        s
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn str_suffix_helper() {
-        let s1 = "testing";
-        assert_eq!("ting", suffix(s1, 4));
-        assert_eq!("ing", suffix(s1, 3));
-        assert_eq!("ng", suffix(s1, 2));
-        assert_eq!("g", suffix(s1, 1));
-    }
-
-    #[test]
-    fn str_prefix_helper() {
-        let s1 = "testing";
-        assert_eq!("test", prefix(s1, 4));
-        assert_eq!("tes", prefix(s1, 3));
-        assert_eq!("te", prefix(s1, 2));
-        assert_eq!("t", prefix(s1, 1));
-    }
 }
