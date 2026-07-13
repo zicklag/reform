@@ -223,7 +223,6 @@ fn exec_stmt(engine: &mut Engine, stmt: Stmt) -> bool {
         Stmt::Rule { name, matches, effects } => {
             let fact = vec!["rule".to_string(), name, matches, effects];
             engine.assert(fact);
-            println!("Rule added.");
         }
         Stmt::Find(pat) => {
             let match_strs = split_patterns(&pat);

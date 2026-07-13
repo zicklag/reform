@@ -1,2 +1,0 @@
-is(apple, red)
-rule swap: -is(?a, ?b) -> ?a(?b)
