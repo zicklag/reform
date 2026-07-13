@@ -199,13 +199,24 @@ peg::parser! {
             = p:predicate() { p }
 
         /// Parse a predicate with optional args: "pred" or "pred(arg1, arg2, ...)"
+        /// or "?pred" or "?pred(arg1, arg2, ...)" (variable predicate)
         rule predicate() -> Pattern
-            = name:ident() ws() "(" ws() args:arg_list() ws() ")" {
+            = name:var_pred() ws() "(" ws() args:arg_list() ws() ")" {
+                let mut p = vec![name];
+                p.extend(args);
+                p
+            }
+            / name:var_pred() { vec![name] }
+            / name:ident() ws() "(" ws() args:arg_list() ws() ")" {
                 let mut p = vec![Pat::Atom(name)];
                 p.extend(args);
                 p
             }
             / name:ident() { vec![Pat::Atom(name)] }
+
+        /// Parse a variable predicate: "?name"
+        rule var_pred() -> Pat
+            = "?" n:ident() { Pat::Var(n.to_string()) }
 
         /// Parse a comma-separated list of arguments
         rule arg_list() -> Vec<Pat>
