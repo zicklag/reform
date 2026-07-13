@@ -28,13 +28,15 @@ pub fn split_patterns(s: &str) -> Vec<&str> {
     let mut result = Vec::new();
     let mut depth = 0;
     let mut in_quotes = false;
+    let mut in_single = false;
     let mut start = 0;
     for (i, c) in s.char_indices() {
         match c {
-            '"' => in_quotes = !in_quotes,
-            '(' if !in_quotes => depth += 1,
-            ')' if !in_quotes => depth -= 1,
-            ',' if depth == 0 && !in_quotes => {
+            '\'' if !in_quotes => in_single = !in_single,
+            '"' if !in_single => in_quotes = !in_quotes,
+            '(' if !in_quotes && !in_single => depth += 1,
+            ')' if !in_quotes && !in_single => depth -= 1,
+            ',' if depth == 0 && !in_quotes && !in_single => {
                 result.push(&s[start..i]);
                 start = i + 1;
             }
@@ -130,12 +132,22 @@ pub fn substitute(pattern: &Pattern, bindings: &Bindings) -> Fact {
 }
 
 /// Format a fact for display.
+/// Arguments containing commas are wrapped in single quotes.
 pub fn format_fact(fact: &Fact) -> String {
     if fact.len() == 1 {
-        fact[0].clone()
-    } else {
-        format!("{}({})", fact[0], fact[1..].join(", "))
+        return fact[0].clone();
     }
+    let args: Vec<String> = fact[1..]
+        .iter()
+        .map(|a| {
+            if a.contains(',') {
+                format!("'{}'", a)
+            } else {
+                a.clone()
+            }
+        })
+        .collect();
+    format!("{}({})", fact[0], args.join(", "))
 }
 
 /// Format a pattern for display.

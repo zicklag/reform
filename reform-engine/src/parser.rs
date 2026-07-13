@@ -11,6 +11,9 @@ pub enum Stmt {
     AssertExists(Fact),
     /// Assert that a fact does NOT exist (crash if it does): `assert not pred(...)`
     AssertNot(Fact),
+    /// Sentence fallback: unrecognized line split into words.
+    /// The repl decides whether to assert `sentence(...)` or `prompt(...)`.
+    Sentence(Vec<String>),
     /// Add a rule: `rule name: match1, match2 -> effect1, effect2`
     Rule {
         name: String,
@@ -111,14 +114,10 @@ peg::parser! {
 
         // ===== Sentence fallback =====
 
-        /// Fallback: any unrecognized line becomes a sentence fact.
+        /// Fallback: any unrecognized line becomes a sentence/prompt.
         /// Each word is a separate argument.
         rule sentence_stmt() -> Stmt
-            = words:sentence_words() {
-                let mut fact = vec!["sentence".to_string()];
-                fact.extend(words);
-                Stmt::Assert(fact)
-            }
+            = words:sentence_words() { Stmt::Sentence(words) }
 
         rule sentence_words() -> Vec<String>
             = w:$(ident_char()+ / number()) ++ _ { w.iter().map(|s| s.to_string()).collect() }
@@ -175,8 +174,11 @@ peg::parser! {
 
         rule quoted_string() -> String
             = "\"" s:$([^'"']*) "\"" { s.to_string() }
+            / "'" s:$(not_single_quote()*) "'" { s.to_string() }
 
-        // ===== Primitives =====
+        /// Any character except a single quote
+        rule not_single_quote() -> &'input str
+            = !"'" s:$([_]) { s }
 
         rule ident() -> String
             = s:$(letter() (ident_char())*) { s.to_string() }
@@ -339,10 +341,10 @@ mod tests {
         let result = parse_stmt("go north");
         assert!(result.is_some());
         match result.unwrap() {
-            Stmt::Assert(fact) => {
-                assert_eq!(fact, vec!["sentence", "go", "north"]);
+            Stmt::Sentence(words) => {
+                assert_eq!(words, vec!["go", "north"]);
             }
-            other => panic!("expected Assert(sentence), got {:?}", other),
+            other => panic!("expected Sentence, got {:?}", other),
         }
     }
 
@@ -351,10 +353,34 @@ mod tests {
         let result = parse_stmt("take the apple");
         assert!(result.is_some());
         match result.unwrap() {
-            Stmt::Assert(fact) => {
-                assert_eq!(fact, vec!["sentence", "take", "the", "apple"]);
+            Stmt::Sentence(words) => {
+                assert_eq!(words, vec!["take", "the", "apple"]);
             }
-            other => panic!("expected Assert(sentence), got {:?}", other),
+            other => panic!("expected Sentence, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_single_quote_string() {
+        let result = parse_stmt("test('hello, world')");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Assert(fact) => {
+                assert_eq!(fact, vec!["test", "hello, world"]);
+            }
+            other => panic!("expected Assert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_single_quote_simple() {
+        let result = parse_stmt("test('hello')");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Assert(fact) => {
+                assert_eq!(fact, vec!["test", "hello"]);
+            }
+            other => panic!("expected Assert, got {:?}", other),
         }
     }
 }

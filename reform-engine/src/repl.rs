@@ -1,20 +1,21 @@
 use std::io::{self, BufRead};
 
 use crate::engine::Engine;
+use crate::fact::format_fact;
 use crate::parser::{parse_stmt, Stmt};
 
 /// Run a simple REPL that reads lines and processes them.
 /// `show_help` controls whether the command list is printed on startup.
-pub fn run_repl(engine: &mut Engine) -> anyhow::Result<()> {
-    run_repl_with_help(engine, true)
+pub fn run_repl(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, true, prompt_mode)
 }
 
 /// Run the REPL without printing the command list.
-pub fn run_repl_quiet(engine: &mut Engine) -> anyhow::Result<()> {
-    run_repl_with_help(engine, false)
+pub fn run_repl_quiet(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, false, prompt_mode)
 }
 
-fn run_repl_with_help(engine: &mut Engine, show_help: bool) -> anyhow::Result<()> {
+fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool) -> anyhow::Result<()> {
     let stdin = io::stdin();
     println!("Reform Engine REPL");
     if show_help {
@@ -48,7 +49,7 @@ fn run_repl_with_help(engine: &mut Engine, show_help: bool) -> anyhow::Result<()
                 println!("Parse error. Try: pred(arg1, arg2) or rule name: pat -> eff");
             }
             Some(stmt) => {
-                if !exec_stmt(engine, stmt) {
+                if !exec_stmt(engine, stmt, prompt_mode) {
                     break;
                 }
             }
@@ -64,14 +65,14 @@ pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
     for line in content.lines() {
         let line = line.trim();
         if let Some(stmt) = parse_stmt(line) {
-            exec_stmt(engine, stmt);
+            exec_stmt(engine, stmt, false);
         }
     }
     Ok(())
 }
 
 /// Execute a parsed statement. Returns false if the program should quit.
-fn exec_stmt(engine: &mut Engine, stmt: Stmt) -> bool {
+fn exec_stmt(engine: &mut Engine, stmt: Stmt, prompt_mode: bool) -> bool {
     match stmt {
         Stmt::Quit => return false,
         Stmt::Run => {
@@ -122,6 +123,12 @@ fn exec_stmt(engine: &mut Engine, stmt: Stmt) -> bool {
                 std::process::exit(1);
             }
         }
+        Stmt::Sentence(words) => {
+            let pred = if prompt_mode { "prompt" } else { "sentence" };
+            let mut fact = vec![pred.to_string()];
+            fact.extend(words);
+            engine.assert(fact);
+        }
         Stmt::Rule { name, matches, effects } => {
             let fact = vec!["rule".to_string(), name, matches, effects];
             engine.assert(fact);
@@ -131,10 +138,3 @@ fn exec_stmt(engine: &mut Engine, stmt: Stmt) -> bool {
     true
 }
 
-fn format_fact(fact: &[String]) -> String {
-    if fact.len() == 1 {
-        fact[0].clone()
-    } else {
-        format!("{}({})", fact[0], fact[1..].join(", "))
-    }
-}
