@@ -49,6 +49,7 @@ peg::parser! {
             / retract_stmt()
             / command_stmt()
             / fact_stmt()
+            / sentence_stmt()
 
         // ===== Commands =====
 
@@ -90,13 +91,14 @@ peg::parser! {
             = f:fact() { Stmt::Assert(f) }
 
         /// Parse a fact: `pred` or `pred(arg1, arg2, ...)`
+        /// Bare ident only matches if it's the whole line (nothing else follows).
         rule fact() -> Fact
             = name:ident() _ "(" _ args:arg_list() _ ")" {
                 let mut f = vec![name];
                 f.extend(args);
                 f
             }
-            / name:ident() { vec![name] }
+            / name:ident() !(_ ident_char()) { vec![name] }
 
         /// Parse a comma-separated list of arguments (strings, no variables)
         rule arg_list() -> Vec<String>
@@ -106,6 +108,20 @@ peg::parser! {
         rule arg_value() -> String
             = quoted_string()
             / s:$(ident_char()+ / number()) { s.to_string() }
+
+        // ===== Sentence fallback =====
+
+        /// Fallback: any unrecognized line becomes a sentence fact.
+        /// Each word is a separate argument.
+        rule sentence_stmt() -> Stmt
+            = words:sentence_words() {
+                let mut fact = vec!["sentence".to_string()];
+                fact.extend(words);
+                Stmt::Assert(fact)
+            }
+
+        rule sentence_words() -> Vec<String>
+            = w:$(ident_char()+ / number()) ++ _ { w.iter().map(|s| s.to_string()).collect() }
 
         // ===== Pattern list (for rules) =====
 
@@ -316,5 +332,29 @@ mod tests {
     fn parse_rule_variable_predicate() {
         let result = parse_stmt("rule infer: ?rel(?x, ?y), !instance(?x, ?domain) -> instance(?x, ?domain)");
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn parse_sentence() {
+        let result = parse_stmt("go north");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Assert(fact) => {
+                assert_eq!(fact, vec!["sentence", "go", "north"]);
+            }
+            other => panic!("expected Assert(sentence), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_sentence_multi_word() {
+        let result = parse_stmt("take the apple");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Assert(fact) => {
+                assert_eq!(fact, vec!["sentence", "take", "the", "apple"]);
+            }
+            other => panic!("expected Assert(sentence), got {:?}", other),
+        }
     }
 }
