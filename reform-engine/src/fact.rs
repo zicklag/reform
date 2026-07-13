@@ -132,7 +132,7 @@ pub fn substitute(pattern: &Pattern, bindings: &Bindings) -> Fact {
 }
 
 /// Format a fact for display.
-/// Arguments containing commas are wrapped in single quotes.
+/// Arguments containing top-level commas are wrapped in parentheses.
 pub fn format_fact(fact: &Fact) -> String {
     if fact.len() == 1 {
         return fact[0].clone();
@@ -140,14 +140,32 @@ pub fn format_fact(fact: &Fact) -> String {
     let args: Vec<String> = fact[1..]
         .iter()
         .map(|a| {
-            if a.contains(',') {
-                format!("'{}'", a)
+            if has_top_level_comma(a) {
+                format!("({})", a)
             } else {
                 a.clone()
             }
         })
         .collect();
     format!("{}({})", fact[0], args.join(", "))
+}
+
+/// Check if a string contains a comma at depth 0 (not inside parentheses or quotes).
+fn has_top_level_comma(s: &str) -> bool {
+    let mut depth = 0;
+    let mut in_quotes = false;
+    let mut in_single = false;
+    for c in s.chars() {
+        match c {
+            '\'' if !in_quotes => in_single = !in_single,
+            '"' if !in_single => in_quotes = !in_quotes,
+            '(' if !in_quotes && !in_single => depth += 1,
+            ')' if !in_quotes && !in_single => depth -= 1,
+            ',' if depth == 0 && !in_quotes && !in_single => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Format a pattern for display.

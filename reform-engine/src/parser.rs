@@ -110,8 +110,26 @@ peg::parser! {
         /// Parse a single argument value (no variables in facts)
         rule arg_value() -> String
             = quoted_string()
+            / grouped_string()
             / s:$(ident_char()+ / number()) { s.to_string() }
 
+        /// Parenthesized grouping: `(content with, commas)` — outermost parens
+        /// are stripped, inner balanced parens are preserved.
+        rule grouped_string() -> String
+            = "(" _ s:grouped_content() _ ")" { s }
+
+        /// Content with balanced parens — inner parens are kept.
+        rule grouped_content() -> String
+            = a:grouped_part()+ { a.concat() }
+
+        /// A segment of grouped content: either a nested paren group or plain text.
+        rule grouped_part() -> String
+            = "(" s:grouped_content() ")" { format!("({})", s) }
+            / s:$(not_paren()+) { s.to_string() }
+
+        /// Any character except '(' or ')'
+        rule not_paren() -> &'input str
+            = !"(" !")" s:$([_]) { s }
         // ===== Sentence fallback =====
 
         /// Fallback: any unrecognized line becomes a sentence/prompt.
@@ -163,6 +181,7 @@ peg::parser! {
         rule pattern_arg() -> String
             = rest_var()
             / quoted_string()
+            / grouped_string()
             / variable()
             / s:$(ident_char()+ / number()) { s.to_string() }
 
@@ -179,6 +198,8 @@ peg::parser! {
         /// Any character except a single quote
         rule not_single_quote() -> &'input str
             = !"'" s:$([_]) { s }
+
+        // ===== Primitives =====
 
         rule ident() -> String
             = s:$(letter() (ident_char())*) { s.to_string() }
@@ -379,6 +400,30 @@ mod tests {
         match result.unwrap() {
             Stmt::Assert(fact) => {
                 assert_eq!(fact, vec!["test", "hello"]);
+            }
+            other => panic!("expected Assert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_grouped_string() {
+        let result = parse_stmt("test((hello, world))");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Assert(fact) => {
+                assert_eq!(fact, vec!["test", "hello, world"]);
+            }
+            other => panic!("expected Assert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_grouped_nested() {
+        let result = parse_stmt("test((a (b c) d))");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Assert(fact) => {
+                assert_eq!(fact, vec!["test", "a (b c) d"]);
             }
             other => panic!("expected Assert, got {:?}", other),
         }
