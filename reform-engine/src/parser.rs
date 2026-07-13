@@ -11,9 +11,10 @@ pub enum Stmt {
     AssertExists(Fact),
     /// Assert that a fact does NOT exist (crash if it does): `assert not pred(...)`
     AssertNot(Fact),
-    /// Sentence fallback: unrecognized line split into words.
-    /// The repl decides whether to assert `sentence(...)` or `prompt(...)`.
+    /// Sentence fallback: unrecognized line split into words — becomes `sentence(...)`.
     Sentence(Vec<String>),
+    /// Prompt fact: line starting with `>` — always becomes `prompt(...)`.
+    Prompt(Vec<String>),
     /// Find facts matching a pattern: `find pred(?x, ?y)`
     Find(String),
     /// Add a rule: `rule name: match1, match2 -> effect1, effect2`
@@ -64,6 +65,7 @@ peg::parser! {
             / retract_stmt()
             / command_stmt()
             / fact_stmt()
+            / prompt_stmt()
             / sentence_stmt()
 
         // ===== Commands =====
@@ -139,9 +141,17 @@ peg::parser! {
         /// Any character except '(' or ')'
         rule not_paren() -> &'input str
             = !"(" !")" s:$([_]) { s }
+
+        // ===== Prompt =====
+
+        /// A line starting with `>` becomes a prompt fact.
+        /// Each word is a separate argument. Must consume the whole line.
+        rule prompt_stmt() -> Stmt
+            = ">" _ words:sentence_words() ![_] { Stmt::Prompt(words) }
+
         // ===== Sentence fallback =====
 
-        /// Fallback: any unrecognized line becomes a sentence/prompt.
+        /// Fallback: any unrecognized line becomes a sentence fact.
         /// Each word is a separate argument. Must consume the whole line.
         rule sentence_stmt() -> Stmt
             = words:sentence_words() ![_] { Stmt::Sentence(words) }
@@ -388,6 +398,30 @@ mod tests {
                 assert_eq!(words, vec!["take", "the", "apple"]);
             }
             other => panic!("expected Sentence, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_prompt() {
+        let result = parse_stmt("> go north");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Prompt(words) => {
+                assert_eq!(words, vec!["go", "north"]);
+            }
+            other => panic!("expected Prompt, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_prompt_multi_word() {
+        let result = parse_stmt("> take the apple");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Prompt(words) => {
+                assert_eq!(words, vec!["take", "the", "apple"]);
+            }
+            other => panic!("expected Prompt, got {:?}", other),
         }
     }
 

@@ -13,6 +13,8 @@ rule south_of_north: south_of(?a, ?b) -> north_of(?b, ?a)
 rule go_north: -go(north), -here(?h), north_of(?g, ?h) -> here(?g), print("you are in the ",?g)
 rule go_south: -go(south), -here(?h), north_of(?h, ?g) -> here(?g), print("you are in the ",?g)
 
+rule where_am_i: -prompt(where, am, I),here(?here) -> print("you are in the ", ?here)
+
 rule go_prompt: -prompt(go, ..?rest) -> go(..?rest)
 rule go_north_prompt: -go(north) -> n
 rule go_south_prompt: -go(south) -> s

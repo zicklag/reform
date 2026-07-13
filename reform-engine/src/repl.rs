@@ -1,23 +1,59 @@
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 
 use crate::engine::Engine;
 use crate::fact::{format_fact, split_patterns, parse_pattern_from_str};
 use crate::rule::Rule;
 use crate::parser::{parse_stmt, Stmt};
 
+/// Run the REPL with full control over all options.
+pub fn run_repl_full(engine: &mut Engine, show_help: bool, prompt_mode: bool, verbose: bool, allow_commands: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, show_help, prompt_mode, verbose, allow_commands)
+}
+
 /// Run a simple REPL that reads lines and processes them.
 /// `show_help` controls whether the command list is printed on startup.
 pub fn run_repl(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
-    run_repl_with_help(engine, true, prompt_mode)
+    run_repl_with_help(engine, true, prompt_mode, false, false)
 }
 
 /// Run the REPL without printing the command list.
 pub fn run_repl_quiet(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
-    run_repl_with_help(engine, false, prompt_mode)
+    run_repl_with_help(engine, false, prompt_mode, false, false)
 }
 
-fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool) -> anyhow::Result<()> {
+/// Run a simple REPL that reads lines and processes them, with verbose output.
+pub fn run_repl_verbose(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, true, prompt_mode, true, false)
+}
+
+/// Run the REPL without printing the command list, with verbose output.
+pub fn run_repl_quiet_verbose(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, false, prompt_mode, true, false)
+}
+
+/// Run a simple REPL that reads lines and processes them, with allow_commands.
+pub fn run_repl_allow_commands(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, true, prompt_mode, false, true)
+}
+
+/// Run the REPL without printing the command list, with allow_commands.
+pub fn run_repl_quiet_allow_commands(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, false, prompt_mode, false, true)
+}
+
+/// Run a simple REPL that reads lines and processes them, with verbose and allow_commands.
+pub fn run_repl_verbose_allow_commands(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, true, prompt_mode, true, true)
+}
+
+/// Run the REPL without printing the command list, with verbose and allow_commands.
+pub fn run_repl_quiet_verbose_allow_commands(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
+    run_repl_with_help(engine, false, prompt_mode, true, true)
+}
+
+fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool, verbose: bool, allow_commands: bool) -> anyhow::Result<()> {
     let stdin = io::stdin();
+    let mut stdout = io::stdout();
     println!("Reform Engine REPL");
     if show_help {
         println!("Commands:");
@@ -38,32 +74,66 @@ fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool) -
         println!();
     }
 
+    if prompt_mode {
+        print!("> ");
+        stdout.flush()?;
+    }
+
     for line in stdin.lock().lines() {
         let line = line?;
         let line = line.trim().to_string();
 
         if line.is_empty() {
+            if prompt_mode {
+                print!("> ");
+                stdout.flush()?;
+            }
             continue;
         }
 
-        match parse_stmt(&line) {
+        // Determine the input to parse
+        let input = if prompt_mode && allow_commands {
+            // Try parsing the raw line first — if it's a recognized statement, use it as-is
+            match parse_stmt(&line) {
+                Some(Stmt::Sentence(_)) | None => {
+                    // Not a command — treat as prompt
+                    format!("> {}", line)
+                }
+                Some(_) => {
+                    // Recognized command — use raw
+                    line.clone()
+                }
+            }
+        } else if prompt_mode {
+            // Always prepend "> " so plain input becomes a prompt fact
+            format!("> {}", line)
+        } else {
+            line.clone()
+        };
+
+        match parse_stmt(&input) {
             None => {
                 println!("Parse error. Try: pred(arg1, arg2) or rule name: pat -> eff");
             }
             Some(stmt) => {
                 let should_auto_run = matches!(&stmt,
-                    Stmt::Assert(_) | Stmt::Retract(_) | Stmt::Sentence(_) | Stmt::Rule { .. }
+                    Stmt::Assert(_) | Stmt::Retract(_) | Stmt::Sentence(_) | Stmt::Prompt(_) | Stmt::Rule { .. }
                 );
-                if !exec_stmt(engine, stmt, prompt_mode) {
+                if !exec_stmt(engine, stmt) {
                     break;
                 }
                 if should_auto_run {
                     let firings = engine.run_fixedpoint();
-                    if firings > 0 {
+                    if verbose && firings > 0 {
                         println!("  [auto-run: {} firings]", firings);
                     }
                 }
             }
+        }
+
+        if prompt_mode {
+            print!("> ");
+            stdout.flush()?;
         }
     }
 
@@ -72,19 +142,14 @@ fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool) -
 
 /// Load and execute a script file.
 pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
-    load_script_with_mode(engine, path, false)
-}
-
-/// Load and execute a script file with a specific prompt mode.
-pub fn load_script_with_mode(engine: &mut Engine, path: &str, prompt_mode: bool) -> anyhow::Result<()> {
     let content = std::fs::read_to_string(path)?;
     for line in content.lines() {
         let line = line.trim();
         if let Some(stmt) = parse_stmt(line) {
             let should_auto_run = matches!(&stmt,
-                Stmt::Assert(_) | Stmt::Retract(_) | Stmt::Sentence(_) | Stmt::Rule { .. }
+                Stmt::Assert(_) | Stmt::Retract(_) | Stmt::Sentence(_) | Stmt::Prompt(_) | Stmt::Rule { .. }
             );
-            exec_stmt(engine, stmt, prompt_mode);
+            exec_stmt(engine, stmt);
             if should_auto_run {
                 engine.run_fixedpoint();
             }
@@ -94,7 +159,7 @@ pub fn load_script_with_mode(engine: &mut Engine, path: &str, prompt_mode: bool)
 }
 
 /// Execute a parsed statement. Returns false if the program should quit.
-fn exec_stmt(engine: &mut Engine, stmt: Stmt, prompt_mode: bool) -> bool {
+fn exec_stmt(engine: &mut Engine, stmt: Stmt) -> bool {
     match stmt {
         Stmt::Quit => return false,
         Stmt::Run => {
@@ -146,8 +211,12 @@ fn exec_stmt(engine: &mut Engine, stmt: Stmt, prompt_mode: bool) -> bool {
             }
         }
         Stmt::Sentence(words) => {
-            let pred = if prompt_mode { "prompt" } else { "sentence" };
-            let mut fact = vec![pred.to_string()];
+            let mut fact = vec!["sentence".to_string()];
+            fact.extend(words);
+            engine.assert(fact);
+        }
+        Stmt::Prompt(words) => {
+            let mut fact = vec!["prompt".to_string()];
             fact.extend(words);
             engine.assert(fact);
         }
@@ -192,4 +261,3 @@ fn exec_stmt(engine: &mut Engine, stmt: Stmt, prompt_mode: bool) -> bool {
     }
     true
 }
-
