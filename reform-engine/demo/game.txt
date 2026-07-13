@@ -1,11 +1,6 @@
-room(kitchen)
-room(bedroom)
-room(frontroom)
-
-north_of(front_room, kitchen)
-north_of(kitchen, bedroom)
-
-here(bedroom)
+rule def_room: -sentence(?r, is, a, room) -> room(?r)
+rule def_north_of: -sentence(?r1, is, north, of, ?r2) -> north_of(?r1, ?r2)
+rule def_her: -sentence(You, are, in, the, ?r) -> here(?r)
 
 rule north_of_south: north_of(?a, ?b) -> south_of(?b, ?a)
 rule south_of_north: south_of(?a, ?b) -> north_of(?b, ?a)
@@ -18,3 +13,11 @@ rule where_am_i: -prompt(where, am, I),here(?here) -> print("you are in the ", ?
 rule go_prompt: -prompt(go, ..?rest) -> go(..?rest)
 rule go_north_prompt: -go(north) -> n
 rule go_south_prompt: -go(south) -> s
+
+Bedroom is a room
+Kitchen is a room
+Kitchen is north of Bedroom
+Frontroom is a room
+Frontroom is north of Kitchen
+
+You are in the Bedroom
