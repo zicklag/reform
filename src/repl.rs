@@ -141,7 +141,13 @@ fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool, v
 }
 
 /// Load and execute a script file.
+/// `base_dir` is the directory to resolve relative `load` paths against.
 pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
+    let base_dir = std::path::Path::new(path).parent().unwrap_or(std::path::Path::new(".")).to_path_buf();
+    load_script_from(engine, path, &base_dir)
+}
+
+fn load_script_from(engine: &mut Engine, path: &str, base_dir: &std::path::Path) -> anyhow::Result<()> {
     let content = std::fs::read_to_string(path)?;
     for line in content.lines() {
         let line = line.trim();
@@ -149,7 +155,7 @@ pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
             let should_auto_run = matches!(&stmt,
                 Stmt::Assert(_) | Stmt::Retract(_) | Stmt::Sentence(_) | Stmt::Prompt(_) | Stmt::Rule { .. }
             );
-            exec_stmt(engine, stmt);
+            exec_stmt_from(engine, stmt, base_dir);
             if should_auto_run {
                 engine.run_fixedpoint();
             }
@@ -159,7 +165,13 @@ pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
 }
 
 /// Execute a parsed statement. Returns false if the program should quit.
+/// Uses cwd (`.`) as base directory for `load` commands.
 fn exec_stmt(engine: &mut Engine, stmt: Stmt) -> bool {
+    exec_stmt_from(engine, stmt, std::path::Path::new("."))
+}
+
+/// Execute a parsed statement with a base directory for resolving relative `load` paths.
+fn exec_stmt_from(engine: &mut Engine, stmt: Stmt, base_dir: &std::path::Path) -> bool {
     match stmt {
         Stmt::Quit => return false,
         Stmt::Run => {
@@ -184,7 +196,13 @@ fn exec_stmt(engine: &mut Engine, stmt: Stmt) -> bool {
             println!("  [restored]");
         }
         Stmt::Load(path) => {
-            if let Err(e) = load_script(engine, &path) {
+            let resolved = if std::path::Path::new(&path).is_relative() {
+                base_dir.join(&path)
+            } else {
+                std::path::PathBuf::from(&path)
+            };
+            let new_base = resolved.parent().unwrap_or(std::path::Path::new("."));
+            if let Err(e) = load_script_from(engine, &resolved.to_string_lossy(), new_base) {
                 println!("Error loading '{}': {}", path, e);
             } else {
                 println!("Loaded '{}'.", path);
