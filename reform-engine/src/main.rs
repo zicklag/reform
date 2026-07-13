@@ -19,7 +19,7 @@ fn main() -> anyhow::Result<()> {
 
     // Load any files specified as command-line arguments
     for path in &args.files {
-        if let Err(e) = repl::load_script(&mut engine, path) {
+        if let Err(e) = repl::load_script_with_mode(&mut engine, path, args.prompt_mode) {
             eprintln!("Error loading '{}': {}", path, e);
             std::process::exit(1);
         }

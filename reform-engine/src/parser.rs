@@ -14,6 +14,8 @@ pub enum Stmt {
     /// Sentence fallback: unrecognized line split into words.
     /// The repl decides whether to assert `sentence(...)` or `prompt(...)`.
     Sentence(Vec<String>),
+    /// Find facts matching a pattern: `find pred(?x, ?y)`
+    Find(String),
     /// Add a rule: `rule name: match1, match2 -> effect1, effect2`
     Rule {
         name: String,
@@ -38,6 +40,16 @@ pub enum Stmt {
     Quit,
 }
 
+
+/// Re-quote a pattern argument if it contains characters that would be
+/// ambiguous when re-parsed (spaces, commas, parens).
+fn quote_if_needed(s: &str) -> String {
+    if s.contains(' ') || s.contains(',') || s.contains('(') || s.contains(')') || s.is_empty() {
+        format!("'{}'", s)
+    } else {
+        s.to_string()
+    }
+}
 peg::parser! {
     grammar file_parser() for str {
         // ===== Top-level =====
@@ -64,9 +76,8 @@ peg::parser! {
             / "restore" !ident_char() { Stmt::Restore }
             / "quit" !ident_char() { Stmt::Quit }
             / "exit" !ident_char() { Stmt::Quit }
-            / "load" _ path:$((!newline() [_])+) { Stmt::Load(path.trim().to_string()) }
-
-        // ===== Assert =====
+            / "find" _ pats:pattern_list() { Stmt::Find(pats.join(", ")) }
+            / "load" !ident_char() _ path:$((!newline() [_])+) { Stmt::Load(path.trim().to_string()) }
 
         rule assert_stmt() -> Stmt
             = "assert" _ "not" _ f:fact() { Stmt::AssertNot(f) }
@@ -93,15 +104,13 @@ peg::parser! {
         rule fact_stmt() -> Stmt
             = f:fact() { Stmt::Assert(f) }
 
-        /// Parse a fact: `pred` or `pred(arg1, arg2, ...)`
-        /// Bare ident only matches if it's the whole line (nothing else follows).
         rule fact() -> Fact
             = name:ident() _ "(" _ args:arg_list() _ ")" {
                 let mut f = vec![name];
                 f.extend(args);
                 f
             }
-            / name:ident() !(_ ident_char()) { vec![name] }
+            / name:ident() ![_] { vec![name] }
 
         /// Parse a comma-separated list of arguments (strings, no variables)
         rule arg_list() -> Vec<String>
@@ -133,12 +142,12 @@ peg::parser! {
         // ===== Sentence fallback =====
 
         /// Fallback: any unrecognized line becomes a sentence/prompt.
-        /// Each word is a separate argument.
+        /// Each word is a separate argument. Must consume the whole line.
         rule sentence_stmt() -> Stmt
-            = words:sentence_words() { Stmt::Sentence(words) }
+            = words:sentence_words() ![_] { Stmt::Sentence(words) }
 
         rule sentence_words() -> Vec<String>
-            = w:$(ident_char()+ / number()) ++ _ { w.iter().map(|s| s.to_string()).collect() }
+            = w:$((![' ' | '\t' | '\n' | '\r'] [_])+) ++ _ { w.iter().map(|s| s.to_string()).collect() }
 
         // ===== Pattern list (for rules) =====
 
@@ -164,6 +173,7 @@ peg::parser! {
         /// or `?pred` or `?pred(arg1, ?var)`
         rule pattern_str() -> String
             = name:pattern_pred() _ "(" _ args:pattern_arg_list() _ ")" {
+                let args: Vec<String> = args.iter().map(|a| quote_if_needed(a)).collect();
                 format!("{}({})", name, args.join(", "))
             }
             / name:pattern_pred() { name }
@@ -426,6 +436,18 @@ mod tests {
                 assert_eq!(fact, vec!["test", "a (b c) d"]);
             }
             other => panic!("expected Assert, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_find() {
+        let result = parse_stmt("find here(?x)");
+        assert!(result.is_some());
+        match result.unwrap() {
+            Stmt::Find(pat) => {
+                assert_eq!(pat, "here(?x)");
+            }
+            other => panic!("expected Find, got {:?}", other),
         }
     }
 }

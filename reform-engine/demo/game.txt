@@ -2,20 +2,17 @@ room(kitchen)
 room(bedroom)
 room(frontroom)
 
+north_of(front_room, kitchen)
 north_of(kitchen, bedroom)
-south_of(frontroom, bedroom)
 
-here(frontroom)
+here(bedroom)
 
 rule north_of_south: north_of(?a, ?b) -> south_of(?b, ?a)
 rule south_of_north: south_of(?a, ?b) -> north_of(?b, ?a)
 
-rule go_north: -n, -here(?h), north_of(?g, ?h) -> here(?g)
-rule go_south: -s, -here(?h), north_of(?h, ?g) -> here(?g)
+rule go_north: -go(north), -here(?h), north_of(?g, ?h) -> here(?g), print("you are in the ",?g)
+rule go_south: -go(south), -here(?h), north_of(?h, ?g) -> here(?g), print("you are in the ",?g)
 
 rule go_prompt: -prompt(go, ..?rest) -> go(..?rest)
 rule go_north_prompt: -go(north) -> n
 rule go_south_prompt: -go(south) -> s
-
-run
-facts

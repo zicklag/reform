@@ -211,26 +211,35 @@ peg::parser! {
         rule arg_list() -> Vec<Pat>
             = a:arg() ** (ws() "," ws()) { a }
 
-        /// Parse a single argument: atom, variable, or rest variable
+        /// Parse a single argument: atom, variable, rest variable, or quoted string
         rule arg() -> Pat
-            = rest_var() / quoted_string() / variable() / atom()
+            = rest_var() / quoted_string() / single_quoted() / variable() / atom()
 
         /// Parse a rest variable: "..?name"
         rule rest_var() -> Pat
             = "..?" n:ident() { Pat::Rest(n.to_string()) }
 
-        /// Parse a quoted string: '"hello, world"'
+        /// Parse a double-quoted string: '"hello, world"'
         rule quoted_string() -> Pat
             = "\"" s:$([^'"']*) "\"" { Pat::Atom(s.to_string()) }
+
+        /// Parse a single-quoted string: "'hello, world'"
+        rule single_quoted() -> Pat
+            = "'" s:$(not_single_quote()*) "'" { Pat::Atom(s.to_string()) }
+
+        /// Any character except a single quote
+        rule not_single_quote() -> &'input str
+            = !"'" s:$([_]) { s }
 
         /// Parse a variable: "?name"
         rule variable() -> Pat
             = "?" n:ident() { Pat::Var(n.to_string()) }
 
-        /// Parse an atom: a bare identifier or number
+        /// Parse an atom: a bare identifier, number, or any non-comma/non-paren text
         rule atom() -> Pat
             = s:$(letter() (letter() / digit() / "_" / "-")*) { Pat::Atom(s.to_string()) }
             / n:$("-"? digit()+ ("." digit()+)?) { Pat::Atom(n.to_string()) }
+            / s:$((!['(' | ')' | ','] [_])+) { Pat::Atom(s.to_string()) }
 
         /// Parse an identifier (starts with letter or underscore)
         rule ident() -> String

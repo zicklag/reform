@@ -29,7 +29,12 @@ impl Engine {
     }
 
     /// Assert a fact into the fact base.
+    /// `print(...)` facts are handled as built-in output and not stored.
     pub fn assert(&mut self, fact: Fact) {
+        if fact.len() >= 2 && fact[0] == "print" {
+            println!("{}", fact[1..].concat());
+            return;
+        }
         if !self.facts.contains(&fact) {
             self.facts.push(fact);
         }

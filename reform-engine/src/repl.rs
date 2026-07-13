@@ -1,7 +1,8 @@
 use std::io::{self, BufRead};
 
 use crate::engine::Engine;
-use crate::fact::format_fact;
+use crate::fact::{format_fact, split_patterns, parse_pattern_from_str};
+use crate::rule::Rule;
 use crate::parser::{parse_stmt, Stmt};
 
 /// Run a simple REPL that reads lines and processes them.
@@ -26,6 +27,7 @@ fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool) -
         println!("  run                 - run fixed-point loop");
         println!("  facts               - dump all facts");
         println!("  rules               - dump all rules");
+        println!("  find pat(?x, ?y)    - find facts matching pattern");
         println!("  load <file>         - load and execute a script file");
         println!("  checkpoint          - save state checkpoint");
         println!("  restore             - restore to last checkpoint");
@@ -49,8 +51,17 @@ fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool) -
                 println!("Parse error. Try: pred(arg1, arg2) or rule name: pat -> eff");
             }
             Some(stmt) => {
+                let should_auto_run = matches!(&stmt,
+                    Stmt::Assert(_) | Stmt::Retract(_) | Stmt::Sentence(_) | Stmt::Rule { .. }
+                );
                 if !exec_stmt(engine, stmt, prompt_mode) {
                     break;
+                }
+                if should_auto_run {
+                    let firings = engine.run_fixedpoint();
+                    if firings > 0 {
+                        println!("  [auto-run: {} firings]", firings);
+                    }
                 }
             }
         }
@@ -61,11 +72,22 @@ fn run_repl_with_help(engine: &mut Engine, show_help: bool, prompt_mode: bool) -
 
 /// Load and execute a script file.
 pub fn load_script(engine: &mut Engine, path: &str) -> anyhow::Result<()> {
+    load_script_with_mode(engine, path, false)
+}
+
+/// Load and execute a script file with a specific prompt mode.
+pub fn load_script_with_mode(engine: &mut Engine, path: &str, prompt_mode: bool) -> anyhow::Result<()> {
     let content = std::fs::read_to_string(path)?;
     for line in content.lines() {
         let line = line.trim();
         if let Some(stmt) = parse_stmt(line) {
-            exec_stmt(engine, stmt, false);
+            let should_auto_run = matches!(&stmt,
+                Stmt::Assert(_) | Stmt::Retract(_) | Stmt::Sentence(_) | Stmt::Rule { .. }
+            );
+            exec_stmt(engine, stmt, prompt_mode);
+            if should_auto_run {
+                engine.run_fixedpoint();
+            }
         }
     }
     Ok(())
@@ -133,6 +155,39 @@ fn exec_stmt(engine: &mut Engine, stmt: Stmt, prompt_mode: bool) -> bool {
             let fact = vec!["rule".to_string(), name, matches, effects];
             engine.assert(fact);
             println!("Rule added.");
+        }
+        Stmt::Find(pat) => {
+            let match_strs = split_patterns(&pat);
+            let mut matches = Vec::new();
+            let mut not_matches = Vec::new();
+            for m in match_strs {
+                let m = m.trim();
+                if let Some(rest) = m.strip_prefix('!') {
+                    if let Some(p) = parse_pattern_from_str(rest) {
+                        not_matches.push(p);
+                    }
+                } else if let Some(p) = parse_pattern_from_str(m) {
+                    matches.push(p);
+                }
+            }
+            if matches.is_empty() {
+                println!("  [could not parse pattern: {}]", pat);
+                return true;
+            }
+            let rule = Rule {
+                name: "find".into(),
+                matches,
+                not_matches,
+                consumes: Vec::new(),
+                effects: Vec::new(),
+            };
+            if let Some((_bindings, matched_facts)) = rule.find_match(engine.facts()) {
+                for fact in &matched_facts {
+                    println!("  {}", format_fact(fact));
+                }
+            } else {
+                println!("  (no matches)");
+            }
         }
     }
     true
