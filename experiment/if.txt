@@ -1,5 +1,6 @@
 # Core Interactive Fiction Rules
 #
+# World model predicates:
 #   (room, ?r)          - ?r is a room
 #   (thing, ?t)         - ?t is a thing (portable object)
 #   (?a, north, of, ?b) - ?a is north of ?b
@@ -13,6 +14,12 @@
 #   (description, ?t, ?text) - description of thing ?t
 #   (room_desc, ?r, ?text)   - description of room ?r
 #   (scenery, ?t, ?r)        - ?t is scenery in room ?r (not listed, but examinable)
+#   (bolted, ?t)        - ?t is bolted to the floor (can't be taken)
+#
+# Action processing:
+#   Instead rules consume the raw action and produce (blocked, action, ...).
+#   Carry out rules negate (blocked, ...) so they only fire when no instead rule did.
+#   Report rules consume success/fail tokens from carry out.
 
 # Direction symmetry: if A is north of B, B is south of A, etc.
 (rule, north_of_south,
@@ -32,17 +39,156 @@
     ( (?a, east, of, ?b) )
 )
 
-# Movement: go in a direction
-# Consumes described flag so room re-describes on entry
-(rule, go_dir,
-    ( -(go, ?dir), -(here, ?here), -(described, ?here), (?to, ?dir, of, ?here) ),
-    ( (here, ?to), (print, (You go ), ?dir, .) )
+# ============================================================
+# GO action
+# ============================================================
+
+(rule, carry_out_go,
+    ( -(go, ?dir), -(here, ?here), -(described, ?here), (?to, ?dir, of, ?here), !(blocked, go, ?dir) ),
+    ( (here, ?to), (carried_out_success, go, ?dir) )
 )
-(rule, go_fail,
-    ( -(go, ?dir), (here, ?here), !(?to, ?dir, of, ?here) ),
+(rule, carry_out_go_fail,
+    ( -(go, ?dir), (here, ?here), !(?to, ?dir, of, ?here), !(blocked, go, ?dir) ),
+    ( (carried_out_fail, go, ?dir) )
+)
+(rule, report_go_fail,
+    ( -(carried_out_fail, go, ?dir) ),
     ( (print, (You can't go that way.)) )
 )
-# Describe the current room when entering (before described flag is set)
+(rule, report_go_success,
+    ( -(carried_out_success, go, ?dir) ),
+    ( (print, (You go ), ?dir, .) )
+)
+
+# ============================================================
+# TAKE action
+# ============================================================
+
+# Instead rules for take
+# Generic: if something is bolted, you can't take it
+(rule, instead_take_bolted,
+    ( -(take, ?item), (bolted, ?item) ),
+    ( (blocked, take, ?item), (print, (The ), ?item, ( is bolted to the floor. It won't budge.)) )
+)
+
+(rule, carry_out_take,
+    ( -(take, ?item), (here, ?here), -(in, ?item, ?here), !(carrying, ?item), !(blocked, take, ?item) ),
+    ( (carrying, ?item), (carried_out_success, take, ?item) )
+)
+(rule, carry_out_take_fail,
+    ( -(take, ?item), (here, ?here), !(in, ?item, ?here), !(carrying, ?item), !(blocked, take, ?item) ),
+    ( (carried_out_fail, take, ?item) )
+)
+(rule, report_take,
+    ( -(carried_out_success, take, ?item) ),
+    ( (print, (You take the ), ?item, .) )
+)
+(rule, report_take_fail,
+    ( -(carried_out_fail, take, ?item) ),
+    ( (print, (You can't see any ), ?item, ( here.)) )
+)
+
+# ============================================================
+# DROP action
+# ============================================================
+
+(rule, carry_out_drop,
+    ( -(drop, ?item), -(carrying, ?item), (here, ?here), !(blocked, drop, ?item) ),
+    ( (in, ?item, ?here), (carried_out_success, drop, ?item) )
+)
+(rule, carry_out_drop_fail,
+    ( -(drop, ?item), !(carrying, ?item), !(blocked, drop, ?item) ),
+    ( (carried_out_fail, drop, ?item) )
+)
+(rule, report_drop,
+    ( -(carried_out_success, drop, ?item) ),
+    ( (print, (You drop the ), ?item, .) )
+)
+(rule, report_drop_fail,
+    ( -(carried_out_fail, drop, ?item) ),
+    ( (print, (You aren't carrying the ), ?item, .) )
+)
+
+# ============================================================
+# EXAMINE action
+# ============================================================
+
+(rule, carry_out_examine_item,
+    ( -(examine, ?item), (description, ?item, ?desc), (here, ?here), (in, ?item, ?here), !(blocked, examine, ?item) ),
+    ( (carried_out_success, examine, ?item) )
+)
+(rule, carry_out_examine_carrying,
+    ( -(examine, ?item), (description, ?item, ?desc), (carrying, ?item), !(blocked, examine, ?item) ),
+    ( (carried_out_success, examine, ?item) )
+)
+(rule, carry_out_examine_scenery,
+    ( -(examine, ?item), (description, ?item, ?desc), (here, ?here), (scenery, ?item, ?here), !(blocked, examine, ?item) ),
+    ( (carried_out_success, examine, ?item) )
+)
+(rule, carry_out_examine_fail,
+    ( -(examine, ?item), (here, ?here), !(in, ?item, ?here), !(scenery, ?item, ?here), !(carrying, ?item), !(blocked, examine, ?item) ),
+    ( (carried_out_fail, examine, ?item) )
+)
+(rule, report_examine,
+    ( -(carried_out_success, examine, ?item), (description, ?item, ?desc) ),
+    ( (print, (You examine the ), ?item, .), (print, ?desc) )
+)
+(rule, report_examine_fail,
+    ( -(carried_out_fail, examine, ?item) ),
+    ( (print, (You can't see any ), ?item, ( here.)) )
+)
+
+# ============================================================
+# LOOK action
+# ============================================================
+
+(rule, carry_out_look,
+    ( -(look), (here, ?here), -(described, ?here), !(blocked, look) ),
+    ( (carried_out_success, look) )
+)
+(rule, report_look,
+    ( -(carried_out_success, look) ),
+    ( (print, (You look around.)) )
+)
+
+# ============================================================
+# INVENTORY action
+# ============================================================
+
+(rule, carry_out_inventory,
+    ( -(inventory), (carrying, ?item), !(blocked, inventory) ),
+    ( (carried_out_success, inventory) )
+)
+(rule, carry_out_inventory_nothing,
+    ( -(inventory), !(carrying, ?_), !(blocked, inventory) ),
+    ( (carried_out_fail, inventory) )
+)
+(rule, report_inventory,
+    ( -(carried_out_success, inventory), (carrying, ?item) ),
+    ( (print, (You are carrying: ), ?item) )
+)
+(rule, report_inventory_nothing,
+    ( -(carried_out_fail, inventory) ),
+    ( (print, (You are carrying nothing.)) )
+)
+
+# ============================================================
+# WHERE AM I action
+# ============================================================
+
+(rule, carry_out_whereami,
+    ( -(where_am_I), (here, ?here), !(blocked, where_am_I) ),
+    ( (carried_out_success, where_am_I) )
+)
+(rule, report_whereami,
+    ( -(carried_out_success, where_am_I), (here, ?here) ),
+    ( (print, (You are in the ), ?here, .) )
+)
+
+# ============================================================
+# Room description (triggered by described flag, not an action)
+# ============================================================
+
 (rule, describe_room,
     ( (here, ?here), !(described, ?here) ),
     ( (print, (You are in the ), ?here, .) )
@@ -63,64 +209,3 @@
     ( (here, ?here), !(described, ?here) ),
     ( (described, ?here) )
 )
-
-# Look command: re-describe the room
-(rule, do_look,
-    ( -(look), (here, ?here), -(described, ?here) ),
-    ( (print, (You look around.)) )
-)
-
-# Taking things
-(rule, take_item,
-    ( -(take, ?item), (here, ?here), -(in, ?item, ?here), !(carrying, ?item) ),
-    ( (carrying, ?item), (print, (You take the ), ?item, .) )
-)
-(rule, take_fail,
-    ( -(take, ?item), !(in, ?item, ?_), !(carrying, ?item) ),
-    ( (print, (You can't see any ), ?item, ( here.)) )
-)
-
-# Dropping things
-(rule, drop_item,
-    ( -(drop, ?item), -(carrying, ?item), (here, ?here) ),
-    ( (in, ?item, ?here), (print, (You drop the ), ?item, .) )
-)
-(rule, drop_fail,
-    ( -(drop, ?item), !(carrying, ?item) ),
-    ( (print, (You aren't carrying the ), ?item, .) )
-)
-
-# Inventory
-(rule, do_inventory,
-    ( -(inventory), (carrying, ?item) ),
-    ( (print, (You are carrying: ), ?item) )
-)
-(rule, inventory_nothing,
-    ( -(inventory), !(carrying, ?_) ),
-    ( (print, (You are carrying nothing.)) )
-)
-
-# Where am I
-(rule, where_am_i,
-    ( -(where_am_I), (here, ?here) ),
-    ( (print, (You are in the ), ?here, .) )
-)
-
-# Examine / look at things
-(rule, examine_item,
-    ( -(examine, ?item), (description, ?item, ?desc), (here, ?here), (in, ?item, ?here) ),
-    ( (print, (You examine the ), ?item, .), (print, ?desc) )
-)
-(rule, examine_carrying,
-    ( -(examine, ?item), (description, ?item, ?desc), (carrying, ?item) ),
-    ( (print, (You examine the ), ?item, .), (print, ?desc) )
-)
-(rule, examine_scenery,
-    ( -(examine, ?item), (description, ?item, ?desc), (here, ?here), (scenery, ?item, ?here) ),
-    ( (print, (You examine the ), ?item, .), (print, ?desc) )
-)
-(rule, examine_fail,
-    ( -(examine, ?item), (here, ?here), !(in, ?item, ?here), !(scenery, ?item, ?here), !(carrying, ?item) ),
-    ( (print, (You can't see any ), ?item, ( here.)) )
-)
-

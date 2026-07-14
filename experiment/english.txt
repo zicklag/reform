@@ -86,3 +86,13 @@
     ( -(sentence, The, ?t, are, scenery, in, the, ?r) ),
     ( (scenery, ?t, ?r) )
 )
+
+# Instead rules
+# "Instead of taking the lamp, say (The lamp is bolted to the floor.)"
+(rule, def_instead_take,
+    ( -(sentence, Instead, of, taking, the, ?item, say, ?msg) ),
+    ( (rule, instead_take_?item,
+        ( -(take, ?item), (bolted, ?item) ),
+        ( (print, ?msg) )
+    ) )
+)

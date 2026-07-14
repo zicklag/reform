@@ -41,5 +41,9 @@ The description of the Study is (A quiet study lined with bookshelves. A single 
 The portraits are scenery in the Hallway
 The description of the portraits is (Old faded portraits of stern-looking people. One seems to be watching you.)
 
+# --- Special rules ---
+# The lamp is bolted to the floor in the Kitchen
+(bolted, lamp)
+
 # --- Player start ---
 You are in the Garden

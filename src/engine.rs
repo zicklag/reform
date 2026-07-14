@@ -182,6 +182,19 @@ impl Engine {
             for (rule_idx, bindings, matched_facts) in &matches {
                 let rule = &all_rules[*rule_idx];
 
+                // Skip if any consumed fact is already gone (consumed by an earlier rule)
+                let mut all_consumed_exist = true;
+                for &ci in rule.consumed_indices() {
+                    if ci < matched_facts.len() {
+                        if !self.facts.contains(&matched_facts[ci]) {
+                            all_consumed_exist = false;
+                        }
+                    }
+                }
+                if !all_consumed_exist {
+                    continue;
+                }
+
                 // Check if this rule will actually change anything
                 let mut changed = false;
 

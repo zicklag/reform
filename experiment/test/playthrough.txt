@@ -32,10 +32,10 @@ $ assert (here, Garden)
 > go north
 $ assert (here, Kitchen)
 
-# Take lamp
+# Take lamp — it's bolted, can't take it
 > take lamp
-$ assert (carrying, lamp)
-$ assert not (in, lamp, Kitchen)
+$ assert not (carrying, lamp)
+$ assert (in, lamp, Kitchen)
 
 # Go east to Hallway
 > go east
@@ -56,10 +56,9 @@ $ assert (described, Study)
 $ assert (carrying, book)
 $ assert not (in, book, Study)
 
-# Inventory should show all items
+# Inventory should show key and book (lamp is bolted)
 > inventory
 $ assert (carrying, key)
-$ assert (carrying, lamp)
 $ assert (carrying, book)
 
 # Drop everything in Study
@@ -68,7 +67,6 @@ $ assert (in, key, Study)
 $ assert not (carrying, key)
 
 > drop lamp
-$ assert (in, lamp, Study)
 $ assert not (carrying, lamp)
 
 > drop book
@@ -78,5 +76,4 @@ $ assert not (carrying, book)
 # Inventory should be empty
 > inventory
 $ assert not (carrying, key)
-$ assert not (carrying, lamp)
 $ assert not (carrying, book)
