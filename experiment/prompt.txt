@@ -3,105 +3,51 @@
 # Converts player prompts (typed in the REPL) into action facts.
 # The REPL in prompt mode turns input into (prompt, word1, word2, ...) facts.
 # These rules consume prompt facts and produce action facts for the IF engine.
-
-# Movement commands
-(rule, parse_go,
-    ( -(prompt, go, ?dir) ),
-    ( (go, ?dir) )
-)
-(rule, parse_go_the,
-    ( -(prompt, go, the, ?dir) ),
-    ( (go, ?dir) )
-)
+#
+# Built-in shorthands only. All verbs are defined via "understand" in game files.
 
 # Direction shorthands: n, s, e, w
 (rule, parse_n,
     ( -(prompt, n) ),
-    ( (go, north) )
+    ( (going, north) )
 )
 (rule, parse_s,
     ( -(prompt, s) ),
-    ( (go, south) )
+    ( (going, south) )
 )
 (rule, parse_e,
     ( -(prompt, e) ),
-    ( (go, east) )
+    ( (going, east) )
 )
 (rule, parse_w,
     ( -(prompt, w) ),
-    ( (go, west) )
+    ( (going, west) )
 )
 
-# Look command
-(rule, parse_look,
-    ( -(prompt, look) ),
-    ( (look) )
-)
-(rule, parse_look_around,
-    ( -(prompt, look, around) ),
-    ( (look) )
-)
+# Look shorthand
 (rule, parse_l,
     ( -(prompt, l) ),
-    ( (look) )
+    ( (looking) )
 )
 
-# Take command
-(rule, parse_take,
-    ( -(prompt, take, ?item) ),
-    ( (take, ?item) )
-)
-(rule, parse_take_the,
-    ( -(prompt, take, the, ?item) ),
-    ( (take, ?item) )
-)
-
-# Drop command
-(rule, parse_drop,
-    ( -(prompt, drop, ?item) ),
-    ( (drop, ?item) )
-)
-(rule, parse_drop_the,
-    ( -(prompt, drop, the, ?item) ),
-    ( (drop, ?item) )
-)
-
-# Inventory command
-(rule, parse_inventory,
-    ( -(prompt, inventory) ),
-    ( (inventory) )
-)
+# Inventory shorthand
 (rule, parse_i,
     ( -(prompt, i) ),
-    ( (inventory) )
+    ( (inventorying) )
 )
 
-# Where am I
-(rule, parse_whereami,
-    ( -(prompt, where, am, I) ),
-    ( (where_am_I) )
+# Examine shorthand
+(rule, parse_x,
+    ( -(prompt, x, ?item) ),
+    ( (examining, ?item) )
+)
+(rule, parse_x_the,
+    ( -(prompt, x, the, ?item) ),
+    ( (examining, ?item) )
 )
 
 # Help command
 (rule, parse_help,
     ( -(prompt, help) ),
-    ( (print, Commands: go <dir>, take <item>, drop <item>, look, inventory, where am I, n/s/e/w) )
-)
-
-# Examine command
-(rule, parse_examine,
-    ( -(prompt, examine, ?item) ),
-    ( (examine, ?item) )
-)
-(rule, parse_examine_the,
-    ( -(prompt, examine, the, ?item) ),
-    ( (examine, ?item) )
-)
-(rule, parse_x,
-    ( -(prompt, x, ?item) ),
-    ( (examine, ?item) )
-)
-(rule, parse_x_the,
-    ( -(prompt, x, the, ?item) ),
-    ( (examine, ?item) )
+    ( (print, Commands: go <dir>, take <item>, drop <item>, look, inventory, where am I, examine <item>, n/s/e/w/l/i/x) )
 )

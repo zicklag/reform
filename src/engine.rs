@@ -194,7 +194,10 @@ impl Engine {
                 if !all_consumed_exist {
                     continue;
                 }
-
+                // Re-check negations at apply time (facts may have changed since collection)
+                if !rule.check_negations(&self.facts, bindings) {
+                    continue;
+                }
                 // Check if this rule will actually change anything
                 let mut changed = false;
 

@@ -43,7 +43,7 @@ The description of the portraits is (Old faded portraits of stern-looking people
 
 # --- Special rules ---
 # The lamp is bolted to the floor in the Kitchen
-(bolted, lamp)
+The lamp is bolted to the floor
 
 # --- Player start ---
 You are in the Garden

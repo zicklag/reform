@@ -40,148 +40,148 @@
 )
 
 # ============================================================
-# GO action
+# GOING action
 # ============================================================
 
-(rule, carry_out_go,
-    ( -(go, ?dir), -(here, ?here), -(described, ?here), (?to, ?dir, of, ?here), !(blocked, go, ?dir) ),
-    ( (here, ?to), (carried_out_success, go, ?dir) )
+(rule, carry_out_going,
+    ( -(going, ?dir), -(here, ?here), -(described, ?here), (?to, ?dir, of, ?here), !(blocked, going, ?dir) ),
+    ( (here, ?to), (carried_out_success, going, ?dir) )
 )
-(rule, carry_out_go_fail,
-    ( -(go, ?dir), (here, ?here), !(?to, ?dir, of, ?here), !(blocked, go, ?dir) ),
-    ( (carried_out_fail, go, ?dir) )
+(rule, carry_out_going_fail,
+    ( -(going, ?dir), (here, ?here), !(?to, ?dir, of, ?here), !(blocked, going, ?dir) ),
+    ( (carried_out_fail, going, ?dir) )
 )
-(rule, report_go_fail,
-    ( -(carried_out_fail, go, ?dir) ),
+(rule, report_going_fail,
+    ( -(carried_out_fail, going, ?dir) ),
     ( (print, (You can't go that way.)) )
 )
-(rule, report_go_success,
-    ( -(carried_out_success, go, ?dir) ),
+(rule, report_going_success,
+    ( -(carried_out_success, going, ?dir) ),
     ( (print, (You go ), ?dir, .) )
 )
 
 # ============================================================
-# TAKE action
+# TAKING action
 # ============================================================
 
-# Instead rules for take
+# Instead rules for taking
 # Generic: if something is bolted, you can't take it
-(rule, instead_take_bolted,
-    ( -(take, ?item), (bolted, ?item) ),
-    ( (blocked, take, ?item), (print, (The ), ?item, ( is bolted to the floor. It won't budge.)) )
+(rule, instead_taking_bolted,
+    ( -(taking, ?item), (bolted, ?item) ),
+    ( (blocked, taking, ?item), (print, (The ), ?item, ( is bolted to the floor. It won't budge.)) )
 )
 
-(rule, carry_out_take,
-    ( -(take, ?item), (here, ?here), -(in, ?item, ?here), !(carrying, ?item), !(blocked, take, ?item) ),
-    ( (carrying, ?item), (carried_out_success, take, ?item) )
+(rule, carry_out_taking,
+    ( -(taking, ?item), (here, ?here), -(in, ?item, ?here), !(carrying, ?item), !(blocked, taking, ?item) ),
+    ( (carrying, ?item), (carried_out_success, taking, ?item) )
 )
-(rule, carry_out_take_fail,
-    ( -(take, ?item), (here, ?here), !(in, ?item, ?here), !(carrying, ?item), !(blocked, take, ?item) ),
-    ( (carried_out_fail, take, ?item) )
+(rule, carry_out_taking_fail,
+    ( -(taking, ?item), (here, ?here), !(in, ?item, ?here), !(carrying, ?item), !(blocked, taking, ?item) ),
+    ( (carried_out_fail, taking, ?item) )
 )
-(rule, report_take,
-    ( -(carried_out_success, take, ?item) ),
+(rule, report_taking,
+    ( -(carried_out_success, taking, ?item) ),
     ( (print, (You take the ), ?item, .) )
 )
-(rule, report_take_fail,
-    ( -(carried_out_fail, take, ?item) ),
+(rule, report_taking_fail,
+    ( -(carried_out_fail, taking, ?item) ),
     ( (print, (You can't see any ), ?item, ( here.)) )
 )
 
 # ============================================================
-# DROP action
+# DROPPING action
 # ============================================================
 
-(rule, carry_out_drop,
-    ( -(drop, ?item), -(carrying, ?item), (here, ?here), !(blocked, drop, ?item) ),
-    ( (in, ?item, ?here), (carried_out_success, drop, ?item) )
+(rule, carry_out_dropping,
+    ( -(dropping, ?item), -(carrying, ?item), (here, ?here), !(blocked, dropping, ?item) ),
+    ( (in, ?item, ?here), (carried_out_success, dropping, ?item) )
 )
-(rule, carry_out_drop_fail,
-    ( -(drop, ?item), !(carrying, ?item), !(blocked, drop, ?item) ),
-    ( (carried_out_fail, drop, ?item) )
+(rule, carry_out_dropping_fail,
+    ( -(dropping, ?item), !(carrying, ?item), !(blocked, dropping, ?item) ),
+    ( (carried_out_fail, dropping, ?item) )
 )
-(rule, report_drop,
-    ( -(carried_out_success, drop, ?item) ),
+(rule, report_dropping,
+    ( -(carried_out_success, dropping, ?item) ),
     ( (print, (You drop the ), ?item, .) )
 )
-(rule, report_drop_fail,
-    ( -(carried_out_fail, drop, ?item) ),
+(rule, report_dropping_fail,
+    ( -(carried_out_fail, dropping, ?item) ),
     ( (print, (You aren't carrying the ), ?item, .) )
 )
 
 # ============================================================
-# EXAMINE action
+# EXAMINING action
 # ============================================================
 
-(rule, carry_out_examine_item,
-    ( -(examine, ?item), (description, ?item, ?desc), (here, ?here), (in, ?item, ?here), !(blocked, examine, ?item) ),
-    ( (carried_out_success, examine, ?item) )
+(rule, carry_out_examining_item,
+    ( -(examining, ?item), (description, ?item, ?desc), (here, ?here), (in, ?item, ?here), !(blocked, examining, ?item) ),
+    ( (carried_out_success, examining, ?item) )
 )
-(rule, carry_out_examine_carrying,
-    ( -(examine, ?item), (description, ?item, ?desc), (carrying, ?item), !(blocked, examine, ?item) ),
-    ( (carried_out_success, examine, ?item) )
+(rule, carry_out_examining_carrying,
+    ( -(examining, ?item), (description, ?item, ?desc), (carrying, ?item), !(blocked, examining, ?item) ),
+    ( (carried_out_success, examining, ?item) )
 )
-(rule, carry_out_examine_scenery,
-    ( -(examine, ?item), (description, ?item, ?desc), (here, ?here), (scenery, ?item, ?here), !(blocked, examine, ?item) ),
-    ( (carried_out_success, examine, ?item) )
+(rule, carry_out_examining_scenery,
+    ( -(examining, ?item), (description, ?item, ?desc), (here, ?here), (scenery, ?item, ?here), !(blocked, examining, ?item) ),
+    ( (carried_out_success, examining, ?item) )
 )
-(rule, carry_out_examine_fail,
-    ( -(examine, ?item), (here, ?here), !(in, ?item, ?here), !(scenery, ?item, ?here), !(carrying, ?item), !(blocked, examine, ?item) ),
-    ( (carried_out_fail, examine, ?item) )
+(rule, carry_out_examining_fail,
+    ( -(examining, ?item), (here, ?here), !(in, ?item, ?here), !(scenery, ?item, ?here), !(carrying, ?item), !(blocked, examining, ?item) ),
+    ( (carried_out_fail, examining, ?item) )
 )
-(rule, report_examine,
-    ( -(carried_out_success, examine, ?item), (description, ?item, ?desc) ),
+(rule, report_examining,
+    ( -(carried_out_success, examining, ?item), (description, ?item, ?desc) ),
     ( (print, (You examine the ), ?item, .), (print, ?desc) )
 )
-(rule, report_examine_fail,
-    ( -(carried_out_fail, examine, ?item) ),
+(rule, report_examining_fail,
+    ( -(carried_out_fail, examining, ?item) ),
     ( (print, (You can't see any ), ?item, ( here.)) )
 )
 
 # ============================================================
-# LOOK action
+# LOOKING action
 # ============================================================
 
-(rule, carry_out_look,
-    ( -(look), (here, ?here), -(described, ?here), !(blocked, look) ),
-    ( (carried_out_success, look) )
+(rule, carry_out_looking,
+    ( -(looking), (here, ?here), -(described, ?here), !(blocked, looking) ),
+    ( (carried_out_success, looking) )
 )
-(rule, report_look,
-    ( -(carried_out_success, look) ),
+(rule, report_looking,
+    ( -(carried_out_success, looking) ),
     ( (print, (You look around.)) )
 )
 
 # ============================================================
-# INVENTORY action
+# INVENTORYING action
 # ============================================================
 
-(rule, carry_out_inventory,
-    ( -(inventory), (carrying, ?item), !(blocked, inventory) ),
-    ( (carried_out_success, inventory) )
+(rule, carry_out_inventorying,
+    ( -(inventorying), (carrying, ?item), !(blocked, inventorying) ),
+    ( (carried_out_success, inventorying) )
 )
-(rule, carry_out_inventory_nothing,
-    ( -(inventory), !(carrying, ?_), !(blocked, inventory) ),
-    ( (carried_out_fail, inventory) )
+(rule, carry_out_inventorying_nothing,
+    ( -(inventorying), !(carrying, ?_), !(blocked, inventorying) ),
+    ( (carried_out_fail, inventorying) )
 )
-(rule, report_inventory,
-    ( -(carried_out_success, inventory), (carrying, ?item) ),
+(rule, report_inventorying,
+    ( -(carried_out_success, inventorying), (carrying, ?item) ),
     ( (print, (You are carrying: ), ?item) )
 )
-(rule, report_inventory_nothing,
-    ( -(carried_out_fail, inventory) ),
+(rule, report_inventorying_nothing,
+    ( -(carried_out_fail, inventorying) ),
     ( (print, (You are carrying nothing.)) )
 )
 
 # ============================================================
-# WHERE AM I action
+# WHERE_AM_IING action
 # ============================================================
 
-(rule, carry_out_whereami,
-    ( -(where_am_I), (here, ?here), !(blocked, where_am_I) ),
-    ( (carried_out_success, where_am_I) )
+(rule, carry_out_where_am_iing,
+    ( -(where_am_Iing), (here, ?here), !(blocked, where_am_Iing) ),
+    ( (carried_out_success, where_am_Iing) )
 )
-(rule, report_whereami,
-    ( -(carried_out_success, where_am_I), (here, ?here) ),
+(rule, report_where_am_iing,
+    ( -(carried_out_success, where_am_Iing), (here, ?here) ),
     ( (print, (You are in the ), ?here, .) )
 )
 

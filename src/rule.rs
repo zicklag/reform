@@ -102,7 +102,7 @@ impl Rule {
     }
 
     /// Check that none of the not_matches patterns match with the given bindings.
-    fn check_negations(&self, facts: &[Fact], bindings: &Bindings) -> bool {
+    pub(crate) fn check_negations(&self, facts: &[Fact], bindings: &Bindings) -> bool {
         for neg_pat in &self.not_matches {
             for fact in facts {
                 // match_pattern returns new bindings; merge with existing ones
