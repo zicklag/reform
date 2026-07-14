@@ -108,11 +108,21 @@ pub fn match_pattern(pattern: &Pattern, fact: &Fact) -> Option<Bindings> {
 
 /// Substitute variables in a pattern using bindings, producing a fact.
 /// If a variable is not bound, it stays as a variable (for partial patterns).
+/// Also substitutes `?var` patterns inside Atom strings (for rule-in-rule effects).
 pub fn substitute(pattern: &Pattern, bindings: &Bindings) -> Fact {
     let mut result = Vec::new();
     for pat in pattern.iter() {
         match pat {
-            Pat::Atom(s) => result.push(s.clone()),
+            Pat::Atom(s) => {
+                // Substitute ?var references inside the atom string too
+                let mut s = s.clone();
+                for (name, vals) in bindings {
+                    if vals.len() == 1 {
+                        s = s.replace(&format!("?{name}"), &vals[0]);
+                    }
+                }
+                result.push(s);
+            }
             Pat::Var(name) => {
                 let val = bindings
                     .iter()

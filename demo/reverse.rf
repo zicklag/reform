@@ -1,0 +1,16 @@
+(rule, reverse,
+    (-(reverse, ?a, ?b)),
+    (
+        (rule, reverse,
+            ( (?a, ?x, ?y) ),
+            ( (?b, ?y, ?x) ),
+        )
+    ),
+)
+
+(north, kitchen, bedroom)
+
+(reverse, north, south)
+
+$facts
+$assert (south, bedroom, kitchen)

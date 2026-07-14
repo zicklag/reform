@@ -100,8 +100,8 @@ peg::parser! {
                 (
                     // A nested balanced group
                     "(" balanced_content() ")" /
-                    // Any char except parens, newlines
-                    !['(' | ')' | '\n' | '\r'] [_]
+                    // Any char except parens
+                    !['(' | ')'] [_]
                 )*
             ) { s }
 
