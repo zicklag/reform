@@ -69,7 +69,7 @@ peg::parser! {
         rule del_fact() -> Fact = "-" f:fact() { f }
 
         /// Fact
-        rule fact() -> Fact =
+        pub rule fact() -> Fact =
             "(" words:fact_arg() ** "," ","? __ ")"
             { words }
 
@@ -155,4 +155,28 @@ mod test {
     fn parse_lang() {
         file_parser::file(LANG_REF).unwrap();
     }
+}
+
+/// Parse a pattern tuple like `(pred, arg1, ?var)` into a Pattern.
+/// Reuses the parser's fact() rule to parse the tuple, then converts
+/// each string to a Pat by checking for `?`/`..?` prefixes.
+pub fn parse_pattern(s: &str) -> Option<crate::fact::Pattern> {
+    let s = s.trim();
+    if !s.starts_with('(') || !s.ends_with(')') {
+        return None;
+    }
+    let fact = file_parser::fact(s).ok()?;
+    Some(
+        fact.into_iter()
+            .map(|arg| {
+                if let Some(rest) = arg.strip_prefix("..?") {
+                    crate::fact::Pat::Rest(rest.to_owned())
+                } else if let Some(var) = arg.strip_prefix('?') {
+                    crate::fact::Pat::Var(var.to_owned())
+                } else {
+                    crate::fact::Pat::Atom(arg)
+                }
+            })
+            .collect(),
+    )
 }

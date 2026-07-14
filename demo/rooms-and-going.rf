@@ -1,0 +1,43 @@
+(room, is, type)
+(frontroom, is, room)
+(kitchen, is, room)
+(bedroom, is, room)
+
+(bedroom, south, of, kitchen)
+(frontroom, north, of, kitchen)
+
+(here, is, bedroom)
+
+# Rules for going in a direction
+(rule, go_north,
+    ( -(go, north), -(here, is, ?here), (?going, north, of, ?here) ),
+    ( (here, is, ?going), (print, (You are in the ), ?going, .) )
+)
+(rule, go_south,
+    ( -(go, south), -(here, is, ?here), (?going, south, of, ?here) ),
+    ( (here, is, ?going), (print, (You are in the ), ?going, .) )
+)
+(rule, go_fail,
+    ( -(go, ?dir), (here, is, ?here), !(?going, ?dir, of, ?here) ),
+    ( (print, (You can't go that way.)) )
+)
+
+# Everything that has a "north of" also has a reversed "south of"
+(rule, north_of_south,
+    ( (?x, north, of, ?y) ),
+    ( (?y, south, of, ?x) ),
+)
+(rule, south_of_north,
+    ( (?y, south, of, ?x) ),
+    ( (?x, north, of, ?y) ),
+)
+
+# Prmopt parsing
+(rule, parse_go,
+    ( -(prompt, go, ?where) ),
+    ( (go, ?where) )
+)
+(rule, parse_whereami,
+    ( -(prompt, where, am, I), (here, is, ?here) ),
+    ( (print, (You are in the ), ?here) )
+)
