@@ -5,18 +5,10 @@
 
 # Rule is a special kind of fact that operates on other facts.
 # Rule handling is built into the engine.
-(rule,
-    rule_name,
-    (
-        -(?x, north of, ?y),
-        (here, ?y)
-    ),
-    (
-        (I, moved)
-    )
+(rule, rule_name,
+    ( -(?x, north of, ?y), (here, ?y) ),
+    ( (I, moved) )
 )
-
-rule name: -(?x, north of, ?y), (here, ?y) -> (I, moved)
 
 # Print is a special rule handled by the repl that will print
 # out it's arguments.
@@ -34,3 +26,18 @@ This is a sentence
 
 # The above line is equivalent to this fact
 (prompt, This, is, a, prompt)
+
+# You can make assertions, the program panics if the fact does not exist
+$ assert (fact, should exist)
+
+# Or negative assertions
+$ assert not (fact, exists)
+
+# You can also print the list of all facts
+$ facts
+
+# You can load other files
+$ load ./other-file.rf
+
+# And you can quit
+$ quit

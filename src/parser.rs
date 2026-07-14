@@ -1,248 +1,142 @@
-use crate::fact::Fact;
+type Fact = Vec<String>;
 
 /// A parsed statement from a script file or REPL input.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    /// Assert a fact: `pred(arg1, arg2)`
+    /// Assert a fatct
+    Fact(Fact),
+    /// Retract a fact
+    DeleteFact(Fact),
+    /// Crash if the given fact does not exist
     Assert(Fact),
-    /// Retract a fact: `-pred(arg1, arg2)`
-    Retract(Fact),
-    /// Assert that a fact exists (crash if not): `assert pred(...)`
-    AssertExists(Fact),
-    /// Assert that a fact does NOT exist (crash if it does): `assert not pred(...)`
+    /// Crash if the given fact exists
     AssertNot(Fact),
-    /// Sentence fallback: unrecognized line split into words — becomes `sentence(...)`.
-    Sentence(Vec<String>),
-    /// Prompt fact: line starting with `>` — always becomes `prompt(...)`.
-    Prompt(Vec<String>),
-    /// Find facts matching a pattern: `find pred(?x, ?y)`
-    Find(String),
-    /// Add a rule: `rule name: match1, match2 -> effect1, effect2`
-    Rule {
-        name: String,
-        /// Comma-separated match patterns (with optional `-`/`!` prefixes)
-        matches: String,
-        /// Comma-separated effect patterns
-        effects: String,
-    },
-    /// Run the fixed-point loop
-    Run,
-    /// Dump all facts
-    Facts,
-    /// Dump all rules
-    Rules,
-    /// Save a checkpoint
-    Checkpoint,
-    /// Restore to last checkpoint
-    Restore,
-    /// Load a script file
+    /// Load a reform file
     Load(String),
+    /// Find facts matching a pattern
+    Find(String),
+    /// Print out all fcts
+    Facts,
     /// Quit
     Quit,
 }
 
-
-/// Re-quote a pattern argument if it contains characters that would be
-/// ambiguous when re-parsed (spaces, commas, parens).
-fn quote_if_needed(s: &str) -> String {
-    if s.contains(' ') || s.contains(',') || s.contains('(') || s.contains(')') || s.is_empty() {
-        format!("'{}'", s)
-    } else {
-        s.to_string()
-    }
-}
 peg::parser! {
     grammar file_parser() for str {
-        // ===== Top-level =====
+        /// Parse a reform file
+        pub rule file() -> Vec<Stmt> =
+            // A list of statements separated by whitespace and surrounded by whitespace
+            __ stmt:statement() ** __ __ { stmt }
 
         /// Parse a single statement from a line.
         pub rule statement() -> Stmt
             = _ s:stmt() _ { s }
 
-        rule stmt() -> Stmt
-            = rule_stmt()
-            / assert_stmt()
-            / retract_stmt()
-            / command_stmt()
-            / fact_stmt()
-            / prompt_stmt()
-            / sentence_stmt()
+        /// Parse a statement
+        rule stmt() -> Stmt =
+            // Delete a fact
+            f:del_fact() { Stmt::DeleteFact(f) } /
+            // Add a fact
+            f:fact() { Stmt::Fact(f) } /
+            // Run a command
+            cmd_stmt() /
+            // Parse a prompt fact
+            f:prompt() { Stmt::Fact(f) } /
+            // Parse a sentence fact
+            f:sentence() { Stmt::Fact(f) }
 
-        // ===== Commands =====
+        /// Parse a sentence
+        rule sentence() -> Fact = words:word() ++ _ { words }
 
-        rule command_stmt() -> Stmt
-            = "run" !ident_char() { Stmt::Run }
-            / "facts" !ident_char() { Stmt::Facts }
-            / "rules" !ident_char() { Stmt::Rules }
-            / "checkpoint" !ident_char() { Stmt::Checkpoint }
-            / "restore" !ident_char() { Stmt::Restore }
-            / "quit" !ident_char() { Stmt::Quit }
-            / "exit" !ident_char() { Stmt::Quit }
-            / "find" _ pats:pattern_list() { Stmt::Find(pats.join(", ")) }
-            / "load" !ident_char() _ path:$((!newline() [_])+) { Stmt::Load(path.trim().to_string()) }
+        /// A word in a sentence is anything not whitespace separated by whitespace
+        rule word() -> String = $((!__ [_]) ++ _) { "test".to_owned() }
 
-        rule assert_stmt() -> Stmt
-            = "assert" _ "not" _ f:fact() { Stmt::AssertNot(f) }
-            / "assert" _ f:fact() { Stmt::AssertExists(f) }
+        /// Parse a prompt
+        rule prompt() -> Fact = ">" _ f:sentence() { f }
 
-        // ===== Retract =====
+        /// Fact deletion
+        rule del_fact() -> Fact = "-" f:fact() { f }
 
-        rule retract_stmt() -> Stmt
-            = "-" f:fact() { Stmt::Retract(f) }
+        /// Fact
+        rule fact() -> Fact =
+            "(" words:fact_arg() ** "," ","? __ ")"
+            { words }
 
-        // ===== Rule =====
+        /// Parse a fact argument, allowing parenthesis to wrap around
+        /// the arg to group the special characters inside.
+        rule fact_arg() -> String =
+            // Match on an arg surrounded in parens
+            __ "(" __ s:$fact_arg_inner() __ ")" __ { s.into() } /
 
-        rule rule_stmt() -> Stmt
-            = "rule" _ name:ident() _ ":" _ matches:pattern_list() _ "->" _ effects:pattern_list() {
-                Stmt::Rule {
-                    name,
-                    matches: matches.join(", "),
-                    effects: effects.join(", "),
-                }
-            }
+            // Not an open paren
+            !"(" 
+            // Then whitespace
+            __
+            // then the argument we're interested in
+            s:$(
+                (
+                    // which is not a newline a right paren or a comma
+                    !['\n' | '\r' | ',' | ')']
+                    // Is whatever is there that isn't those things
+                    [_]
+                // Repeated at least once
+                )+
+            ) 
+            __
+            // Followed by whitespace
+            { s.into() }
+            
+        rule fact_arg_inner() -> String =
+                // Match on an arg surrounded in parens
+                __ "(" __ s:$fact_arg_inner() __ ")" __ { s.into() } /
+    
+                // Not an open paren
+                !"(" 
+                // Then whitespace
+                __
+                // then the argument we're interested in
+                s:$(
+                    (
+                        // which is not a newline a right paren or a comma
+                        !['\n' | '\r' | ')']
+                        // Is whatever is there that isn't those things
+                        [_]
+                    // Repeated at least once
+                    )+
+                ) 
+                __
+                // Followed by whitespace
+                { s.into() }
 
-        // ===== Fact =====
 
-        rule fact_stmt() -> Stmt
-            = f:fact() { Stmt::Assert(f) }
+        /// A command statement
+        rule cmd_stmt() -> Stmt = "$" _ c:cmd() { c }
 
-        rule fact() -> Fact
-            = name:ident() _ "(" _ args:arg_list() _ ")" {
-                let mut f = vec![name];
-                f.extend(args);
-                f
-            }
-            / name:ident() ![_] { vec![name] }
+        /// A particular command
+        rule cmd() -> Stmt =
+            "assert" _ f:fact() _ { Stmt::Assert(f) } /
+            "assert not" _ f:fact() _ { Stmt::AssertNot(f) } /
+            "load" _ file:$((!(newline()) [_])+) _ { Stmt::Load(file.to_owned()) } /
+            "find" pattern:$((!newline() [_])+) _ { Stmt::Find(pattern.to_owned()) } /
+            "facts" __ { Stmt::Facts } /
+            "quit" __ { Stmt::Quit }
 
-        /// Parse a comma-separated list of arguments (strings, no variables)
-        rule arg_list() -> Vec<String>
-            = a:arg_value() ** (_ "," _) { a }
+        /// Single line whitespace
+        rule _() = [' ' | '\t' ]*
 
-        /// Parse a single argument value (no variables in facts)
-        rule arg_value() -> String
-            = quoted_string()
-            / grouped_string()
-            / s:$(ident_char()+ / number()) { s.to_string() }
+        /// Multi-line whitespace, including comments
+        rule __() = ( [' ' | '\t' ] / newline() / line_comment() )*
 
-        /// Parenthesized grouping: `(content with, commas)` — outermost parens
-        /// are stripped, inner balanced parens are preserved.
-        rule grouped_string() -> String
-            = "(" _ s:grouped_content() _ ")" { s }
+        /// Line comment
+        rule line_comment() = "#" (!newline() [_])*
 
-        /// Content with balanced parens — inner parens are kept.
-        rule grouped_content() -> String
-            = a:grouped_part()+ { a.concat() }
-
-        /// A segment of grouped content: either a nested paren group or plain text.
-        rule grouped_part() -> String
-            = "(" s:grouped_content() ")" { format!("({})", s) }
-            / s:$(not_paren()+) { s.to_string() }
-
-        /// Any character except '(' or ')'
-        rule not_paren() -> &'input str
-            = !"(" !")" s:$([_]) { s }
-
-        // ===== Prompt =====
-
-        /// A line starting with `>` becomes a prompt fact.
-        /// Each word is a separate argument. Must consume the whole line.
-        rule prompt_stmt() -> Stmt
-            = ">" _ words:sentence_words() ![_] { Stmt::Prompt(words) }
-
-        // ===== Sentence fallback =====
-
-        /// Fallback: any unrecognized line becomes a sentence fact.
-        /// Each word is a separate argument. Must consume the whole line.
-        rule sentence_stmt() -> Stmt
-            = words:sentence_words() ![_] { Stmt::Sentence(words) }
-
-        rule sentence_words() -> Vec<String>
-            = w:$((![' ' | '\t' | '\n' | '\r'] [_])+) ++ _ { w.iter().map(|s| s.to_string()).collect() }
-
-        // ===== Pattern list (for rules) =====
-
-        /// Parse a comma-separated list of match/effect patterns.
-        /// Each pattern may have `-` or `!` prefix.
-        rule pattern_list() -> Vec<String>
-            = p:pattern_entry() ** (_ "," _) { p }
-
-        /// Parse a single pattern entry with optional prefix.
-        rule pattern_entry() -> String
-            = prefix:prefix()? p:pattern_str() {
-                match prefix {
-                    Some(pfx) => format!("{}{}", pfx, p),
-                    None => p,
-                }
-            }
-
-        rule prefix() -> &'input str
-            = "-" { "-" }
-            / "!" { "!" }
-
-        /// Parse a single pattern string: `pred` or `pred(arg1, ?var, ..?rest)`
-        /// or `?pred` or `?pred(arg1, ?var)`
-        rule pattern_str() -> String
-            = name:pattern_pred() _ "(" _ args:pattern_arg_list() _ ")" {
-                let args: Vec<String> = args.iter().map(|a| quote_if_needed(a)).collect();
-                format!("{}({})", name, args.join(", "))
-            }
-            / name:pattern_pred() { name }
-
-        /// Parse a pattern predicate: `?name` or `name`
-        rule pattern_pred() -> String
-            = "?" n:ident() { format!("?{}", n) }
-            / n:ident() { n }
-
-        /// Parse a comma-separated list of pattern arguments
-        rule pattern_arg_list() -> Vec<String>
-            = a:pattern_arg() ** (_ "," _) { a }
-
-        /// Parse a single pattern argument
-        rule pattern_arg() -> String
-            = rest_var()
-            / quoted_string()
-            / grouped_string()
-            / variable()
-            / s:$(ident_char()+ / number()) { s.to_string() }
-
-        rule rest_var() -> String
-            = "..?" n:ident() { format!("..?{}", n) }
-
-        rule variable() -> String
-            = "?" n:ident() { format!("?{}", n) }
-
-        rule quoted_string() -> String
-            = "\"" s:$([^'"']*) "\"" { s.to_string() }
-            / "'" s:$(not_single_quote()*) "'" { s.to_string() }
-
-        /// Any character except a single quote
-        rule not_single_quote() -> &'input str
-            = !"'" s:$([_]) { s }
-
-        // ===== Primitives =====
-
-        rule ident() -> String
-            = s:$(letter() (ident_char())*) { s.to_string() }
-
-        rule number() -> &'input str
-            = $("-"? digit()+ ("." digit()+)?)
-
-        rule letter() -> char
-            = ['a'..='z' | 'A'..='Z' | '_']
-
-        rule ident_char() -> char
-            = letter() / digit() / ['-']
-
-        rule digit() -> char
-            = ['0'..='9']
-
-        /// Whitespace (including newlines for multi-line rules)
-        rule _()
-            = quiet!{ [' ' | '\t' | '\n' | '\r']* }
-
-        rule newline()
-            = ['\n' | '\r']
+        /// Newline
+        rule newline() = ['\n' | '\r']
     }
+}
+
+pub fn parse_file(s: &str) -> Result<Vec<Stmt>, peg::error::ParseError<peg::str::LineCol>> {
+    file_parser::file(s)
 }
 
 /// Parse a single statement from a line of input.
@@ -255,233 +149,13 @@ pub fn parse_stmt(input: &str) -> Option<Stmt> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
-    #[test]
-    fn parse_fact_bare() {
-        assert_eq!(parse_stmt("n"), Some(Stmt::Assert(vec!["n".into()])));
-    }
+    const LANG_REF: &str = include_str!("../demo/lang.rf");
 
     #[test]
-    fn parse_fact_with_args() {
-        assert_eq!(
-            parse_stmt("room(kitchen)"),
-            Some(Stmt::Assert(vec!["room".into(), "kitchen".into()]))
-        );
-    }
-
-    #[test]
-    fn parse_retract() {
-        assert_eq!(
-            parse_stmt("-here(frontroom)"),
-            Some(Stmt::Retract(vec!["here".into(), "frontroom".into()]))
-        );
-    }
-
-    #[test]
-    fn parse_rule() {
-        let result = parse_stmt("rule go_north: -n, -here(?h), north_of(?g, ?h) -> here(?g)");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Rule { name, matches, effects } => {
-                assert_eq!(name, "go_north");
-                assert_eq!(matches, "-n, -here(?h), north_of(?g, ?h)");
-                assert_eq!(effects, "here(?g)");
-            }
-            other => panic!("expected Rule, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_assert_exists() {
-        assert_eq!(
-            parse_stmt("assert here(frontroom)"),
-            Some(Stmt::AssertExists(vec!["here".into(), "frontroom".into()]))
-        );
-    }
-
-    #[test]
-    fn parse_assert_not() {
-        assert_eq!(
-            parse_stmt("assert not here(kitchen)"),
-            Some(Stmt::AssertNot(vec!["here".into(), "kitchen".into()]))
-        );
-    }
-
-    #[test]
-    fn parse_run() {
-        assert_eq!(parse_stmt("run"), Some(Stmt::Run));
-    }
-
-    #[test]
-    fn parse_facts() {
-        assert_eq!(parse_stmt("facts"), Some(Stmt::Facts));
-    }
-
-    #[test]
-    fn parse_quit() {
-        assert_eq!(parse_stmt("quit"), Some(Stmt::Quit));
-    }
-
-    #[test]
-    fn parse_load() {
-        assert_eq!(
-            parse_stmt("load demo/game.txt"),
-            Some(Stmt::Load("demo/game.txt".into()))
-        );
-    }
-
-    #[test]
-    fn parse_comment() {
-        assert_eq!(parse_stmt("# this is a comment"), None);
-        assert_eq!(parse_stmt("// this is a comment"), None);
-    }
-
-    #[test]
-    fn parse_empty() {
-        assert_eq!(parse_stmt(""), None);
-        assert_eq!(parse_stmt("   "), None);
-    }
-
-    #[test]
-    fn parse_rule_with_negation() {
-        let result = parse_stmt("rule infer: ?rel(?x, ?y), !instance(?x, ?domain) -> instance(?x, ?domain)");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Rule { name, matches, .. } => {
-                assert_eq!(name, "infer");
-                assert!(matches.contains("!instance(?x, ?domain)"));
-            }
-            other => panic!("expected Rule, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_rule_multi_effect() {
-        let result = parse_stmt("rule test: a(?x), b(?y) -> c(?x), d(?y)");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Rule { name, matches, effects } => {
-                assert_eq!(name, "test");
-                assert_eq!(matches, "a(?x), b(?y)");
-                assert_eq!(effects, "c(?x), d(?y)");
-            }
-            other => panic!("expected Rule, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_rule_variable_predicate() {
-        let result = parse_stmt("rule infer: ?rel(?x, ?y), !instance(?x, ?domain) -> instance(?x, ?domain)");
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn parse_sentence() {
-        let result = parse_stmt("go north");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Sentence(words) => {
-                assert_eq!(words, vec!["go", "north"]);
-            }
-            other => panic!("expected Sentence, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_sentence_multi_word() {
-        let result = parse_stmt("take the apple");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Sentence(words) => {
-                assert_eq!(words, vec!["take", "the", "apple"]);
-            }
-            other => panic!("expected Sentence, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_prompt() {
-        let result = parse_stmt("> go north");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Prompt(words) => {
-                assert_eq!(words, vec!["go", "north"]);
-            }
-            other => panic!("expected Prompt, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_prompt_multi_word() {
-        let result = parse_stmt("> take the apple");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Prompt(words) => {
-                assert_eq!(words, vec!["take", "the", "apple"]);
-            }
-            other => panic!("expected Prompt, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_single_quote_string() {
-        let result = parse_stmt("test('hello, world')");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Assert(fact) => {
-                assert_eq!(fact, vec!["test", "hello, world"]);
-            }
-            other => panic!("expected Assert, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_single_quote_simple() {
-        let result = parse_stmt("test('hello')");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Assert(fact) => {
-                assert_eq!(fact, vec!["test", "hello"]);
-            }
-            other => panic!("expected Assert, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_grouped_string() {
-        let result = parse_stmt("test((hello, world))");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Assert(fact) => {
-                assert_eq!(fact, vec!["test", "hello, world"]);
-            }
-            other => panic!("expected Assert, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_grouped_nested() {
-        let result = parse_stmt("test((a (b c) d))");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Assert(fact) => {
-                assert_eq!(fact, vec!["test", "a (b c) d"]);
-            }
-            other => panic!("expected Assert, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn parse_find() {
-        let result = parse_stmt("find here(?x)");
-        assert!(result.is_some());
-        match result.unwrap() {
-            Stmt::Find(pat) => {
-                assert_eq!(pat, "here(?x)");
-            }
-            other => panic!("expected Find, got {:?}", other),
-        }
+    fn parse_lang() {
+        file_parser::file(LANG_REF).unwrap();
     }
 }

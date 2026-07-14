@@ -1,0 +1,14 @@
+# With comments
+$ load ./test.txt
+$quit
+(a, b, c)
+-(a, b, c)
+$ assert (a, b, c)
+$ assert not (a, b, c)
+$ facts
+(
+    (hello, world),
+    rule,
+    test,
+    bob,
+)
