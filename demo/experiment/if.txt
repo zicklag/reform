@@ -71,23 +71,6 @@
     ( (blocked, taking, ?item), (print, (The ), ?item, ( is bolted to the floor. It won't budge.)) )
 )
 
-(rule, carry_out_taking,
-    ( -(taking, ?item), (here, ?here), -(in, ?item, ?here), !(carrying, ?item), !(blocked, taking, ?item) ),
-    ( (carrying, ?item), (carried_out_success, taking, ?item) )
-)
-(rule, carry_out_taking_fail,
-    ( -(taking, ?item), (here, ?here), !(in, ?item, ?here), !(carrying, ?item), !(blocked, taking, ?item) ),
-    ( (carried_out_fail, taking, ?item) )
-)
-(rule, report_taking,
-    ( -(carried_out_success, taking, ?item) ),
-    ( (print, (You take the ), ?item, .) )
-)
-(rule, report_taking_fail,
-    ( -(carried_out_fail, taking, ?item) ),
-    ( (print, (You can't see any ), ?item, ( here.)) )
-)
-
 # ============================================================
 # DROPPING action
 # ============================================================

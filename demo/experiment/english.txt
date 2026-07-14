@@ -83,7 +83,6 @@
 )
 
 # Bolted
-# "The lamp is bolted to the floor"
 (rule, def_bolted,
     ( -(sentence, The, ?t, is, bolted, to, the, floor) ),
     ( (bolted, ?t) )
@@ -94,8 +93,8 @@ going is an action applying to one thing
 understand go ?dir as going
 
 taking is an action applying to one thing
-understand take ?item as taking
-
+understand take ?thing as taking
+carry out taking move ?thing from in to carrying say (You take the ?thing.)
 dropping is an action applying to one thing
 understand drop ?item as dropping
 
@@ -111,7 +110,7 @@ understand inventory as inventorying
 where_am_Iing is an action applying to nothing
 understand where am I as where_am_Iing
 
-# Action definitions
+# Action definition parsers
 (rule, def_action_one,
     ( -(sentence, ?action, is, an, action, applying, to, one, thing) ),
     ( (action_def, ?action, one_thing) )
@@ -121,7 +120,7 @@ understand where am I as where_am_Iing
     ( (action_def, ?action, nothing) )
 )
 
-# Understand clauses
+# Understand clause parsers
 (rule, def_understand_one,
     ( -(sentence, understand, ?verb, ?var, as, ?action) ),
     ( (custom_verb, ?verb), (understand, ?action, ?verb, ?var) )
@@ -135,7 +134,7 @@ understand where am I as where_am_Iing
     ( (custom_verb, ?v1), (understand_multi, ?action, ?v1, ?v2, ?v3) )
 )
 
-# Instead rules for custom actions
+# Instead rules
 (rule, def_instead_custom,
     ( -(sentence, instead, of, ?action, the, ?item, say, ?msg) ),
     ( (rule, instead_?action_?item,
@@ -144,6 +143,25 @@ understand where am I as where_am_Iing
     ) )
 )
 
+# Carry out rules
+# "carry out taking move ?thing from in to carrying say (You take the ?thing.)"
+# The variable name ?thing is always used and becomes a real pattern variable in the generated rule.
+(rule, def_carry_out_move,
+    ( -(sentence, carry, out, ?action, move, ?var, from, ?loc, to, ?target, say, ?msg) ),
+    ( (custom_carry_out, ?action), (rule, carry_out_?action,
+        (-(?action, ?thing), -(?loc, ?thing, ?here), (here, ?here), !(carrying, ?thing), !(blocked, ?action, ?thing)),
+        ((?target, ?thing), (carried_out_success, ?action, ?thing))
+    ), (rule, carry_out_?action_fail,
+        (-(?action, ?thing), (here, ?here), !(?loc, ?thing, ?here), !(carrying, ?thing), !(blocked, ?action, ?thing)),
+        ((carried_out_fail, ?action, ?thing))
+    ), (rule, report_?action,
+        (-(carried_out_success, ?action, ?thing)),
+        ((print, ?msg))
+    ), (rule, report_?action_fail,
+        (-(carried_out_fail, ?action, ?thing)),
+        ((print, (You can't see any ), ?thing, ( here.)))
+    ) )
+)
 # Post-processing: generate prompt parsing rules from understand facts
 (rule, gen_parse_one,
     ( -(understand, ?action, ?verb, ?var) ),
@@ -164,5 +182,33 @@ understand where am I as where_am_Iing
     ( (rule, parse_?action,
         (-(prompt, ?v1, ?v2, ?v3)),
         ((?action))
+    ) )
+)
+
+# Post-processing: generate default rulebook rules for actions without custom carry out
+(rule, gen_carry_out_one,
+    ( -(action_def, ?action, one_thing), !(custom_carry_out, ?action) ),
+    ( (rule, carry_out_?action,
+        (-(?action, ?item), !(blocked, ?action, ?item)),
+        ((carried_out_success, ?action, ?item))
+    ), (rule, carry_out_?action_fail,
+        (-(?action, ?item), !(blocked, ?action, ?item)),
+        ((carried_out_fail, ?action, ?item))
+    ), (rule, report_?action,
+        (-(carried_out_success, ?action, ?item)),
+        ((print, (You ), ?action, ( the ), ?item, .))
+    ), (rule, report_?action_fail,
+        (-(carried_out_fail, ?action, ?item)),
+        ((print, (You can't ), ?action, ( that.)))
+    ) )
+)
+(rule, gen_carry_out_none,
+    ( -(action_def, ?action, nothing), !(custom_carry_out, ?action) ),
+    ( (rule, carry_out_?action,
+        (-(?action), !(blocked, ?action)),
+        ((carried_out_success, ?action))
+    ), (rule, report_?action,
+        (-(carried_out_success, ?action)),
+        ((print, (You ), ?action, .))
     ) )
 )
