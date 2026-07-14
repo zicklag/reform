@@ -1,0 +1,89 @@
+# Prompt Parser for Interactive Fiction
+#
+# Converts player prompts (typed in the REPL) into action facts.
+# The REPL in prompt mode turns input into (prompt, word1, word2, ...) facts.
+# These rules consume prompt facts and produce action facts for the IF engine.
+
+# Movement commands
+(rule, parse_go,
+    ( -(prompt, go, ?dir) ),
+    ( (go, ?dir) )
+)
+(rule, parse_go_the,
+    ( -(prompt, go, the, ?dir) ),
+    ( (go, ?dir) )
+)
+
+# Direction shorthands: n, s, e, w
+(rule, parse_n,
+    ( -(prompt, n) ),
+    ( (go, north) )
+)
+(rule, parse_s,
+    ( -(prompt, s) ),
+    ( (go, south) )
+)
+(rule, parse_e,
+    ( -(prompt, e) ),
+    ( (go, east) )
+)
+(rule, parse_w,
+    ( -(prompt, w) ),
+    ( (go, west) )
+)
+
+# Look command
+(rule, parse_look,
+    ( -(prompt, look) ),
+    ( (look) )
+)
+(rule, parse_look_around,
+    ( -(prompt, look, around) ),
+    ( (look) )
+)
+(rule, parse_l,
+    ( -(prompt, l) ),
+    ( (look) )
+)
+
+# Take command
+(rule, parse_take,
+    ( -(prompt, take, ?item) ),
+    ( (take, ?item) )
+)
+(rule, parse_take_the,
+    ( -(prompt, take, the, ?item) ),
+    ( (take, ?item) )
+)
+
+# Drop command
+(rule, parse_drop,
+    ( -(prompt, drop, ?item) ),
+    ( (drop, ?item) )
+)
+(rule, parse_drop_the,
+    ( -(prompt, drop, the, ?item) ),
+    ( (drop, ?item) )
+)
+
+# Inventory command
+(rule, parse_inventory,
+    ( -(prompt, inventory) ),
+    ( (inventory) )
+)
+(rule, parse_i,
+    ( -(prompt, i) ),
+    ( (inventory) )
+)
+
+# Where am I
+(rule, parse_whereami,
+    ( -(prompt, where, am, I) ),
+    ( (where_am_I) )
+)
+
+# Help command
+(rule, parse_help,
+    ( -(prompt, help) ),
+    ( (print, Commands: go <dir>, take <item>, drop <item>, look, inventory, where am I, n/s/e/w) )
+)

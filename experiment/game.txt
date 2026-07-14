@@ -1,0 +1,30 @@
+# The Lost Key
+#
+# A short interactive fiction game.
+# Uses the English sentence language from lib.txt.
+
+$ load ./lib.txt
+
+# --- Rooms ---
+The Garden is a room
+The Kitchen is a room
+The Study is a room
+The Hallway is a room
+
+# --- Room connections ---
+The Kitchen is north of the Garden
+The Hallway is east of the Kitchen
+The Study is north of the Hallway
+
+# --- Things ---
+A key is a thing
+A book is a thing
+A lamp is a thing
+
+# --- Thing locations ---
+The key is in the Garden
+The book is in the Study
+The lamp is in the Kitchen
+
+# --- Player start ---
+You are in the Garden

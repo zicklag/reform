@@ -1,0 +1,67 @@
+# English Sentence Parser for Interactive Fiction
+#
+# Converts English-like sentences into IF world model facts.
+# Sentences are parsed as (sentence, word1, word2, ...) facts by the engine.
+# These rules consume sentence facts and produce world model facts.
+#
+# Direction facts use the format: (?a, north, of, ?b) — matching the IF rules.
+
+# Room definitions
+# "The Garden is a room" or "Garden is a room"
+(rule, def_room_the,
+    ( -(sentence, The, ?r, is, a, room) ),
+    ( (room, ?r) )
+)
+(rule, def_room_a,
+    ( -(sentence, A, ?r, is, a, room) ),
+    ( (room, ?r) )
+)
+(rule, def_room_bare,
+    ( -(sentence, ?r, is, a, room) ),
+    ( (room, ?r) )
+)
+
+# Thing definitions
+(rule, def_thing_a,
+    ( -(sentence, A, ?t, is, a, thing) ),
+    ( (thing, ?t) )
+)
+(rule, def_thing_bare,
+    ( -(sentence, ?t, is, a, thing) ),
+    ( (thing, ?t) )
+)
+
+# Direction relations
+# "The Kitchen is north of the Garden" -> (Kitchen, north, of, Garden)
+(rule, def_north_of,
+    ( -(sentence, The, ?a, is, north, of, the, ?b) ),
+    ( (?a, north, of, ?b) )
+)
+(rule, def_south_of,
+    ( -(sentence, The, ?a, is, south, of, the, ?b) ),
+    ( (?a, south, of, ?b) )
+)
+(rule, def_east_of,
+    ( -(sentence, The, ?a, is, east, of, the, ?b) ),
+    ( (?a, east, of, ?b) )
+)
+(rule, def_west_of,
+    ( -(sentence, The, ?a, is, west, of, the, ?b) ),
+    ( (?a, west, of, ?b) )
+)
+
+# Player location
+(rule, def_here,
+    ( -(sentence, You, are, in, the, ?r) ),
+    ( (here, ?r) )
+)
+
+# Things in rooms
+(rule, def_in_room,
+    ( -(sentence, The, ?t, is, in, the, ?r) ),
+    ( (in, ?t, ?r) )
+)
+(rule, def_in_room_bare,
+    ( -(sentence, ?t, is, in, ?r) ),
+    ( (in, ?t, ?r) )
+)

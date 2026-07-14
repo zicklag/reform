@@ -1,0 +1,101 @@
+# Core Interactive Fiction Rules
+#
+#   (room, ?r)          - ?r is a room
+#   (thing, ?t)         - ?t is a thing (portable object)
+#   (?a, north, of, ?b) - ?a is north of ?b
+#   (?a, south, of, ?b) - ?a is south of ?b
+#   (?a, east, of, ?b)  - ?a is east of ?b
+#   (?a, west, of, ?b)  - ?a is west of ?b
+#   (here, ?r)          - player is in room ?r
+#   (in, ?t, ?r)        - thing ?t is in room ?r
+#   (carrying, ?t)      - player is carrying thing ?t
+#   (described, ?r)     - room ?r has been described this turn
+
+# Direction symmetry: if A is north of B, B is south of A, etc.
+(rule, north_of_south,
+    ( (?a, north, of, ?b) ),
+    ( (?b, south, of, ?a) )
+)
+(rule, south_of_north,
+    ( (?b, south, of, ?a) ),
+    ( (?a, north, of, ?b) )
+)
+(rule, east_of_west,
+    ( (?a, east, of, ?b) ),
+    ( (?b, west, of, ?a) )
+)
+(rule, west_of_east,
+    ( (?b, west, of, ?a) ),
+    ( (?a, east, of, ?b) )
+)
+
+# Movement: go in a direction
+# Consumes described flag so room re-describes on entry
+(rule, go_dir,
+    ( -(go, ?dir), -(here, ?here), -(described, ?here), (?to, ?dir, of, ?here) ),
+    ( (here, ?to), (print, (You go ), ?dir, .) )
+)
+(rule, go_fail,
+    ( -(go, ?dir), (here, ?here), !(?to, ?dir, of, ?here) ),
+    ( (print, (You can't go that way.)) )
+)
+
+# Describe the current room when entering (before described flag is set)
+(rule, describe_room,
+    ( (here, ?here), !(described, ?here) ),
+    ( (print, (You are in the ), ?here, .) )
+)
+(rule, describe_things,
+    ( (here, ?here), (in, ?item, ?here), !(described, ?here) ),
+    ( (print, (You can see ), ?item, ( here.)) )
+)
+(rule, describe_exits,
+    ( (here, ?here), (?exit, ?dir, of, ?here), !(described, ?here) ),
+    ( (print, (There is an exit to the ), ?dir, .) )
+)
+(rule, mark_described,
+    ( (here, ?here), !(described, ?here) ),
+    ( (described, ?here) )
+)
+
+# Look command: re-describe the room
+(rule, do_look,
+    ( -(look), (here, ?here), -(described, ?here) ),
+    ( (print, (You look around.)) )
+)
+
+# Taking things
+(rule, take_item,
+    ( -(take, ?item), (here, ?here), -(in, ?item, ?here), !(carrying, ?item) ),
+    ( (carrying, ?item), (print, (You take the ), ?item, .) )
+)
+(rule, take_fail,
+    ( -(take, ?item), !(in, ?item, ?_), !(carrying, ?item) ),
+    ( (print, (You can't see any ), ?item, ( here.)) )
+)
+
+# Dropping things
+(rule, drop_item,
+    ( -(drop, ?item), -(carrying, ?item), (here, ?here) ),
+    ( (in, ?item, ?here), (print, (You drop the ), ?item, .) )
+)
+(rule, drop_fail,
+    ( -(drop, ?item), !(carrying, ?item) ),
+    ( (print, (You aren't carrying the ), ?item, .) )
+)
+
+# Inventory
+(rule, do_inventory,
+    ( -(inventory), (carrying, ?item) ),
+    ( (print, (You are carrying: ), ?item) )
+)
+(rule, inventory_nothing,
+    ( -(inventory), !(carrying, ?_) ),
+    ( (print, (You are carrying nothing.)) )
+)
+
+# Where am I
+(rule, where_am_i,
+    ( -(where_am_I), (here, ?here) ),
+    ( (print, (You are in the ), ?here, .) )
+)

@@ -1,0 +1,34 @@
+# Test: Basic movement and room descriptions
+$ load ../game.txt
+
+# Should start in the Garden
+$ assert (here, Garden)
+$ assert (described, Garden)
+
+# Go north to Kitchen
+> go north
+$ assert (here, Kitchen)
+$ assert (described, Kitchen)
+$ assert not (here, Garden)
+
+# Go east to Hallway
+> go east
+$ assert (here, Hallway)
+$ assert (described, Hallway)
+
+# Go north to Study
+> go north
+$ assert (here, Study)
+$ assert (described, Study)
+
+# Go back south to Hallway
+> go south
+$ assert (here, Hallway)
+
+# Go west back to Kitchen
+> go west
+$ assert (here, Kitchen)
+
+# Go south back to Garden
+> go south
+$ assert (here, Garden)
