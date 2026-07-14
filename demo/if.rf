@@ -1,6 +1,4 @@
-rule def_room: -sentence(?r, is, a, room) -> room(?r)
-rule def_north_of: -sentence(?r1, is, north, of, ?r2) -> north_of(?r1, ?r2)
-rule def_her: -sentence(You, are, in, the, ?r) -> here(?r)
+# Interactive Fiction Prelude
 
 rule north_of_south: north_of(?a, ?b) -> south_of(?b, ?a)
 rule south_of_north: south_of(?a, ?b) -> north_of(?b, ?a)

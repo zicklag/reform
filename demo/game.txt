@@ -1,9 +1,0 @@
-load ./if.txt
-
-Bedroom is a room
-Kitchen is a room
-Kitchen is north of Bedroom
-Frontroom is a room
-Frontroom is north of Kitchen
-
-You are in the Bedroom

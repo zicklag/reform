@@ -1,0 +1,5 @@
+# English Language Parser Rules for Interactive Fiction
+
+rule def_room: -sentence(?r, is, a, room) -> room(?r)
+rule def_north_of: -sentence(?r1, is, north, of, ?r2) -> north_of(?r1, ?r2)
+rule def_her: -sentence(You, are, in, the, ?r) -> here(?r)

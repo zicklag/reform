@@ -24,6 +24,49 @@ impl Rule {
         self.find_match_from(facts, 0, &Bindings::new())
     }
 
+    /// Find every distinct match for this rule in the given facts.
+    /// Each match is returned once, deduplicated by the set of matched facts.
+    pub fn find_all_matches(&self, facts: &[Fact]) -> Vec<(Bindings, Vec<Fact>)> {
+        let mut results: Vec<(Bindings, Vec<Fact>)> = Vec::new();
+        self.collect_matches(facts, 0, &Bindings::new(), &mut results);
+        // Deduplicate by matched facts to avoid firing the same match twice.
+        results.sort_by(|a, b| a.1.cmp(&b.1));
+        results.dedup_by(|a, b| a.1 == b.1);
+        results
+    }
+
+    fn collect_matches(
+        &self,
+        facts: &[Fact],
+        pattern_idx: usize,
+        bindings: &Bindings,
+        out: &mut Vec<(Bindings, Vec<Fact>)>,
+    ) {
+        if pattern_idx >= self.matches.len() {
+            if self.check_negations(facts, bindings) {
+                out.push((bindings.clone(), Vec::new()));
+            }
+            return;
+        }
+
+        let pattern = &self.matches[pattern_idx];
+        for fact in facts {
+            if let Some(new_bindings) = match_pattern(pattern, fact) {
+                let merged = match merge_bindings(bindings, &new_bindings) {
+                    Some(m) => m,
+                    None => continue,
+                };
+                let mut prev_len = out.len();
+                self.collect_matches(facts, pattern_idx + 1, &merged, out);
+                // Prepend this fact to each newly added match's matched-facts list.
+                while out.len() > prev_len {
+                    out[prev_len].1.insert(0, fact.clone());
+                    prev_len += 1;
+                }
+            }
+        }
+    }
+
     fn find_match_from(
         &self,
         facts: &[Fact],
@@ -272,5 +315,41 @@ mod tests {
 
         let result = rule.find_match(&facts);
         assert!(result.is_some());
+    }
+
+    /// Regression: a rule must fire once per matching fact, not just once
+    /// for the first match. `north_of(?a, ?b) -> south_of(?b, ?a)` with two
+    /// `north_of` facts must produce two distinct matches.
+    #[test]
+    fn find_all_matches_one_per_fact() {
+        let rule = Rule {
+            name: "north_of_south".into(),
+            matches: vec![pat("north_of(?a, ?b)")],
+            not_matches: vec![],
+            consumes: vec![],
+            effects: vec![pat("south_of(?b, ?a)")],
+        };
+
+        let facts = vec![
+            fact("north_of(kitchen, bedroom)"),
+            fact("north_of(frontroom, kitchen)"),
+        ];
+
+        let matches = rule.find_all_matches(&facts);
+        assert_eq!(matches.len(), 2, "should find one match per north_of fact");
+
+        let effects: Vec<String> = matches
+            .iter()
+            .map(|(bindings, _)| {
+                let applied = rule.apply(bindings);
+                applied
+                    .iter()
+                    .map(|f| f.join(","))
+                    .collect::<Vec<_>>()
+                    .join(";")
+            })
+            .collect();
+        assert!(effects.iter().any(|e| e == "south_of,bedroom,kitchen"));
+        assert!(effects.iter().any(|e| e == "south_of,kitchen,frontroom"));
     }
 }

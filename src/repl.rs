@@ -267,12 +267,20 @@ fn exec_stmt_from(engine: &mut Engine, stmt: Stmt, base_dir: &std::path::Path) -
                 consumes: Vec::new(),
                 effects: Vec::new(),
             };
-            if let Some((_bindings, matched_facts)) = rule.find_match(engine.facts()) {
-                for fact in &matched_facts {
-                    println!("  {}", format_fact(fact));
-                }
-            } else {
+            let all_matches = rule.find_all_matches(engine.facts());
+            if all_matches.is_empty() {
                 println!("  (no matches)");
+            } else {
+                // Collect and print every matched fact, deduplicated.
+                let mut seen: Vec<crate::fact::Fact> = Vec::new();
+                for (_bindings, matched_facts) in &all_matches {
+                    for fact in matched_facts {
+                        if !seen.contains(fact) {
+                            seen.push(fact.clone());
+                            println!("  {}", format_fact(fact));
+                        }
+                    }
+                }
             }
         }
     }

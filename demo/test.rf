@@ -1,0 +1,6 @@
+rule north_of_south: north_of(?a, ?b) -> south_of(?b, ?a)
+
+north_of(home, brook)
+north_of(brook, town)
+
+facts

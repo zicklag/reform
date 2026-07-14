@@ -172,9 +172,10 @@ impl Engine {
             let matches: Vec<(usize, Bindings, Vec<Fact>)> = all_rules
                 .iter()
                 .enumerate()
-                .filter_map(|(idx, rule)| {
-                    rule.find_match(&self.facts)
-                        .map(|(bindings, matched)| (idx, bindings, matched))
+                .flat_map(|(idx, rule)| {
+                    rule.find_all_matches(&self.facts)
+                        .into_iter()
+                        .map(move |(bindings, matched)| (idx, bindings, matched))
                 })
                 .collect();
 
