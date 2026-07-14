@@ -48,62 +48,96 @@ pub fn split_patterns(s: &str) -> Vec<&str> {
 }
 
 /// Check if a pattern matches a fact, returning bindings if it does.
+/// Supports rest patterns (`..?name`) anywhere in the pattern, including
+/// multiple rest patterns and rest patterns followed by non-rest arguments.
+/// Rest patterns match the shortest number of elements that allows the
+/// remainder of the pattern to match (shortest-match semantics).
 pub fn match_pattern(pattern: &Pattern, fact: &Fact) -> Option<Bindings> {
-    // If the pattern has a Rest, it can match any number of remaining fact elements.
-    // Otherwise, lengths must match exactly.
-    let has_rest = pattern.iter().any(|p| matches!(p, Pat::Rest(_)));
-    if !has_rest && pattern.len() != fact.len() {
-        return None;
+    let mut bindings = Bindings::new();
+    if try_match(pattern, fact, 0, 0, &mut bindings) {
+        Some(bindings)
+    } else {
+        None
     }
-    if has_rest && pattern.len() > fact.len() {
-        return None;
+}
+
+/// Recursive helper: try to match `pattern[pat_idx..]` against `fact[fact_idx..]`,
+/// accumulating bindings. Backtracks on rest variables to find the shortest match.
+fn try_match(
+    pattern: &Pattern,
+    fact: &Fact,
+    pat_idx: usize,
+    fact_idx: usize,
+    bindings: &mut Bindings,
+) -> bool {
+    // All pattern elements consumed — must also have consumed all fact elements.
+    if pat_idx >= pattern.len() {
+        return fact_idx >= fact.len();
     }
 
-    let mut bindings: Bindings = Vec::new();
-    let mut fact_idx = 0;
-    for pat in pattern.iter() {
-        match pat {
-            Pat::Atom(s) => {
-                if fact_idx >= fact.len() || s != &fact[fact_idx] {
-                    return None;
-                }
-                fact_idx += 1;
+    let pat = &pattern[pat_idx];
+
+    match pat {
+        Pat::Atom(s) => {
+            if fact_idx >= fact.len() || s != &fact[fact_idx] {
+                return false;
             }
-            Pat::Var(name) => {
-                if fact_idx >= fact.len() {
-                    return None;
-                }
-                let val = &fact[fact_idx];
-                // Check consistency with existing bindings
-                if let Some((_, existing)) = bindings.iter().find(|(n, _)| n == name) {
-                    if existing.len() != 1 || &existing[0] != val {
-                        return None;
-                    }
-                } else {
-                    bindings.push((name.clone(), vec![val.clone()]));
-                }
-                fact_idx += 1;
+            try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings)
+        }
+        Pat::Var(name) => {
+            if fact_idx >= fact.len() {
+                return false;
             }
-            Pat::Rest(name) => {
-                // Consume all remaining fact elements
-                let remaining: Vec<String> = fact[fact_idx..].to_vec();
-                // Check consistency with existing bindings
-                if let Some((_, existing)) = bindings.iter().find(|(n, _)| n == name) {
-                    if existing != &remaining {
-                        return None;
-                    }
-                } else {
-                    bindings.push((name.clone(), remaining));
+            let val = &fact[fact_idx];
+            // Check consistency with existing bindings
+            if let Some(idx) = bindings.iter().position(|(n, _)| n == name) {
+                let (_, existing) = &bindings[idx];
+                if existing.len() != 1 || existing[0] != *val {
+                    return false;
                 }
-                fact_idx = fact.len(); // consumed everything
+                try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings)
+            } else {
+                let saved_len = bindings.len();
+                bindings.push((name.clone(), vec![val.clone()]));
+                if try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings) {
+                    return true;
+                }
+                // Backtrack: remove the binding we just added
+                bindings.truncate(saved_len);
+                false
             }
         }
+        Pat::Rest(name) => {
+            // Try consuming 0, 1, 2, ... remaining fact elements (shortest first).
+            let remaining = fact.len() - fact_idx;
+            for consume in 0..=remaining {
+                let vals: Vec<String> = fact[fact_idx..fact_idx + consume].to_vec();
+
+                // Check consistency with existing bindings
+                if let Some(idx) = bindings.iter().position(|(n, _)| n == name) {
+                    let (_, existing) = &bindings[idx];
+                    if &existing != &&vals {
+                        continue;
+                    }
+                } else {
+                    let saved_len = bindings.len();
+                    bindings.push((name.clone(), vals));
+                    if try_match(pattern, fact, pat_idx + 1, fact_idx + consume, bindings) {
+                        return true;
+                    }
+                    // Backtrack: remove the binding we just added
+                    bindings.truncate(saved_len);
+                    continue;
+                }
+
+                // Binding already existed and matched — just recurse
+                if try_match(pattern, fact, pat_idx + 1, fact_idx + consume, bindings) {
+                    return true;
+                }
+            }
+            false
+        }
     }
-    // If we didn't consume all fact elements and there's no rest, fail
-    if fact_idx < fact.len() && !has_rest {
-        return None;
-    }
-    Some(bindings)
 }
 
 /// Substitute variables in a pattern using bindings, producing a fact.
@@ -209,4 +243,178 @@ pub fn format_pattern(pattern: &Pattern) -> String {
 /// Delegates to the parser module's fact parser.
 pub fn parse_pattern_from_str(s: &str) -> Option<Pattern> {
     crate::parser::parse_pattern(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pat(s: &str) -> Pattern {
+        if let Some(paren) = s.find('(') {
+            let pred = &s[..paren];
+            let args_str = &s[paren + 1..s.len() - 1];
+            let mut pattern = if pred.starts_with('?') {
+                vec![Pat::Var(pred[1..].to_string())]
+            } else if let Some(rest) = pred.strip_prefix("..?") {
+                vec![Pat::Rest(rest.to_string())]
+            } else {
+                vec![Pat::Atom(pred.to_string())]
+            };
+            for arg in args_str.split(',') {
+                let arg = arg.trim();
+                if let Some(rest) = arg.strip_prefix("..?") {
+                    pattern.push(Pat::Rest(rest.to_string()));
+                } else if arg.starts_with('?') {
+                    pattern.push(Pat::Var(arg[1..].to_string()));
+                } else {
+                    pattern.push(Pat::Atom(arg.to_string()));
+                }
+            }
+            pattern
+        } else if let Some(rest) = s.strip_prefix("..?") {
+            vec![Pat::Rest(rest.to_string())]
+        } else if s.starts_with('?') {
+            vec![Pat::Var(s[1..].to_string())]
+        } else {
+            vec![Pat::Atom(s.to_string())]
+        }
+    }
+
+    fn fact(s: &str) -> Fact {
+        if let Some(paren) = s.find('(') {
+            let pred = &s[..paren];
+            let args_str = &s[paren + 1..s.len() - 1];
+            let mut f = vec![pred.to_string()];
+            for arg in args_str.split(',') {
+                f.push(arg.trim().to_string());
+            }
+            f
+        } else {
+            vec![s.to_string()]
+        }
+    }
+
+    /// Rest at end: matches remaining elements (same as before).
+    #[test]
+    fn rest_at_end() {
+        let p = pat("pred(a, ..?rest)");
+        let f = fact("pred(a, b, c)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["b", "c"]);
+    }
+
+    /// Rest at beginning: matches leading elements.
+    #[test]
+    fn rest_at_start() {
+        let p = pat("pred(..?rest, z)");
+        let f = fact("pred(x, y, z)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["x", "y"]);
+    }
+
+    /// Rest in middle: matches elements between fixed args.
+    #[test]
+    fn rest_in_middle() {
+        let p = pat("pred(a, ..?rest, z)");
+        let f = fact("pred(a, b, c, z)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["b", "c"]);
+    }
+
+    /// Two rest patterns: first gets shortest match, second gets the rest.
+    #[test]
+    fn two_rests() {
+        let p = pat("pred(..?a, ..?b)");
+        let f = fact("pred(x, y, z)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "a").unwrap().1, Vec::<String>::new());
+        assert_eq!(b.iter().find(|(n, _)| n == "b").unwrap().1, vec!["x", "y", "z"]);
+    }
+
+    /// Two rest patterns with fixed separator: shortest match for first.
+    #[test]
+    fn two_rests_with_separator() {
+        let p = pat("pred(..?a, is, ..?b)");
+        let f = fact("pred(big, red, ball, is, fun, toy)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "a").unwrap().1, vec!["big", "red", "ball"]);
+        assert_eq!(b.iter().find(|(n, _)| n == "b").unwrap().1, vec!["fun", "toy"]);
+    }
+
+    /// Rest matches zero elements.
+    #[test]
+    fn rest_matches_zero() {
+        let p = pat("pred(..?rest, z)");
+        let f = fact("pred(z)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, Vec::<String>::new());
+    }
+
+    /// Rest matches everything (only element).
+    #[test]
+    fn rest_matches_all() {
+        let p = pat("pred(..?rest)");
+        let f = fact("pred(x, y, z)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["x", "y", "z"]);
+    }
+
+    /// Same rest variable in two positions: must bind consistently.
+    #[test]
+    fn rest_consistent_binding() {
+        let p = pat("pred(..?a, sep, ..?a)");
+        let f = fact("pred(x, y, sep, x, y)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "a").unwrap().1, vec!["x", "y"]);
+    }
+
+    /// Same rest variable in two positions: fails on inconsistency.
+    #[test]
+    fn rest_inconsistent_binding() {
+        let p = pat("pred(..?a, sep, ..?a)");
+        let f = fact("pred(x, y, sep, p, q)");
+        assert!(match_pattern(&p, &f).is_none());
+    }
+
+    /// No rest: exact length required (unchanged behavior).
+    #[test]
+    fn no_rest_exact_length() {
+        let p = pat("pred(a, b)");
+        let f = fact("pred(a, b)");
+        assert!(match_pattern(&p, &f).is_some());
+    }
+
+    /// No rest: wrong length fails.
+    #[test]
+    fn no_rest_wrong_length() {
+        let p = pat("pred(a, b)");
+        let f = fact("pred(a, b, c)");
+        assert!(match_pattern(&p, &f).is_none());
+    }
+
+    /// Atom mismatch fails.
+    #[test]
+    fn atom_mismatch() {
+        let p = pat("pred(a, ..?rest)");
+        let f = fact("pred(x, b, c)");
+        assert!(match_pattern(&p, &f).is_none());
+    }
+
+    /// Variable binding consistency across patterns.
+    #[test]
+    fn var_consistency() {
+        let p = pat("pred(?x, ..?rest, ?x)");
+        let f = fact("pred(hello, a, b, hello)");
+        let b = match_pattern(&p, &f).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "x").unwrap().1, vec!["hello"]);
+        assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["a", "b"]);
+    }
+
+    /// Variable binding inconsistency fails.
+    #[test]
+    fn var_inconsistency() {
+        let p = pat("pred(?x, ..?rest, ?x)");
+        let f = fact("pred(hello, a, b, world)");
+        assert!(match_pattern(&p, &f).is_none());
+    }
 }

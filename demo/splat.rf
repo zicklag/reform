@@ -1,0 +1,10 @@
+((hello, world), is, phrase)
+
+(rule, _,
+    ( -(?p, is, phrase) ),
+    (
+        (found, phrase, ..?p)
+    )
+)
+
+$ facts
