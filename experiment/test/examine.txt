@@ -1,0 +1,29 @@
+# Test: Examine / look at things
+$ load ../game.txt
+
+# Examine key in Garden
+> examine key
+$ assert (here, Garden)
+
+# x lamp should fail (lamp is in Kitchen)
+> x lamp
+$ assert (here, Garden)
+
+# Take key and go to Kitchen
+> take key
+$ assert (carrying, key)
+
+> go north
+$ assert (here, Kitchen)
+
+# Examine lamp in Kitchen
+> x lamp
+$ assert (here, Kitchen)
+
+# Examine key while carrying it
+> examine key
+$ assert (carrying, key)
+
+# Examine book should fail (book is in Study)
+> x book
+$ assert (here, Kitchen)

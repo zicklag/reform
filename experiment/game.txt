@@ -26,5 +26,20 @@ The key is in the Garden
 The book is in the Study
 The lamp is in the Kitchen
 
+# --- Descriptions ---
+The description of the key is (A small rusty key. It might open something important.)
+The description of the book is (A dusty old book titled "The Art of Reform".)
+The description of the lamp is (An oil lamp with a warm flickering flame inside.)
+
+# --- Room descriptions ---
+The description of the Garden is (A peaceful garden with flowers blooming along a stone path.)
+The description of the Kitchen is (A cozy kitchen with a warm hearth and the smell of fresh bread.)
+The description of the Hallway is (A narrow hallway with creaky wooden floors and old portraits on the walls.)
+The description of the Study is (A quiet study lined with bookshelves. A single candle flickers on the desk.)
+
+# --- Scenery (examinable but not listed in room) ---
+The portraits are scenery in the Hallway
+The description of the portraits is (Old faded portraits of stern-looking people. One seems to be watching you.)
+
 # --- Player start ---
 You are in the Garden

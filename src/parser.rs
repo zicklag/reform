@@ -55,8 +55,8 @@ peg::parser! {
         /// A word in a sentence is anything not whitespace separated by whitespace.
         /// Balanced parentheses are treated as a single word.
         rule word() -> String =
-            // A balanced paren group
-            s:$("(" balanced_content() ")") { s.to_owned() } /
+            // A balanced paren group — return content without outer parens
+            "(" s:balanced_content() ")" { s.to_owned() } /
             // Any non-whitespace chars
             s:$((![' ' | '\t' | '\n' | '\r'] [_])+) { s.to_owned() }
         rule prompt() -> Fact = ">" _ words:word() ++ _ {

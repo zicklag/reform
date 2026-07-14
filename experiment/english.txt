@@ -65,3 +65,24 @@
     ( -(sentence, ?t, is, in, ?r) ),
     ( (in, ?t, ?r) )
 )
+
+# Descriptions
+# "The description of the key is (A small rusty key.)"
+(rule, def_description,
+    ( -(sentence, The, description, of, the, ?t, is, ?desc) ),
+    ( (description, ?t, ?desc) )
+)
+
+# Room descriptions
+# "The description of the Garden is (A peaceful garden...)"
+(rule, def_room_desc,
+    ( -(sentence, The, description, of, the, ?r, is, ?desc) ),
+    ( (room_desc, ?r, ?desc) )
+)
+
+# Scenery
+# "The portraits are scenery in the Hallway"
+(rule, def_scenery,
+    ( -(sentence, The, ?t, are, scenery, in, the, ?r) ),
+    ( (scenery, ?t, ?r) )
+)

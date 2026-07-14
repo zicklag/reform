@@ -10,6 +10,9 @@
 #   (in, ?t, ?r)        - thing ?t is in room ?r
 #   (carrying, ?t)      - player is carrying thing ?t
 #   (described, ?r)     - room ?r has been described this turn
+#   (description, ?t, ?text) - description of thing ?t
+#   (room_desc, ?r, ?text)   - description of room ?r
+#   (scenery, ?t, ?r)        - ?t is scenery in room ?r (not listed, but examinable)
 
 # Direction symmetry: if A is north of B, B is south of A, etc.
 (rule, north_of_south,
@@ -39,14 +42,17 @@
     ( -(go, ?dir), (here, ?here), !(?to, ?dir, of, ?here) ),
     ( (print, (You can't go that way.)) )
 )
-
 # Describe the current room when entering (before described flag is set)
 (rule, describe_room,
     ( (here, ?here), !(described, ?here) ),
     ( (print, (You are in the ), ?here, .) )
 )
+(rule, describe_room_desc,
+    ( (here, ?here), (room_desc, ?here, ?desc), !(described, ?here) ),
+    ( (print, ?desc) )
+)
 (rule, describe_things,
-    ( (here, ?here), (in, ?item, ?here), !(described, ?here) ),
+    ( (here, ?here), (in, ?item, ?here), !(described, ?here), !(scenery, ?item, ?here) ),
     ( (print, (You can see ), ?item, ( here.)) )
 )
 (rule, describe_exits,
@@ -99,3 +105,22 @@
     ( -(where_am_I), (here, ?here) ),
     ( (print, (You are in the ), ?here, .) )
 )
+
+# Examine / look at things
+(rule, examine_item,
+    ( -(examine, ?item), (description, ?item, ?desc), (here, ?here), (in, ?item, ?here) ),
+    ( (print, (You examine the ), ?item, .), (print, ?desc) )
+)
+(rule, examine_carrying,
+    ( -(examine, ?item), (description, ?item, ?desc), (carrying, ?item) ),
+    ( (print, (You examine the ), ?item, .), (print, ?desc) )
+)
+(rule, examine_scenery,
+    ( -(examine, ?item), (description, ?item, ?desc), (here, ?here), (scenery, ?item, ?here) ),
+    ( (print, (You examine the ), ?item, .), (print, ?desc) )
+)
+(rule, examine_fail,
+    ( -(examine, ?item), (here, ?here), !(in, ?item, ?here), !(scenery, ?item, ?here), !(carrying, ?item) ),
+    ( (print, (You can't see any ), ?item, ( here.)) )
+)
+

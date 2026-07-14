@@ -87,3 +87,21 @@
     ( -(prompt, help) ),
     ( (print, Commands: go <dir>, take <item>, drop <item>, look, inventory, where am I, n/s/e/w) )
 )
+
+# Examine command
+(rule, parse_examine,
+    ( -(prompt, examine, ?item) ),
+    ( (examine, ?item) )
+)
+(rule, parse_examine_the,
+    ( -(prompt, examine, the, ?item) ),
+    ( (examine, ?item) )
+)
+(rule, parse_x,
+    ( -(prompt, x, ?item) ),
+    ( (examine, ?item) )
+)
+(rule, parse_x_the,
+    ( -(prompt, x, the, ?item) ),
+    ( (examine, ?item) )
+)
