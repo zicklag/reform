@@ -1,7 +1,7 @@
 # Load Interactive Fiction and English Language Bindings
 
-load ./if.rf
-load ./if-english.rf
+$ load ./if.rf
+$ load ./if-english.rf
 
 # Define Game
 
@@ -17,5 +17,6 @@ Frontroom is north of Kitchen
 
 You are in the Bedroom
 
-((Aaron's room), north of, parlor)
+(Aaron's room) is north of the (Parlor)
 
+$facts

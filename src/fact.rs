@@ -131,11 +131,11 @@ pub fn substitute(pattern: &Pattern, bindings: &Bindings) -> Fact {
     result
 }
 
-/// Format a fact for display.
+/// Format a fact for display as a tuple: `(pred, arg1, arg2)`.
 /// Arguments containing top-level commas are wrapped in parentheses.
 pub fn format_fact(fact: &Fact) -> String {
-    if fact.len() == 1 {
-        return fact[0].clone();
+    if fact.is_empty() {
+        return String::new();
     }
     let args: Vec<String> = fact[1..]
         .iter()
@@ -147,7 +147,11 @@ pub fn format_fact(fact: &Fact) -> String {
             }
         })
         .collect();
-    format!("{}({})", fact[0], args.join(", "))
+    if args.is_empty() {
+        format!("({})", fact[0])
+    } else {
+        format!("({}, {})", fact[0], args.join(", "))
+    }
 }
 
 /// Check if a string contains a comma at depth 0 (not inside parentheses or quotes).
@@ -192,99 +196,99 @@ pub fn format_pattern(pattern: &Pattern) -> String {
     format!("{}({})", pred, args.join(", "))
 }
 
-// peg::parser! {
-//     grammar pattern_parser() for str {
-//         /// Parse a single pattern: "pred" or "pred(arg1, arg2, ...)"
-//         pub rule pattern() -> Pattern
-//             = p:predicate() { p }
+peg::parser! {
+    grammar pattern_parser() for str {
+        /// Parse a single pattern: "pred" or "pred(arg1, arg2, ...)"
+        pub rule pattern() -> Pattern
+            = p:predicate() { p }
 
-//         /// Parse a predicate with optional args: "pred" or "pred(arg1, arg2, ...)"
-//         /// or "?pred" or "?pred(arg1, arg2, ...)" (variable predicate)
-//         rule predicate() -> Pattern
-//             = name:var_pred() ws() "(" ws() args:arg_list() ws() ")" {
-//                 let mut p = vec![name];
-//                 p.extend(args);
-//                 p
-//             }
-//             / name:var_pred() { vec![name] }
-//             / name:ident() ws() "(" ws() args:arg_list() ws() ")" {
-//                 let mut p = vec![Pat::Atom(name)];
-//                 p.extend(args);
-//                 p
-//             }
-//             / name:ident() { vec![Pat::Atom(name)] }
+        /// Parse a predicate with optional args: "pred" or "pred(arg1, arg2, ...)"
+        /// or "?pred" or "?pred(arg1, arg2, ...)" (variable predicate)
+        rule predicate() -> Pattern
+            = name:var_pred() ws() "(" ws() args:arg_list() ws() ")" {
+                let mut p = vec![name];
+                p.extend(args);
+                p
+            }
+            / name:var_pred() { vec![name] }
+            / name:ident() ws() "(" ws() args:arg_list() ws() ")" {
+                let mut p = vec![Pat::Atom(name)];
+                p.extend(args);
+                p
+            }
+            / name:ident() { vec![Pat::Atom(name)] }
 
-//         /// Parse a variable predicate: "?name"
-//         rule var_pred() -> Pat
-//             = "?" n:ident() { Pat::Var(n.to_string()) }
+        /// Parse a variable predicate: "?name"
+        rule var_pred() -> Pat
+            = "?" n:ident() { Pat::Var(n.to_string()) }
 
-//         /// Parse a comma-separated list of arguments
-//         rule arg_list() -> Vec<Pat>
-//             = a:arg() ** (ws() "," ws()) { a }
+        /// Parse a comma-separated list of arguments
+        rule arg_list() -> Vec<Pat>
+            = a:arg() ** (ws() "," ws()) { a }
 
-//         /// Parse a single argument: atom, variable, rest variable, or quoted string
-//         rule arg() -> Pat
-//             = rest_var() / quoted_string() / single_quoted() / variable() / atom()
+        /// Parse a single argument: atom, variable, rest variable, or quoted string
+        rule arg() -> Pat
+            = rest_var() / quoted_string() / single_quoted() / variable() / atom()
 
-//         /// Parse a rest variable: "..?name"
-//         rule rest_var() -> Pat
-//             = "..?" n:ident() { Pat::Rest(n.to_string()) }
+        /// Parse a rest variable: "..?name"
+        rule rest_var() -> Pat
+            = "..?" n:ident() { Pat::Rest(n.to_string()) }
 
-//         /// Parse a double-quoted string: '"hello, world"'
-//         rule quoted_string() -> Pat
-//             = "\"" s:$([^'"']*) "\"" { Pat::Atom(s.to_string()) }
+        /// Parse a double-quoted string: '"hello, world"'
+        rule quoted_string() -> Pat
+            = "\"" s:$([^'"']*) "\"" { Pat::Atom(s.to_string()) }
 
-//         /// Parse a single-quoted string: "'hello, world'"
-//         rule single_quoted() -> Pat
-//             = "'" s:$(not_single_quote()*) "'" { Pat::Atom(s.to_string()) }
+        /// Parse a single-quoted string: "'hello, world'"
+        rule single_quoted() -> Pat
+            = "'" s:$(not_single_quote()*) "'" { Pat::Atom(s.to_string()) }
 
-//         /// Any character except a single quote
-//         rule not_single_quote() -> &'input str
-//             = !"'" s:$([_]) { s }
+        /// Any character except a single quote
+        rule not_single_quote() -> &'input str
+            = !"'" s:$([_]) { s }
 
-//         /// Parse a variable: "?name"
-//         rule variable() -> Pat
-//             = "?" n:ident() { Pat::Var(n.to_string()) }
+        /// Parse a variable: "?name"
+        rule variable() -> Pat
+            = "?" n:ident() { Pat::Var(n.to_string()) }
 
-//         /// Parse an atom: a bare identifier, number, or any non-comma/non-paren text
-//         rule atom() -> Pat
-//             = s:$(letter() (letter() / digit() / "_" / "-")*) { Pat::Atom(s.to_string()) }
-//             / n:$("-"? digit()+ ("." digit()+)?) { Pat::Atom(n.to_string()) }
-//             / s:$((!['(' | ')' | ','] [_])+) { Pat::Atom(s.to_string()) }
+        /// Parse an atom: a bare identifier, number, or any non-comma/non-paren text
+        rule atom() -> Pat
+            = s:$(letter() (letter() / digit() / "_" / "-")*) { Pat::Atom(s.to_string()) }
+            / n:$("-"? digit()+ ("." digit()+)?) { Pat::Atom(n.to_string()) }
+            / s:$((!['(' | ')' | ','] [_])+) { Pat::Atom(s.to_string()) }
 
-//         /// Parse an identifier (starts with letter or underscore)
-//         rule ident() -> String
-//             = s:$(letter() (letter() / digit() / "_" / "-")*) { s.to_string() }
+        /// Parse an identifier (starts with letter or underscore)
+        rule ident() -> String
+            = s:$(letter() (letter() / digit() / "_" / "-")*) { s.to_string() }
 
-//         /// Parse a letter
-//         rule letter() -> char
-//             = ['a'..='z' | 'A'..='Z' | '_']
+        /// Parse a letter
+        rule letter() -> char
+            = ['a'..='z' | 'A'..='Z' | '_']
 
-//         /// Parse a digit
-//         rule digit() -> char
-//             = ['0'..='9']
+        /// Parse a digit
+        rule digit() -> char
+            = ['0'..='9']
 
-//         /// Optional whitespace
-//         rule ws()
-//             = quiet!{ [' ' | '\t']* }
-//     }
+        /// Optional whitespace
+        rule ws()
+            = quiet!{ [' ' | '\t']* }
 
-//         /// A single balanced-paren element: a non-paren char, or a nested
-//         /// balanced group.
-//         rule balanced_char()
-//             = !"(" !")" [_]
-//             / "(" balanced_char()* ")"
+        /// A single balanced-paren element: a non-paren char, or a nested
+        /// balanced group.
+        rule balanced_char()
+            = !"(" !")" [_]
+            / "(" balanced_char()* ")"
 
-//         /// Parse content inside balanced parens, returning the raw inner
-//         /// text (nested parens allowed without escaping).
-//         pub rule paren_content() -> &'input str
-//             = "(" s:$(balanced_char()* ) ")" { s }
-// }
+        /// Parse content inside balanced parens, returning the raw inner
+        /// text (nested parens allowed without escaping).
+        pub rule paren_content() -> &'input str
+            = "(" s:$(balanced_char()* ) ")" { s }
+    }
+}
 
-// /// Parse a pattern string like "pred(arg1, ?var)" into a Pattern.
-// pub fn parse_pattern_from_str(s: &str) -> Option<Pattern> {
-//     pattern_parser::pattern(s.trim()).ok()
-// }
+/// Parse a pattern string like "pred(arg1, ?var)" into a Pattern.
+pub fn parse_pattern_from_str(s: &str) -> Option<Pattern> {
+    pattern_parser::pattern(s.trim()).ok()
+}
 
 
 // #[cfg(test)]

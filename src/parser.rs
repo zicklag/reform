@@ -46,13 +46,19 @@ peg::parser! {
             f:sentence() { Stmt::Fact(f) }
 
         /// Parse a sentence
-        rule sentence() -> Fact = words:word() ++ _ { words }
+        rule sentence() -> Fact = words:word() ++ _ {
+            let mut f = vec!["sentence".to_owned()];
+            f.extend(words);
+            f
+        }
 
         /// A word in a sentence is anything not whitespace separated by whitespace
-        rule word() -> String = $((!__ [_]) ++ _) { "test".to_owned() }
-
-        /// Parse a prompt
-        rule prompt() -> Fact = ">" _ f:sentence() { f }
+        rule word() -> String = s:$((![' ' | '\t' | '\n' | '\r'] [_])+) { s.to_owned() }
+        rule prompt() -> Fact = ">" _ words:word() ++ _ {
+            let mut f = vec!["prompt".to_owned()];
+            f.extend(words);
+            f
+        }
 
         /// Fact deletion
         rule del_fact() -> Fact = "-" f:fact() { f }
@@ -65,48 +71,34 @@ peg::parser! {
         /// Parse a fact argument, allowing parenthesis to wrap around
         /// the arg to group the special characters inside.
         rule fact_arg() -> String =
-            // Match on an arg surrounded in parens
-            __ "(" __ s:$fact_arg_inner() __ ")" __ { s.into() } /
+            // Match on an arg surrounded in parens: capture balanced content
+            __ "(" s:balanced_content() ")" __ { s.into() } /
 
             // Not an open paren
-            !"(" 
-            // Then whitespace
+            !"("
             __
-            // then the argument we're interested in
             s:$(
                 (
-                    // which is not a newline a right paren or a comma
-                    !['\n' | '\r' | ',' | ')']
-                    // Is whatever is there that isn't those things
-                    [_]
-                // Repeated at least once
+                    // A nested balanced group
+                    "(" balanced_content() ")" /
+                    // Any char except newlines, commas, or right parens
+                    !['\n' | '\r' | ',' | ')'] [_]
                 )+
-            ) 
+            )
             __
-            // Followed by whitespace
             { s.into() }
-            
-        rule fact_arg_inner() -> String =
-                // Match on an arg surrounded in parens
-                __ "(" __ s:$fact_arg_inner() __ ")" __ { s.into() } /
-    
-                // Not an open paren
-                !"(" 
-                // Then whitespace
-                __
-                // then the argument we're interested in
-                s:$(
-                    (
-                        // which is not a newline a right paren or a comma
-                        !['\n' | '\r' | ')']
-                        // Is whatever is there that isn't those things
-                        [_]
-                    // Repeated at least once
-                    )+
-                ) 
-                __
-                // Followed by whitespace
-                { s.into() }
+
+        /// Match balanced parentheses content (no top-level commas).
+        /// Returns the raw text between the outer parens.
+        rule balanced_content() -> &'input str =
+            s:$(
+                (
+                    // A nested balanced group
+                    "(" balanced_content() ")" /
+                    // Any char except parens, newlines
+                    !['(' | ')' | '\n' | '\r'] [_]
+                )*
+            ) { s }
 
 
         /// A command statement

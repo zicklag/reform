@@ -1,10 +1,9 @@
-#[path = "../parser.rs"]
-mod parser;
+use reform::parser::parse_file;
 
 const LANG_REF: &str = include_str!("../../demo/lang.rf");
 
 fn main() {
-    match parser::parse_file(LANG_REF) {
+    match parse_file(LANG_REF) {
         Ok(output) => {
             dbg!(output);
         }

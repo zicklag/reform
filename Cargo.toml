@@ -2,8 +2,9 @@
 name = "reform"
 version = "0.1.0"
 edition = "2024"
+default-run = "reform"
 
 [dependencies]
 anyhow = "1.0.103"
-peg = { version = "0.8", features = ["trace"] }
+peg = "0.8"
 clap = { version = "4", features = ["derive"] }
