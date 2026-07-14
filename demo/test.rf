@@ -1,6 +1,20 @@
-rule north_of_south: north_of(?a, ?b) -> south_of(?b, ?a)
+(room, is, type)
+(frontroom, is, room)
+(kitchen, is, room)
+(bedroom, is, room)
 
-north_of(home, brook)
-north_of(brook, town)
+(kitchen, north of, bedroom)
+(frontroom, north of, kitchen)
 
-facts
+(here, is, bedroom)
+
+(rule, go_north,
+    ( -(go, north), -(here, is, ?here), (?going, north of, ?here) ),
+    ( (here, is, ?going) )
+)
+
+(go, north)
+
+$ facts
+$ assert (here, is, kitchen)
+

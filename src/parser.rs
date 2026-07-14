@@ -30,20 +30,20 @@ peg::parser! {
 
         /// Parse a single statement from a line.
         pub rule statement() -> Stmt
-            = _ s:stmt() _ { s }
+            = _ s:stmt() { s }
 
         /// Parse a statement
         rule stmt() -> Stmt =
             // Delete a fact
-            f:del_fact() { Stmt::DeleteFact(f) } /
+            f:del_fact() (newline() / ![_]) { Stmt::DeleteFact(f) } /
             // Add a fact
-            f:fact() { Stmt::Fact(f) } /
+            f:fact() (newline() / ![_]) { Stmt::Fact(f) } /
             // Run a command
-            cmd_stmt() /
+            cmd:cmd_stmt() (newline() / ![_]) { cmd } /
             // Parse a prompt fact
-            f:prompt() { Stmt::Fact(f) } /
+            f:prompt() (newline() / ![_]) { Stmt::Fact(f) } /
             // Parse a sentence fact
-            f:sentence() { Stmt::Fact(f) }
+            f:sentence() (newline() / ![_]) { Stmt::Fact(f) }
 
         /// Parse a sentence
         rule sentence() -> Fact = words:word() ++ _ {
@@ -52,8 +52,13 @@ peg::parser! {
             f
         }
 
-        /// A word in a sentence is anything not whitespace separated by whitespace
-        rule word() -> String = s:$((![' ' | '\t' | '\n' | '\r'] [_])+) { s.to_owned() }
+        /// A word in a sentence is anything not whitespace separated by whitespace.
+        /// Balanced parentheses are treated as a single word.
+        rule word() -> String =
+            // A balanced paren group
+            s:$("(" balanced_content() ")") { s.to_owned() } /
+            // Any non-whitespace chars
+            s:$((![' ' | '\t' | '\n' | '\r'] [_])+) { s.to_owned() }
         rule prompt() -> Fact = ">" _ words:word() ++ _ {
             let mut f = vec!["prompt".to_owned()];
             f.extend(words);
@@ -110,8 +115,8 @@ peg::parser! {
             "assert not" _ f:fact() _ { Stmt::AssertNot(f) } /
             "load" _ file:$((!(newline()) [_])+) _ { Stmt::Load(file.to_owned()) } /
             "find" pattern:$((!newline() [_])+) _ { Stmt::Find(pattern.to_owned()) } /
-            "facts" __ { Stmt::Facts } /
-            "quit" __ { Stmt::Quit }
+            "facts" _ { Stmt::Facts } /
+            "quit" _ { Stmt::Quit }
 
         /// Single line whitespace
         rule _() = [' ' | '\t' ]*
