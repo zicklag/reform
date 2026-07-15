@@ -1,30 +1,58 @@
-# ?x is a kind
-(rule, def_kind,
-    ( -(sentence, ?kind, is, a, kind) ),
-    ( (?kind, is, kind) )
+# We have to bootstrap one article for the rules below
+(an, is, article)
+
+# Definition: merely define the existence of something
+# ?x exists
+(rule, define,
+    ( (sentence, ?x, exists) ),
+    ( (?x) )
 )
 
-# ?x is an article
-(rule, def_article,
-    ( -(sentence, ?a, is, an, article) ),
-    ( (?a, is, article) )
-)
-
-# ?x is a preposition
-(rule, def_preoposition,
-    ( -(sentence, ?a, is, a, preposition) ),
-    ( (?a, is, preposition) )
-)
-
-# [The] ?noun is a ?kind
-(rule, def_something_of_kind,
+# [The] ?x is [a] ?y
+(rule, def_x_is_y,
     (
-        -(sentence, [?a], ?thing, is, a, ?kind),
-        (?kind, is, kind),
-        (?a, is, article),
+        -(sentence, [?a1], ?x, is, [?a2], ?y),
+        (?a1, is, article),
+        (?a2, is, article),
     ),
     (
-        (?thing, is, ?kind)
+        (?x, is, ?y)
+    )
+)
+
+# reflexivity: something is always itself
+(rule, reflexivity,
+    (
+        (?x)
+    ),
+    (
+        (?x, is, ?x)
+    )
+)
+
+# "is" transitivity: i.e. if John is a person, and a person is a thing,
+# then john is also a thing. This works for anything that "is" not just
+# "kinds".
+(rule, is_transitivity,
+    (
+        (?x, is, ?y),
+        (?y, is, ?z),
+    ),
+    (
+        (?x, is, ?z)
+    )
+)
+
+# [The] ?prop of [the] ?thing is ?value
+(rule, prop_of_thing,
+    (
+        -(sentence, [?a1], ?prop, of, [?a2], ?thing, is, ?value),
+        (?a1, is, article),
+        (?a2, is, article),
+        (?prep, is, preposition),
+    ),
+    (
+        (?value, is, ?prop, of, ?thing)
     )
 )
 
@@ -41,6 +69,9 @@
     )
 )
 
+# Auto reverse relations: lets you define relations that automatically
+# define their inverses.
+#
 # ?rel1 of is the reverse of ?rel2 of
 (rule, def_reverse_rel,
     (
@@ -55,5 +86,68 @@
             ( (?thing, is, ?rel2, [?prep2], ?other) ),
             ( (?other, is, ?rel1, [?prep1], ?thing) )
         ),
+    )
+)
+
+# The say command for printing text
+Say is say-token
+say is say-token
+(rule, say,
+    (
+        -(sentence, ?cmd, ..?args),
+        (?cmd, is, say-token)
+    ),
+    (
+        (print, ..?args)
+    )
+)
+
+# ?act is an action
+(rule, def_action,
+    (
+        -(sentence, ?act, is, an, action),
+    ),
+    (
+        (?act, is, action),
+    )
+)
+
+# Understanding prompts as actions.
+# This converts the action to an (enact, action, ...args) fact.
+#
+# Understand ..word as ?act
+Understand is understand-token
+understand is understand-token
+(rule, understand_action,
+    (
+        -(sentence, ?understand, ?word, as, ?act),
+        (?act, is, action),
+        (?understand, is, understand-token)
+    ),
+    (
+        (rule, enact_action,
+            ( -(prompt, ?word, ..?args) ),
+            ( (enact, ?act, ..?args) ),
+        )
+    )
+)
+
+# When ?acting ..?thingsToDo
+when is when-token
+When is when-token
+(rule, when_acting,
+    (
+        -(sentence, ?when, ?act, ..?fact),
+        (?act, is, action),
+        (?when, is, when-token)
+    ),
+    (
+        (rule, when_enact,
+            ( -(enact, ?act, ..?args) ),
+            (
+                (sentence, ..?fact)
+            )
+        ),
+        (had when rule, ..?fact)
     )
 )

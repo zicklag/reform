@@ -283,6 +283,33 @@ pub fn substitute(pattern: &Pattern, bindings: &Bindings) -> Fact {
                     }
                     i += 1;
                 }
+                // Handle ..?var (rest/splat) replacement in Atom strings
+                // MUST come before ?var replacement to avoid ?var matching inside ..?var
+                for (name, vals) in bindings {
+                    let rest_pat = format!("..?{name}");
+                    if s.contains(&rest_pat) {
+                        if vals.is_empty() {
+                            // Remove ..?var and any preceding comma+space
+                            let with_comma = format!(", {}", rest_pat);
+                            s = s.replace(&with_comma, "");
+                            s = s.replace(&rest_pat, "");
+                        } else {
+                            let replacement: Vec<String> = vals
+                                .iter()
+                                .map(|v| {
+                                    if v.contains(' ') || v.contains(',') || v.contains('(')
+                                        || v.contains(')')
+                                    {
+                                        format!("({})", v)
+                                    } else {
+                                        v.clone()
+                                    }
+                                })
+                                .collect();
+                            s = s.replace(&rest_pat, &replacement.join(", "));
+                        }
+                    }
+                }
                 // Then do normal ?var replacement
                 for (name, vals) in bindings {
                     if vals.len() == 1 {
@@ -793,5 +820,42 @@ mod tests {
         // ?other should be "moon"
         let (_, other_vals) = b.iter().find(|(n, _)| n == "other").unwrap();
         assert_eq!(other_vals, &[String::from("moon")]);
+    }
+
+    /// Substitute: rest var in Atom string expands to comma-separated values.
+    #[test]
+    fn substitute_rest_in_atom() {
+        let p = vec![Pat::Atom("(print, (Activating ), ?act, ..?fact)".to_string())];
+        let b = vec![
+            ("act".to_string(), vec!["looking".to_string()]),
+            ("fact".to_string(), vec!["say".to_string(), "You look around tentatively.".to_string()]),
+        ];
+        let f = substitute(&p, &b);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0], "(print, (Activating ), looking, say, (You look around tentatively.))");
+    }
+
+    /// Substitute: rest var in Atom string with empty binding removes the ..?var.
+    #[test]
+    fn substitute_rest_in_atom_empty() {
+        let p = vec![Pat::Atom("(had when rule, ..?fact)".to_string())];
+        let b = vec![
+            ("fact".to_string(), vec![]),
+        ];
+        let f = substitute(&p, &b);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0], "(had when rule)");
+    }
+
+    /// Substitute: rest var in Atom string with single value (no wrapping needed).
+    #[test]
+    fn substitute_rest_in_atom_single() {
+        let p = vec![Pat::Atom("(print, ..?args)".to_string())];
+        let b = vec![
+            ("args".to_string(), vec!["hello".to_string()]),
+        ];
+        let f = substitute(&p, &b);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0], "(print, hello)");
     }
 }

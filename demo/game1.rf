@@ -2,12 +2,10 @@ $ load ./iflib/iflib.rf
 
 # Prelude
 
-## Define our core kinds
-room is a kind
-
 ## Define the basic english articles
+
+# lowercase "an" is defined in bootstrap
 a is an article
-an is an article
 the is an article
 A is an article
 An is an article
@@ -19,22 +17,55 @@ to is a preposition
 from is a preposition
 in is a preposition
 
+# Core world modeling
+
+# In reform we don't need to make "kinds" explictly.
+# We just say one thing is another.
+# So now all bedrooms are considered rooms
+bedroom is a room
+
+# And the player is a person. Notice that we didn't need to 
+# say that "person is a kind". It's implicit. There are no
+# "kinds" just something that "is" something else.
+The player is a person
+
 ## Direction relationships
 north of is the reverse of south of
 east of is the reverse of west of
 up from is the reverse of down from
 under is the reverse of over
+below is the reverse of above
+in is the reverse of containing
+
 
 # Game
 
 The Kitchen is a room
-The (Master Bedroom) is a room
-
 The Kitchen is north of the (Master Bedroom)
+The description of the kitchen is (The place where things are cooked.)
+
+The (tea kettle) is a thing
+The (tea kettle) is in the Kitchen
+The description of the (tea kettle) is (A cute little kettle for tea.)
+The print-name of the (tea kettle) is (little kettle)
 
 (My Room) is east of the Kitchen
 
-cat is over house
-The cow is over the moon
+(My Room) is containing the player
 
-$facts
+# Start the game with a message
+
+say (
+    You wake up.
+    
+    Who you are, and what you are doing here is a mystery...
+)
+
+## Game actions
+looking is an action
+Understand look as looking
+understand l as looking
+
+When looking say (You look around tentatively.)
+
+$ facts
