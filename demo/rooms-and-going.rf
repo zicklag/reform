@@ -1,20 +1,7 @@
-(room, is, type)
-(frontroom, is, room)
-(kitchen, is, room)
-(bedroom, is, room)
-
-(bedroom, south, of, kitchen)
-(frontroom, north, of, kitchen)
-
-(here, is, bedroom)
 
 # Rules for going in a direction
-(rule, go_north,
-    ( -(go, north), -(here, is, ?here), (?going, north, of, ?here) ),
-    ( (here, is, ?going), (print, (You are in the ), ?going, .) )
-)
-(rule, go_south,
-    ( -(go, south), -(here, is, ?here), (?going, south, of, ?here) ),
+(rule, go_dir,
+    ( -(go, ?dir), -(here, is, ?here), (?going, ?dir, of, ?here) ),
     ( (here, is, ?going), (print, (You are in the ), ?going, .) )
 )
 (rule, go_fail,
@@ -32,7 +19,19 @@
     ( (?x, north, of, ?y) ),
 )
 
+# Sentence parsing, so we can define the world in simpler language
+
+(rule, parse_dir_of,
+    ( -(sentence, ?room1, is, ?dir, of, ?room2) ),
+    ( (?room1, ?dir, of, ?room2) )
+)
+(rule, parse_you_are_in,
+    ( -(sentence, You, are, in, ?here) ),
+    ( (here, is, ?here) )
+)
+
 # Prmopt parsing
+
 (rule, parse_go,
     ( -(prompt, go, ?where) ),
     ( (go, ?where) )
@@ -41,3 +40,10 @@
     ( -(prompt, where, am, I), (here, is, ?here) ),
     ( (print, (You are in the ), ?here) )
 )
+
+# Sentences defining our game world
+
+Bedroom is south of Kitchen
+Frontroom is north of Kitchen
+
+You are in Bedroom
