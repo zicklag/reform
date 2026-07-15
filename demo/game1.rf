@@ -66,6 +66,10 @@ looking is an action
 understand look as looking
 understand l as looking
 
-When looking say (You look around tentatively.) and now the player is a moose and say (Now you are a moose)
+When looking say (You look around tentatively.) and now the player is a moose and say (Now you are a moose 🦛 👀)
 
-$ facts
+unmoosing is an action
+understand unmoose as unmoosing
+
+When unmoosing say (You are not a moose anymore.) and now the player is not a moose
+

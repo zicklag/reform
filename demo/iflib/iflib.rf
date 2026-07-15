@@ -69,6 +69,16 @@
     )
 )
 
+# "is" elmination rule: if something "is" another thing and "is not" another
+# thing, then both rules are destroyed.
+(rule, rel_something_not_other,
+    (
+        -(?thing, is, not, ?other),
+        -(?thing, is, ?other)
+    ),
+    ()
+)
+
 # Auto reverse relations: lets you define relations that automatically
 # define their inverses.
 #
@@ -132,7 +142,7 @@ understand is understand-token
     )
 )
 
-# When ?acting ..?new fact
+# When ?acting ..?facts
 when is when-token
 When is when-token
 

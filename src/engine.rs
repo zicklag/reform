@@ -144,7 +144,7 @@ impl Engine {
                 }
             }
 
-            if !matches.is_empty() && !effects.is_empty() {
+            if !matches.is_empty() && (!effects.is_empty() || !consume_indices.is_empty()) {
                 self.rules.push(Rule {
                     name,
                     matches,
