@@ -8,6 +8,10 @@ pub enum Pat {
     /// A rest variable that matches zero or more remaining arguments.
     /// Binds a `Vec<String>` of all remaining values.
     Rest(String),
+    /// An optional literal — matches if present, skips if absent.
+    OptionalAtom(String),
+    /// An optional variable — binds if present, leaves unbound if absent.
+    OptionalVar(String),
 }
 
 /// A pattern is a list of pattern atoms.
@@ -52,9 +56,13 @@ pub fn split_patterns(s: &str) -> Vec<&str> {
 /// multiple rest patterns and rest patterns followed by non-rest arguments.
 /// Rest patterns match the shortest number of elements that allows the
 /// remainder of the pattern to match (shortest-match semantics).
-pub fn match_pattern(pattern: &Pattern, fact: &Fact) -> Option<Bindings> {
+///
+/// `outer` carries bindings from previously matched patterns in the same rule.
+/// A variable with an empty binding in `outer` (skipped optional from an earlier
+/// pattern) acts as a wildcard — matches any single element without adding a binding.
+pub fn match_pattern(pattern: &Pattern, fact: &Fact, outer: &Bindings) -> Option<Bindings> {
     let mut bindings = Bindings::new();
-    if try_match(pattern, fact, 0, 0, &mut bindings) {
+    if try_match(pattern, fact, 0, 0, &mut bindings, outer) {
         Some(bindings)
     } else {
         None
@@ -63,12 +71,14 @@ pub fn match_pattern(pattern: &Pattern, fact: &Fact) -> Option<Bindings> {
 
 /// Recursive helper: try to match `pattern[pat_idx..]` against `fact[fact_idx..]`,
 /// accumulating bindings. Backtracks on rest variables to find the shortest match.
+/// `outer` carries bindings from previously matched patterns (read-only).
 fn try_match(
     pattern: &Pattern,
     fact: &Fact,
     pat_idx: usize,
     fact_idx: usize,
     bindings: &mut Bindings,
+    outer: &Bindings,
 ) -> bool {
     // All pattern elements consumed — must also have consumed all fact elements.
     if pat_idx >= pattern.len() {
@@ -82,24 +92,43 @@ fn try_match(
             if fact_idx >= fact.len() || s != &fact[fact_idx] {
                 return false;
             }
-            try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings)
+            try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer)
         }
         Pat::Var(name) => {
-            if fact_idx >= fact.len() {
-                return false;
-            }
-            let val = &fact[fact_idx];
-            // Check consistency with existing bindings
-            if let Some(idx) = bindings.iter().position(|(n, _)| n == name) {
-                let (_, existing) = &bindings[idx];
-                if existing.len() != 1 || existing[0] != *val {
+            // First, consult outer bindings (from previously matched patterns).
+            // If outer has an empty binding, the var was skipped upstream — act as wildcard.
+            if let Some((_, existing)) = outer.iter().find(|(n, _)| n == name) {
+                if existing.is_empty() {
+                    // Wildcard: consume one fact element, add no binding
+                    if fact_idx >= fact.len() {
+                        return false;
+                    }
+                    return try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer);
+                }
+                // Outer has a non-empty binding — require consistency
+                if fact_idx >= fact.len() || &fact[fact_idx] != &existing[0] {
                     return false;
                 }
-                try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings)
+                return try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer);
+            }
+            // Check consistency with local (intra-pattern) bindings
+            if let Some(idx) = bindings.iter().position(|(n, _)| n == name) {
+                let (_, existing) = &bindings[idx];
+                if existing.is_empty() {
+                    // Intra-pattern skipped optional — LOCKED, cannot match
+                    return false;
+                }
+                if fact_idx >= fact.len() || existing.len() != 1 || existing[0] != fact[fact_idx] {
+                    return false;
+                }
+                try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer)
             } else {
+                if fact_idx >= fact.len() {
+                    return false;
+                }
                 let saved_len = bindings.len();
-                bindings.push((name.clone(), vec![val.clone()]));
-                if try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings) {
+                bindings.push((name.clone(), vec![fact[fact_idx].clone()]));
+                if try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer) {
                     return true;
                 }
                 // Backtrack: remove the binding we just added
@@ -113,16 +142,27 @@ fn try_match(
             for consume in 0..=remaining {
                 let vals: Vec<String> = fact[fact_idx..fact_idx + consume].to_vec();
 
-                // Check consistency with existing bindings
+                // Check consistency with existing bindings (local first, then outer)
                 if let Some(idx) = bindings.iter().position(|(n, _)| n == name) {
                     let (_, existing) = &bindings[idx];
+                    if &existing != &&vals {
+                        continue;
+                    }
+                } else if let Some((_, existing)) = outer.iter().find(|(n, _)| n == name) {
+                    if existing.is_empty() {
+                        // Outer empty — wildcard: consume zero
+                        if try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer) {
+                            return true;
+                        }
+                        continue;
+                    }
                     if &existing != &&vals {
                         continue;
                     }
                 } else {
                     let saved_len = bindings.len();
                     bindings.push((name.clone(), vals));
-                    if try_match(pattern, fact, pat_idx + 1, fact_idx + consume, bindings) {
+                    if try_match(pattern, fact, pat_idx + 1, fact_idx + consume, bindings, outer) {
                         return true;
                     }
                     // Backtrack: remove the binding we just added
@@ -131,11 +171,71 @@ fn try_match(
                 }
 
                 // Binding already existed and matched — just recurse
-                if try_match(pattern, fact, pat_idx + 1, fact_idx + consume, bindings) {
+                if try_match(pattern, fact, pat_idx + 1, fact_idx + consume, bindings, outer) {
                     return true;
                 }
             }
             false
+        }
+        Pat::OptionalAtom(s) => {
+            // If the next fact element matches, consume it.
+            if fact_idx < fact.len() && s == &fact[fact_idx] {
+                try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer)
+            } else {
+                // Otherwise skip — optional.
+                try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer)
+            }
+        }
+        Pat::OptionalVar(name) => {
+            // Check outer first — if already skipped upstream, can't bind now
+            if let Some((_, existing)) = outer.iter().find(|(n, _)| n == name) {
+                if existing.is_empty() {
+                    return try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer);
+                }
+            }
+            if fact_idx < fact.len() {
+                let val = &fact[fact_idx];
+                // Check consistency with existing local bindings
+                if let Some(idx) = bindings.iter().position(|(n, _)| n == name) {
+                    let (_, existing) = &bindings[idx];
+                    if existing.is_empty() {
+                        // Was previously skipped — can't bind now
+                        return try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer);
+                    }
+                    if existing.len() == 1 && existing[0] == *val {
+                        // Consistent binding — consume and advance
+                        if try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer) {
+                            return true;
+                        }
+                    }
+                    // Binding exists but doesn't match — try skipping
+                    return try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer);
+                }
+                // No existing binding — try binding and advancing
+                let saved_len = bindings.len();
+                bindings.push((name.clone(), vec![val.clone()]));
+                if try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer) {
+                    return true;
+                }
+                // Backtrack: remove the binding we just added
+                bindings.truncate(saved_len);
+                // Try skipping instead — mark as skipped with empty binding
+                bindings.push((name.clone(), vec![]));
+                if try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer) {
+                    return true;
+                }
+                bindings.truncate(saved_len);
+                false
+            } else {
+                // Fact exhausted — skip (optional), mark as skipped
+                let saved_len = bindings.len();
+                bindings.push((name.clone(), vec![]));
+                if try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer) {
+                    return true;
+                }
+                bindings.truncate(saved_len);
+                false
+            }
         }
     }
 }
@@ -143,13 +243,47 @@ fn try_match(
 /// Substitute variables in a pattern using bindings, producing a fact.
 /// If a variable is not bound, it stays as a variable (for partial patterns).
 /// Also substitutes `?var` patterns inside Atom strings (for rule-in-rule effects).
+/// If an Atom string looks like a pattern tuple `(...)`, it is recursively parsed,
+/// substituted, and formatted back — so optional vars inside are properly handled
+/// (bound → emit value, unbound → skip entirely, no brackets leaking).
 pub fn substitute(pattern: &Pattern, bindings: &Bindings) -> Fact {
     let mut result = Vec::new();
     for pat in pattern.iter() {
         match pat {
             Pat::Atom(s) => {
-                // Substitute ?var references inside the atom string too
+                // Do naive string replacement.
+                // Handle optional bracket syntax: [?var] and [literal].
+                // Bound optional var → emit value (no brackets).
+                // Unbound optional var → keep as [?var] (for rule-generating rules).
+                // Optional literal → emit literal (no brackets).
                 let mut s = s.clone();
+                // First, handle [?var] patterns — replace bound ones with value
+                for (name, vals) in bindings {
+                    if vals.len() == 1 {
+                        let bracketed = format!("[?{name}]");
+                        s = s.replace(&bracketed, &vals[0]);
+                    }
+                }
+                // Handle [literal] — remove brackets (but not [?var] — keep those)
+                let mut i = 0;
+                while i < s.len() {
+                    if s.as_bytes().get(i) == Some(&b'[') {
+                        // Check if this is [?var] — skip those
+                        if s[i..].starts_with("[?") {
+                            i += 1;
+                            continue;
+                        }
+                        if let Some(end) = s[i..].find(']') {
+                            let inner = s[i + 1..i + end].to_string();
+                            s.drain(i..i + end + 1);
+                            s.insert_str(i, &inner);
+                            i += inner.len();
+                            continue;
+                        }
+                    }
+                    i += 1;
+                }
+                // Then do normal ?var replacement
                 for (name, vals) in bindings {
                     if vals.len() == 1 {
                         s = s.replace(&format!("?{name}"), &vals[0]);
@@ -168,6 +302,18 @@ pub fn substitute(pattern: &Pattern, bindings: &Bindings) -> Fact {
             Pat::Rest(name) => {
                 if let Some((_, vals)) = bindings.iter().find(|(n, _)| n == name) {
                     result.extend(vals.clone());
+                }
+            }
+            Pat::OptionalAtom(s) => {
+                // Always emit the literal (same as Atom in effects)
+                result.push(s.clone());
+            }
+            Pat::OptionalVar(name) => {
+                // Emit value if bound, skip if unbound
+                if let Some((_, vals)) = bindings.iter().find(|(n, _)| n == name) {
+                    if !vals.is_empty() {
+                        result.push(vals[0].clone());
+                    }
                 }
             }
         }
@@ -225,6 +371,8 @@ pub fn format_pattern(pattern: &Pattern) -> String {
         Pat::Atom(s) => s.clone(),
         Pat::Var(s) => format!("?{s}"),
         Pat::Rest(s) => format!("..?{s}"),
+        Pat::OptionalAtom(s) => format!("[{s}]"),
+        Pat::OptionalVar(s) => format!("[?{s}]"),
     };
     if pattern.len() == 1 {
         return pred;
@@ -235,6 +383,8 @@ pub fn format_pattern(pattern: &Pattern) -> String {
             Pat::Atom(s) => s.clone(),
             Pat::Var(s) => format!("?{s}"),
             Pat::Rest(s) => format!("..?{s}"),
+            Pat::OptionalAtom(s) => format!("[{s}]"),
+            Pat::OptionalVar(s) => format!("[?{s}]"),
         })
         .collect();
     format!("{}({})", pred, args.join(", "))
@@ -262,7 +412,13 @@ mod tests {
             };
             for arg in args_str.split(',') {
                 let arg = arg.trim();
-                if let Some(rest) = arg.strip_prefix("..?") {
+                if let Some(inner) = arg.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                    if let Some(var) = inner.strip_prefix('?') {
+                        pattern.push(Pat::OptionalVar(var.to_string()));
+                    } else {
+                        pattern.push(Pat::OptionalAtom(inner.to_string()));
+                    }
+                } else if let Some(rest) = arg.strip_prefix("..?") {
                     pattern.push(Pat::Rest(rest.to_string()));
                 } else if arg.starts_with('?') {
                     pattern.push(Pat::Var(arg[1..].to_string()));
@@ -299,7 +455,7 @@ mod tests {
     fn rest_at_end() {
         let p = pat("pred(a, ..?rest)");
         let f = fact("pred(a, b, c)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["b", "c"]);
     }
 
@@ -308,7 +464,7 @@ mod tests {
     fn rest_at_start() {
         let p = pat("pred(..?rest, z)");
         let f = fact("pred(x, y, z)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["x", "y"]);
     }
 
@@ -317,7 +473,7 @@ mod tests {
     fn rest_in_middle() {
         let p = pat("pred(a, ..?rest, z)");
         let f = fact("pred(a, b, c, z)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["b", "c"]);
     }
 
@@ -326,7 +482,7 @@ mod tests {
     fn two_rests() {
         let p = pat("pred(..?a, ..?b)");
         let f = fact("pred(x, y, z)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "a").unwrap().1, Vec::<String>::new());
         assert_eq!(b.iter().find(|(n, _)| n == "b").unwrap().1, vec!["x", "y", "z"]);
     }
@@ -336,7 +492,7 @@ mod tests {
     fn two_rests_with_separator() {
         let p = pat("pred(..?a, is, ..?b)");
         let f = fact("pred(big, red, ball, is, fun, toy)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "a").unwrap().1, vec!["big", "red", "ball"]);
         assert_eq!(b.iter().find(|(n, _)| n == "b").unwrap().1, vec!["fun", "toy"]);
     }
@@ -346,7 +502,7 @@ mod tests {
     fn rest_matches_zero() {
         let p = pat("pred(..?rest, z)");
         let f = fact("pred(z)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, Vec::<String>::new());
     }
 
@@ -355,7 +511,7 @@ mod tests {
     fn rest_matches_all() {
         let p = pat("pred(..?rest)");
         let f = fact("pred(x, y, z)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["x", "y", "z"]);
     }
 
@@ -364,7 +520,7 @@ mod tests {
     fn rest_consistent_binding() {
         let p = pat("pred(..?a, sep, ..?a)");
         let f = fact("pred(x, y, sep, x, y)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "a").unwrap().1, vec!["x", "y"]);
     }
 
@@ -373,7 +529,7 @@ mod tests {
     fn rest_inconsistent_binding() {
         let p = pat("pred(..?a, sep, ..?a)");
         let f = fact("pred(x, y, sep, p, q)");
-        assert!(match_pattern(&p, &f).is_none());
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_none());
     }
 
     /// No rest: exact length required (unchanged behavior).
@@ -381,7 +537,7 @@ mod tests {
     fn no_rest_exact_length() {
         let p = pat("pred(a, b)");
         let f = fact("pred(a, b)");
-        assert!(match_pattern(&p, &f).is_some());
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_some());
     }
 
     /// No rest: wrong length fails.
@@ -389,7 +545,7 @@ mod tests {
     fn no_rest_wrong_length() {
         let p = pat("pred(a, b)");
         let f = fact("pred(a, b, c)");
-        assert!(match_pattern(&p, &f).is_none());
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_none());
     }
 
     /// Atom mismatch fails.
@@ -397,7 +553,7 @@ mod tests {
     fn atom_mismatch() {
         let p = pat("pred(a, ..?rest)");
         let f = fact("pred(x, b, c)");
-        assert!(match_pattern(&p, &f).is_none());
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_none());
     }
 
     /// Variable binding consistency across patterns.
@@ -405,7 +561,7 @@ mod tests {
     fn var_consistency() {
         let p = pat("pred(?x, ..?rest, ?x)");
         let f = fact("pred(hello, a, b, hello)");
-        let b = match_pattern(&p, &f).unwrap();
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
         assert_eq!(b.iter().find(|(n, _)| n == "x").unwrap().1, vec!["hello"]);
         assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["a", "b"]);
     }
@@ -415,6 +571,198 @@ mod tests {
     fn var_inconsistency() {
         let p = pat("pred(?x, ..?rest, ?x)");
         let f = fact("pred(hello, a, b, world)");
-        assert!(match_pattern(&p, &f).is_none());
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_none());
+    }
+
+    // ===== Optional pattern tests =====
+
+    /// Optional atom present: matches and consumes.
+    #[test]
+    fn optional_atom_present() {
+        let p = pat("pred(a, [b])");
+        let f = fact("pred(a, b)");
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_some());
+    }
+
+    /// Optional atom absent: skips and matches.
+    #[test]
+    fn optional_atom_absent() {
+        let p = pat("pred(a, [b])");
+        let f = fact("pred(a)");
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_some());
+    }
+
+    /// Optional atom absent but fact has extra: fails (extra unmatched).
+    #[test]
+    fn optional_atom_absent_extra_fails() {
+        let p = pat("pred(a, [b])");
+        let f = fact("pred(a, c)");
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_none());
+    }
+
+    /// Optional variable present: binds and consumes.
+    #[test]
+    fn optional_var_present() {
+        let p = pat("pred(a, [?x])");
+        let f = fact("pred(a, hello)");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "x").unwrap().1, vec!["hello"]);
+    }
+
+    /// Optional variable absent: skipped, binding exists but is empty.
+    #[test]
+    fn optional_var_absent() {
+        let p = pat("pred(a, [?x])");
+        let f = fact("pred(a)");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        let (_, vals) = b.iter().find(|(n, _)| n == "x").unwrap();
+        assert!(vals.is_empty());
+    }
+
+    /// Multiple optionals: all present.
+    #[test]
+    fn multiple_optionals_present() {
+        let p = pat("pred([?a], prefix, and, [?b])");
+        let f = fact("pred(x, prefix, and, y)");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "a").unwrap().1, vec!["x"]);
+        assert_eq!(b.iter().find(|(n, _)| n == "b").unwrap().1, vec!["y"]);
+    }
+    /// Multiple optionals: some absent — skipped vars have empty bindings.
+    #[test]
+    fn multiple_optionals_some_absent() {
+        let p = pat("pred([?a], prefix, and, [?b])");
+        let f = fact("pred(prefix, and)");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        let (_, vals_a) = b.iter().find(|(n, _)| n == "a").unwrap();
+        assert!(vals_a.is_empty());
+        let (_, vals_b) = b.iter().find(|(n, _)| n == "b").unwrap();
+        assert!(vals_b.is_empty());
+    }
+
+    /// Optional var with consistent binding across patterns.
+    #[test]
+    fn optional_var_consistent() {
+        let p = pat("pred([?x], ?x)");
+        let f = fact("pred(hello, hello)");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "x").unwrap().1, vec!["hello"]);
+    }
+
+    /// Optional var with inconsistent binding: optional skips, non-optional binds.
+    #[test]
+    fn optional_var_inconsistent_skips() {
+        let p = pat("pred([?x], ?x)");
+        let f = fact("pred(hello, world)");
+        // Optional ?x can't bind to "hello" because ?x later must match "world"
+        // Skipping leaves "hello" and "world" for one Var pattern — fails (extra element)
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_none());
+    }
+    /// Optional var skips, non-optional cannot bind — skipped locks the var.
+    #[test]
+    fn optional_var_skip_then_bind() {
+        let p = pat("pred([?x], ?x)");
+        let f = fact("pred(hello)");
+        // Optional skips, locking ?x. ?x can't bind to "hello" — fails.
+        assert!(match_pattern(&p, &f, &Bindings::new()).is_none());
+    }
+
+    /// Optional atom with rest: rest captures remaining.
+    #[test]
+    fn optional_atom_with_rest() {
+        let p = pat("pred(a, [b], ..?rest)");
+        let f = fact("pred(a, b, c, d)");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["c", "d"]);
+    }
+
+    /// Optional atom absent with rest: rest captures everything after required.
+    #[test]
+    fn optional_atom_absent_with_rest() {
+        let p = pat("pred(a, [b], ..?rest)");
+        let f = fact("pred(a, c, d)");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        assert_eq!(b.iter().find(|(n, _)| n == "rest").unwrap().1, vec!["c", "d"]);
+    }
+
+    /// Substitute: optional var bound emits value.
+    #[test]
+    fn substitute_optional_var_bound() {
+        let p = vec![Pat::OptionalVar("x".to_string())];
+        let b = vec![("x".to_string(), vec!["hello".to_string()])];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["hello"]);
+    }
+
+    /// Substitute: optional var unbound emits nothing.
+    #[test]
+    fn substitute_optional_var_unbound() {
+        let p = vec![Pat::OptionalVar("x".to_string())];
+        let b = vec![];
+        let f = substitute(&p, &b);
+        assert!(f.is_empty());
+    }
+
+    /// Substitute: optional atom always emits.
+    #[test]
+    fn substitute_optional_atom() {
+        let p = vec![Pat::OptionalAtom(".".to_string())];
+        let b = vec![];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["."]);
+    }
+
+    /// Format pattern: optional atom.
+    #[test]
+    fn format_optional_atom() {
+        let p = vec![Pat::Atom("pred".to_string()), Pat::OptionalAtom("x".to_string())];
+        assert_eq!(format_pattern(&p), "pred([x])");
+    }
+
+    /// Format pattern: optional var.
+    #[test]
+    fn format_optional_var() {
+        let p = vec![Pat::Atom("pred".to_string()), Pat::OptionalVar("x".to_string())];
+        assert_eq!(format_pattern(&p), "pred([?x])");
+    }
+    // ===== Optional binding lock tests =====
+
+    /// Optional var skipped produces empty binding.
+    #[test]
+    fn optional_var_skipped_empty_binding() {
+        let p = pat("pred([?x])");
+        let f = fact("pred");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        let (_, vals) = b.iter().find(|(n, _)| n == "x").unwrap();
+        assert!(vals.is_empty(), "skipped optional var should have empty binding");
+    }
+
+    /// Substitute: bound optional var in inner pattern string emits value without brackets.
+    #[test]
+    fn substitute_bound_optional_in_atom() {
+        let p = vec![Pat::Atom("(?thing, is, ?rel, [?prep], ?other)".to_string())];
+        let b = vec![
+            ("thing".to_string(), vec!["cow".to_string()]),
+            ("rel".to_string(), vec!["over".to_string()]),
+            ("prep".to_string(), vec!["from".to_string()]),
+            ("other".to_string(), vec!["moon".to_string()]),
+        ];
+        let f = substitute(&p, &b);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0], "(cow, is, over, from, moon)");
+    }
+
+    /// Substitute: unbound optional var in inner pattern string keeps [?var] slot.
+    #[test]
+    fn substitute_unbound_optional_in_atom() {
+        let p = vec![Pat::Atom("(?thing, is, ?rel, [?prep], ?other)".to_string())];
+        let b = vec![
+            ("thing".to_string(), vec!["cow".to_string()]),
+            ("rel".to_string(), vec!["over".to_string()]),
+            ("other".to_string(), vec!["moon".to_string()]),
+        ];
+        let f = substitute(&p, &b);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0], "(cow, is, over, [?prep], moon)");
     }
 }

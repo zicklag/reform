@@ -1,5 +1,0 @@
-load ./game.rf
-
-> go north
-
-assert (here, kitchen)

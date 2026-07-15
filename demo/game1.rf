@@ -1,0 +1,40 @@
+$ load ./iflib/iflib.rf
+
+# Prelude
+
+## Define our core kinds
+room is a kind
+
+## Define the basic english articles
+a is an article
+an is an article
+the is an article
+A is an article
+An is an article
+The is an article
+
+## Define prepositions
+of is a preposition
+to is a preposition
+from is a preposition
+in is a preposition
+
+## Direction relationships
+north of is the reverse of south of
+east of is the reverse of west of
+up from is the reverse of down from
+under is the reverse of over
+
+# Game
+
+The Kitchen is a room
+The (Master Bedroom) is a room
+
+The Kitchen is north of the (Master Bedroom)
+
+(My Room) is east of the Kitchen
+
+cat is over house
+The cow is over the moon
+
+$facts

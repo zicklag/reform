@@ -1,0 +1,59 @@
+# ?x is a kind
+(rule, def_kind,
+    ( -(sentence, ?kind, is, a, kind) ),
+    ( (?kind, is, kind) )
+)
+
+# ?x is an article
+(rule, def_article,
+    ( -(sentence, ?a, is, an, article) ),
+    ( (?a, is, article) )
+)
+
+# ?x is a preposition
+(rule, def_preoposition,
+    ( -(sentence, ?a, is, a, preposition) ),
+    ( (?a, is, preposition) )
+)
+
+# [The] ?noun is a ?kind
+(rule, def_something_of_kind,
+    (
+        -(sentence, [?a], ?thing, is, a, ?kind),
+        (?kind, is, kind),
+        (?a, is, article),
+    ),
+    (
+        (?thing, is, ?kind)
+    )
+)
+
+# [The] ?noun is ?rel [of] [a] ?other
+(rule, rel_somthing_other,
+    (
+        -(sentence, [?a1], ?thing, is, ?rel, [?prep], [?a2], ?other),
+        (?a1, is, article),
+        (?a2, is, article),
+        (?prep, is, preposition),
+    ),
+    (
+        (?thing, is, ?rel, [?prep], ?other)
+    )
+)
+
+# ?rel1 of is the reverse of ?rel2 of
+(rule, def_reverse_rel,
+    (
+        -(sentence, ?rel1, [?prep1], is, the, reverse, of, ?rel2, [?prep2]),
+    ),
+    (
+        (rule, reverse_rel,
+            ( (?thing, is, ?rel1, [?prep1], ?other) ),
+            ( (?other, is, ?rel2, [?prep2], ?thing) )
+        ),
+        (rule, reverse_rel,
+            ( (?thing, is, ?rel2, [?prep2], ?other) ),
+            ( (?other, is, ?rel1, [?prep1], ?thing) )
+        ),
+    )
+)

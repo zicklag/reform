@@ -169,7 +169,14 @@ pub fn parse_pattern(s: &str) -> Option<crate::fact::Pattern> {
     Some(
         fact.into_iter()
             .map(|arg| {
-                if let Some(rest) = arg.strip_prefix("..?") {
+                // Check for optional bracket syntax: [?var] or [literal]
+                if let Some(inner) = arg.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                    if let Some(var) = inner.strip_prefix('?') {
+                        crate::fact::Pat::OptionalVar(var.to_owned())
+                    } else {
+                        crate::fact::Pat::OptionalAtom(inner.to_owned())
+                    }
+                } else if let Some(rest) = arg.strip_prefix("..?") {
                     crate::fact::Pat::Rest(rest.to_owned())
                 } else if let Some(var) = arg.strip_prefix('?') {
                     crate::fact::Pat::Var(var.to_owned())

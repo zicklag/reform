@@ -6,7 +6,7 @@
 # Rule is a special kind of fact that operates on other facts.
 # Rule handling is built into the engine.
 (rule, rule_name,
-    ( -(?x, north of, ?y), (here, ?y) ),
+    ( -(?x, north of, ..?y), (here, ..?y) ),
     ( (I, moved) )
 )
 

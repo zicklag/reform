@@ -51,7 +51,7 @@ impl Rule {
 
         let pattern = &self.matches[pattern_idx];
         for fact in facts {
-            if let Some(new_bindings) = match_pattern(pattern, fact) {
+            if let Some(new_bindings) = match_pattern(pattern, fact, bindings) {
                 let merged = match merge_bindings(bindings, &new_bindings) {
                     Some(m) => m,
                     None => continue,
@@ -83,7 +83,7 @@ impl Rule {
 
         let pattern = &self.matches[pattern_idx];
         for fact in facts {
-            if let Some(new_bindings) = match_pattern(pattern, fact) {
+            if let Some(new_bindings) = match_pattern(pattern, fact, bindings) {
                 // Merge bindings
                 let merged = match merge_bindings(bindings, &new_bindings) {
                     Some(m) => m,
@@ -106,7 +106,7 @@ impl Rule {
         for neg_pat in &self.not_matches {
             for fact in facts {
                 // match_pattern returns new bindings; merge with existing ones
-                if let Some(new_bindings) = match_pattern(neg_pat, fact) {
+                if let Some(new_bindings) = match_pattern(neg_pat, fact, bindings) {
                     if merge_bindings(bindings, &new_bindings).is_some() {
                         return false; // A negation matched — rule is blocked
                     }
@@ -131,11 +131,17 @@ impl Rule {
 }
 
 /// Merge two bindings sets. Returns None if they conflict.
+/// An empty binding (from a skipped optional) can be overwritten by a non-empty one.
 fn merge_bindings(a: &Bindings, b: &Bindings) -> Option<Bindings> {
     let mut result = a.clone();
     for (name, values) in b {
         if let Some((_, existing)) = result.iter_mut().find(|(n, _)| n == name) {
-            if existing != values {
+            if existing.is_empty() {
+                // Empty binding can be overwritten
+                *existing = values.clone();
+            } else if values.is_empty() {
+                // Non-empty binding can't be overwritten by empty — keep existing
+            } else if existing != values {
                 return None; // conflicting bindings
             }
         } else {
@@ -161,7 +167,13 @@ mod tests {
             };
             for arg in args_str.split(',') {
                 let arg = arg.trim();
-                if arg.starts_with('?') {
+                if let Some(inner) = arg.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                    if let Some(var) = inner.strip_prefix('?') {
+                        pattern.push(Pat::OptionalVar(var.to_string()));
+                    } else {
+                        pattern.push(Pat::OptionalAtom(inner.to_string()));
+                    }
+                } else if arg.starts_with('?') {
                     pattern.push(Pat::Var(arg[1..].to_string()));
                 } else {
                     pattern.push(Pat::Atom(arg.to_string()));
@@ -351,5 +363,88 @@ mod tests {
             .collect();
         assert!(effects.iter().any(|e| e == "south_of,bedroom,kitchen"));
         assert!(effects.iter().any(|e| e == "south_of,kitchen,frontroom"));
+    }
+    // ===== Optional binding rule tests =====
+
+    /// Rule with optional + validation: works when optional present.
+    #[test]
+    fn rule_optional_validation_present() {
+        let rule = Rule {
+            name: "test".into(),
+            matches: vec![
+                pat("sentence([?a1], ?thing, is, ?rel, [?prep], [?a2], ?other)"),
+                pat("article(?a1)"),
+                pat("article(?a2)"),
+                pat("preposition(?prep)"),
+            ],
+            not_matches: vec![],
+            consumes: vec![0],
+            effects: vec![pat("rel(?thing, ?rel, ?prep, ?other)")],
+        };
+        let facts = vec![
+            fact("sentence(the, cow, is, over, from, the, moon)"),
+            fact("article(the)"),
+            fact("preposition(from)"),
+        ];
+        let result = rule.find_match(&facts);
+        assert!(result.is_some(), "should match when optional is present");
+        let (bindings, _) = result.unwrap();
+        assert_eq!(bindings.iter().find(|(n, _)| n == "prep").unwrap().1[0], "from");
+    }
+
+    /// Rule with optional + validation: works when optional absent (validation waived).
+    #[test]
+    fn rule_optional_validation_absent() {
+        let rule = Rule {
+            name: "test".into(),
+            matches: vec![
+                pat("sentence([?a1], ?thing, is, ?rel, [?prep], [?a2], ?other)"),
+                pat("article(?a1)"),
+                pat("article(?a2)"),
+                pat("preposition(?prep)"),
+            ],
+            not_matches: vec![],
+            consumes: vec![0],
+            effects: vec![pat("rel(?thing, ?rel, ?other)")],
+        };
+        let facts = vec![
+            fact("sentence(cow, is, over, moon)"),
+            fact("article(the)"),
+            fact("preposition(from)"),  // needed for pattern to match; ?prep wildcard skips binding
+        ];
+        let result = rule.find_match(&facts);
+        assert!(result.is_some(), "should match when optional is absent");
+        let (bindings, _) = result.unwrap();
+        // ?prep was skipped in sentence — wildcard in validation means no binding added
+        assert!(bindings.iter().find(|(n, _)| n == "prep").unwrap().1.is_empty());
+        assert!(bindings.iter().find(|(n, _)| n == "a1").unwrap().1.is_empty());
+        assert!(bindings.iter().find(|(n, _)| n == "a2").unwrap().1.is_empty());
+    }
+
+    /// Rule with optional + validation: absent optional does NOT bind from unrelated facts.
+    #[test]
+    fn rule_optional_absent_does_not_leak() {
+        let rule = Rule {
+            name: "test".into(),
+            matches: vec![
+                pat("sentence([?a1], ?thing, is, ?rel, [?prep], [?a2], ?other)"),
+                pat("article(?a1)"),
+                pat("article(?a2)"),
+                pat("preposition(?prep)"),
+            ],
+            not_matches: vec![],
+            consumes: vec![0],
+            effects: vec![pat("rel(?thing, ?rel, ?prep, ?other)")],
+        };
+        let facts = vec![
+            fact("sentence(cow, is, over, moon)"),
+            fact("article(the)"),
+            fact("preposition(from)"),
+        ];
+        let result = rule.find_match(&facts);
+        assert!(result.is_some(), "should match even with unrelated preposition fact");
+        let (bindings, _) = result.unwrap();
+        assert!(bindings.iter().find(|(n, _)| n == "prep").unwrap().1.is_empty(),
+            "skipped optional var must not be bound by unrelated facts");
     }
 }
