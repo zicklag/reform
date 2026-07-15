@@ -132,22 +132,30 @@ understand is understand-token
     )
 )
 
-# When ?acting ..?thingsToDo
+# When ?acting ..?new fact
 when is when-token
 When is when-token
-(rule, when_acting,
+
+(rule, when_1,
     (
-        -(sentence, ?when, ?act, ..?fact),
+        -(sentence, ?when, ?act, ..?factChain),
         (?act, is, action),
         (?when, is, when-token)
     ),
     (
-        (rule, when_enact,
+        (rule, when_1_out,
             ( -(enact, ?act, ..?args) ),
-            (
-                (sentence, ..?fact)
-            )
-        ),
-        (had when rule, ..?fact)
+            ( (when_2, ..?factChain) )
+        )
     )
+)
+
+(rule, when_2a,
+    ( -(when_2, ..?fact, and, [now], ..?rest) ),
+    ( (sentence, ..?fact), (when_2, ..?rest) )
+)
+
+(rule, when_2b,
+    ( -(when_2, ..?fact) ),
+    ( (sentence, ..?fact) )
 )

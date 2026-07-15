@@ -63,9 +63,9 @@ say (
 
 ## Game actions
 looking is an action
-Understand look as looking
+understand look as looking
 understand l as looking
 
-When looking say (You look around tentatively.)
+When looking say (You look around tentatively.) and now the player is a moose and say (Now you are a moose)
 
 $ facts
