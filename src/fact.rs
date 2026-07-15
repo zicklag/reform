@@ -211,17 +211,17 @@ fn try_match(
                     // Binding exists but doesn't match — try skipping
                     return try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer);
                 }
-                // No existing binding — try binding and advancing
+                // No existing binding — try skipping first (shortest match)
                 let saved_len = bindings.len();
-                bindings.push((name.clone(), vec![val.clone()]));
-                if try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer) {
-                    return true;
-                }
-                // Backtrack: remove the binding we just added
-                bindings.truncate(saved_len);
-                // Try skipping instead — mark as skipped with empty binding
                 bindings.push((name.clone(), vec![]));
                 if try_match(pattern, fact, pat_idx + 1, fact_idx, bindings, outer) {
+                    return true;
+                }
+                // Backtrack: remove the skip binding
+                bindings.truncate(saved_len);
+                // Try binding and advancing instead
+                bindings.push((name.clone(), vec![val.clone()]));
+                if try_match(pattern, fact, pat_idx + 1, fact_idx + 1, bindings, outer) {
                     return true;
                 }
                 bindings.truncate(saved_len);
@@ -764,5 +764,34 @@ mod tests {
         let f = substitute(&p, &b);
         assert_eq!(f.len(), 1);
         assert_eq!(f[0], "(cow, is, over, [?prep], moon)");
+    }
+
+    /// Optional var should try skipping if binding leads to outer-pattern failure.
+    /// Pattern: (sentence, [?a1], ?thing, is, ?rel, [?prep], [?a2], ?other)
+    /// Fact: (sentence, The, cow, is, over, the, moon)
+    /// ?prep should NOT bind to "the" — it should skip so outer (?prep, is, preposition) can match.
+    #[test]
+    fn optional_var_should_try_skip_when_binding_wrong() {
+        let p = pat("sentence([?a1], ?thing, is, ?rel, [?prep], [?a2], ?other)");
+        let f = fact("sentence(The, cow, is, over, the, moon)");
+        let b = match_pattern(&p, &f, &Bindings::new()).unwrap();
+        // ?prep should be empty (skipped), not bound to "the"
+        let (_, prep_vals) = b.iter().find(|(n, _)| n == "prep").unwrap();
+        assert!(prep_vals.is_empty(), "?prep should be skipped, not bound to 'the'");
+        // ?a1 should be "The"
+        let (_, a1_vals) = b.iter().find(|(n, _)| n == "a1").unwrap();
+        assert_eq!(a1_vals, &[String::from("The")]);
+        // ?a2 should be "the"
+        let (_, a2_vals) = b.iter().find(|(n, _)| n == "a2").unwrap();
+        assert_eq!(a2_vals, &[String::from("the")]);
+        // ?thing should be "cow"
+        let (_, thing_vals) = b.iter().find(|(n, _)| n == "thing").unwrap();
+        assert_eq!(thing_vals, &[String::from("cow")]);
+        // ?rel should be "over"
+        let (_, rel_vals) = b.iter().find(|(n, _)| n == "rel").unwrap();
+        assert_eq!(rel_vals, &[String::from("over")]);
+        // ?other should be "moon"
+        let (_, other_vals) = b.iter().find(|(n, _)| n == "other").unwrap();
+        assert_eq!(other_vals, &[String::from("moon")]);
     }
 }
