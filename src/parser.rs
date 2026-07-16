@@ -45,15 +45,23 @@ peg::parser! {
             // Parse a sentence fact
             f:sentence() (newline() / ![_]) { Stmt::Fact(f) }
 
-        /// Parse a sentence
-        rule sentence() -> Fact = words:word() ++ _ {
-            let mut f = vec!["sentence".to_owned()];
-            f.extend(words);
-            f
-        }
+        /// Parse a sentence, with indented continuation lines joined as one.
+        rule sentence() -> Fact =
+            words:word() ++ _ continuation:(newline() indent() words:word() ++ _ { words })* {
+                let mut f = vec!["sentence".to_owned()];
+                f.extend(words);
+                for cont in continuation {
+                    f.extend(cont);
+                }
+                f
+            }
 
         /// A word in a sentence is anything not whitespace separated by whitespace.
         /// Balanced parentheses are treated as a single word.
+        /// Punctuation characters (:;.) are split into their own words.
+        /// A word in a sentence is anything not whitespace separated by whitespace.
+        /// Balanced parentheses are treated as a single word, with internal
+        /// newlines replaced by spaces.
         /// Punctuation characters (:;.) are split into their own words.
         rule word() -> String =
             // A balanced paren group — return content without outer parens
@@ -128,6 +136,9 @@ peg::parser! {
         rule __() = ( [' ' | '\t' ] / newline() / line_comment() )*
 
         /// Line comment
+
+        /// Indentation: one or more leading spaces or tabs (start of line).
+        rule indent() = [' ' | '\t']+
         rule line_comment() = "#" (!newline() [_])*
 
         /// Newline
@@ -155,8 +166,68 @@ mod test {
     const LANG_REF: &str = include_str!("../demo/lang.rf");
 
     #[test]
-    fn parse_lang() {
-        file_parser::file(LANG_REF).unwrap();
+    fn sentence_with_indented_continuation() {
+        let input = "say (hello\n  world\n  foo)\n";
+        let stmts = parse_file(input).unwrap();
+        assert_eq!(stmts.len(), 1);
+        if let Stmt::Fact(f) = &stmts[0] {
+            assert_eq!(f[0], "sentence");
+            // Newlines inside balanced parens are preserved literally
+            assert_eq!(f[1..], ["say", "hello\n  world\n  foo"]);
+        } else {
+            panic!("expected a fact, got {:?}", stmts[0]);
+        }
+    }
+
+    #[test]
+    fn fact_not_affected_by_indentation() {
+        let input = "(rule, test,\n  ( -(sentence, ?x) ),\n  ( (?x) )\n)\n";
+        let stmts = parse_file(input).unwrap();
+        assert_eq!(stmts.len(), 1);
+        if let Stmt::Fact(f) = &stmts[0] {
+            assert_eq!(f[0], "rule");
+            assert_eq!(f[1], "test");
+        } else {
+            panic!("expected a fact, got {:?}", stmts[0]);
+        }
+    }
+
+    #[test]
+    fn sentence_indented_after_blank_line() {
+        let input = "first\n\n  indented\n";
+        let stmts = parse_file(input).unwrap();
+        assert_eq!(stmts.len(), 2);
+        if let Stmt::Fact(f) = &stmts[0] {
+            assert_eq!(f[0], "sentence");
+            assert_eq!(f[1..], ["first"]);
+        } else {
+            panic!("expected a fact, got {:?}", stmts[0]);
+        }
+        if let Stmt::Fact(f) = &stmts[1] {
+            assert_eq!(f[0], "sentence");
+            assert_eq!(f[1..], ["indented"]);
+        } else {
+            panic!("expected a fact, got {:?}", stmts[1]);
+        }
+    }
+
+    #[test]
+    fn sentence_indented_after_comment() {
+        let input = "first\n# comment\n  indented\n";
+        let stmts = parse_file(input).unwrap();
+        assert_eq!(stmts.len(), 2);
+        if let Stmt::Fact(f) = &stmts[0] {
+            assert_eq!(f[0], "sentence");
+            assert_eq!(f[1..], ["first"]);
+        } else {
+            panic!("expected a fact, got {:?}", stmts[0]);
+        }
+        if let Stmt::Fact(f) = &stmts[1] {
+            assert_eq!(f[0], "sentence");
+            assert_eq!(f[1..], ["indented"]);
+        } else {
+            panic!("expected a fact, got {:?}", stmts[1]);
+        }
     }
 }
 
