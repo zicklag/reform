@@ -1,13 +1,6 @@
 # We have to bootstrap one article for the rules below
 (an, is, article)
 
-# Definition: merely define the existence of something
-# ?x exists
-(rule, define,
-    ( (sentence, ?x, exists) ),
-    ( (?x) )
-)
-
 # [The] ?x is [a] ?y
 (rule, def_x_is_y,
     (
@@ -17,16 +10,6 @@
     ),
     (
         (?x, is, ?y)
-    )
-)
-
-# reflexivity: something is always itself
-(rule, reflexivity,
-    (
-        (?x)
-    ),
-    (
-        (?x, is, ?x)
     )
 )
 
