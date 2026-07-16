@@ -1,21 +1,5 @@
 $ load ./iflib/iflib.rf
 
-# Prelude
-
-## Define the basic english articles
-
-# lowercase "an" is defined in bootstrap
-a is an article
-the is an article
-A is an article
-An is an article
-The is an article
-
-## Define prepositions
-of is a preposition
-to is a preposition
-from is a preposition
-in is a preposition
 
 # Core world modeling
 
@@ -66,13 +50,20 @@ looking is an action
 understand look as looking
 understand l as looking
 
-When looking say
-    (You look around tentatively.) and
+When looking
+    say (You look around tentatively.)
+
+moosing is an action
+understand moose as moosing
+
+when moosing
     now the player is a moose and
     say (Now you are a moose 🦛 👀)
 
 unmoosing is an action
 understand unmoose as unmoosing
 
-When unmoosing say (You are not a moose anymore.) and now the player is not a moose
+When unmoosing
+    say (You are not a moose anymore.) and
+    now the player is not a moose
 

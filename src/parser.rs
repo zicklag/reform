@@ -62,14 +62,14 @@ peg::parser! {
         /// A word in a sentence is anything not whitespace separated by whitespace.
         /// Balanced parentheses are treated as a single word, with internal
         /// newlines replaced by spaces.
-        /// Punctuation characters (:;.) are split into their own words.
+        /// Punctuation characters (:;.{}) are split into their own words.
         rule word() -> String =
             // A balanced paren group — return content without outer parens
             "(" s:balanced_content() ")" { s.to_owned() } /
             // A punctuation character
-            s:$([':' | ';' | '.']) { s.to_owned() } /
+            s:$([':' | ';' | '.' | '{' | '}']) { s.to_owned() } /
             // Any non-whitespace, non-punctuation chars
-            s:$((![' ' | '\t' | '\n' | '\r' | ':' | ';' | '.'] [_])+) { s.to_owned() }
+            s:$((![' ' | '\t' | '\n' | '\r' | ':' | ';' | '.' | '{' | '}'] [_])+) { s.to_owned() }
         rule prompt() -> Fact = ">" _ words:word() ++ _ {
             let mut f = vec!["prompt".to_owned()];
             f.extend(words);

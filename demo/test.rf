@@ -1,20 +1,5 @@
-# [The] ?x is [a] ?y
-(an, is, article)
-(rule, def_x_is_y,
-    (
-        -(sentence, [?a1], ?x, is, [?a2], ?y),
-        (?a1, is, article),
-        (?a2, is, article),
-    ),
-    (
-        (?x, is, ?y)
-    )
-)
+$ load ./iflib/iflib.rf
 
-a is an article
-the is an article
-A is an article
-An is an article
-The is an article
+The description of my-bedroom is (My bedroom is cool.).
 
 $facts

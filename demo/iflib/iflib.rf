@@ -1,12 +1,9 @@
-# We have to bootstrap one article for the rules below
-(an, is, article)
-
 # [The] ?x is [a] ?y
 (rule, def_x_is_y,
     (
         -(sentence, [?a1], ?x, is, [?a2], ?y),
-        (?a1, is, article),
-        (?a2, is, article),
+        ?(?a1, is, article),
+        ?(?a2, is, article),
     ),
     (
         (?x, is, ?y)
@@ -29,10 +26,9 @@
 # [The] ?prop of [the] ?thing is ?value
 (rule, prop_of_thing,
     (
-        -(sentence, [?a1], ?prop, of, [?a2], ?thing, is, ?value),
+        -(sentence, [?a1], ?prop, of, [?a2], ?thing, is, ?value, [.]),
         (?a1, is, article),
         (?a2, is, article),
-        (?prep, is, preposition),
     ),
     (
         (?value, is, ?prop, of, ?thing)
@@ -42,7 +38,7 @@
 # [The] ?noun is ?rel [of] [a] ?other
 (rule, rel_somthing_other,
     (
-        -(sentence, [?a1], ?thing, is, ?rel, [?prep], [?a2], ?other),
+        -(sentence, [?a1], ?thing, is, ?rel, [?prep], [?a2], ?other, [.]),
         (?a1, is, article),
         (?a2, is, article),
         (?prep, is, preposition),
@@ -68,7 +64,7 @@
 # ?rel1 of is the reverse of ?rel2 of
 (rule, def_reverse_rel,
     (
-        -(sentence, ?rel1, [?prep1], is, the, reverse, of, ?rel2, [?prep2]),
+        -(sentence, ?rel1, [?prep1], is, the, reverse, of, ?rel2, [?prep2], [.]),
     ),
     (
         (rule, reverse_rel,
@@ -113,7 +109,7 @@ Understand is understand-token
 understand is understand-token
 (rule, understand_action,
     (
-        -(sentence, ?understand, ?word, as, ?act),
+        -(sentence, ?understand, ?word, as, ?act, [.]),
         (?act, is, action),
         (?understand, is, understand-token)
     ),
@@ -131,7 +127,7 @@ When is when-token
 
 (rule, when_1,
     (
-        -(sentence, ?when, ?act, ..?factChain),
+        -(sentence, ?when, ?act, ..?factChain, [.]),
         (?act, is, action),
         (?when, is, when-token)
     ),
@@ -144,7 +140,7 @@ When is when-token
 )
 
 (rule, when_2a,
-    ( -(when_2, ..?fact, and, [now], ..?rest) ),
+    ( -(when_2, [now], ..?fact, and, [now], ..?rest) ),
     ( (sentence, ..?fact), (when_2, ..?rest) )
 )
 
@@ -152,3 +148,21 @@ When is when-token
     ( -(when_2, ..?fact) ),
     ( (sentence, ..?fact) )
 )
+
+# Prelude
+
+## Define the basic english articles
+
+# lowercase "an" is defined in bootstrap
+an is article
+a is an article
+the is an article
+A is an article
+An is an article
+The is an article
+
+## Define prepositions
+of is a preposition
+to is a preposition
+from is a preposition
+in is a preposition
