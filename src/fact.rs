@@ -319,16 +319,33 @@ pub fn substitute(pattern: &Pattern, bindings: &Bindings) -> Fact {
                 result.push(s);
             }
             Pat::Var(name) => {
-                let val = bindings
-                    .iter()
-                    .find(|(n, _)| n == name)
-                    .map(|(_, v)| v[0].clone())
-                    .unwrap_or_else(|| format!("?{name}"));
-                result.push(val);
+                if let Some((_, vals)) = bindings.iter().find(|(n, _)| n == name) {
+                    if vals.len() > 1 {
+                        // Multi-element binding: join with ", " into one string
+                        result.push(vals.join(", "));
+                    } else if vals.len() == 1 {
+                        result.push(vals[0].clone());
+                    } else {
+                        result.push(format!("?{name}"));
+                    }
+                } else {
+                    result.push(format!("?{name}"));
+                }
             }
             Pat::Rest(name) => {
                 if let Some((_, vals)) = bindings.iter().find(|(n, _)| n == name) {
-                    result.extend(vals.clone());
+                    if vals.len() == 1 {
+                        // Single-element binding: try to parse as fact tuple and splat
+                        if let Some(parsed) = crate::parser::parse_fact_str(&vals[0]) {
+                            result.extend(parsed);
+                        } else {
+                            // Not a valid tuple — treat as single element
+                            result.push(vals[0].clone());
+                        }
+                    } else {
+                        // Multi-element or empty: splat directly
+                        result.extend(vals.clone());
+                    }
                 }
             }
             Pat::OptionalAtom(s) => {
@@ -857,5 +874,79 @@ mod tests {
         let f = substitute(&p, &b);
         assert_eq!(f.len(), 1);
         assert_eq!(f[0], "(print, hello)");
+    }
+
+    // ===== Split/join substitution tests =====
+
+    /// Pat::Rest with single-element binding that is a valid tuple: parse and splat.
+    #[test]
+    fn substitute_rest_splits_tuple_string() {
+        let p = vec![Pat::Rest("args".to_string())];
+        let b = vec![("args".to_string(), vec!["(hello, world)".to_string()])];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["hello", "world"]);
+    }
+
+    /// Pat::Rest with single-element binding that is NOT a valid tuple: emit as-is.
+    #[test]
+    fn substitute_rest_keeps_non_tuple_string() {
+        let p = vec![Pat::Rest("x".to_string())];
+        let b = vec![("x".to_string(), vec!["hello".to_string()])];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["hello"]);
+    }
+
+    /// Pat::Rest with single-element binding that is a nested tuple: parse and splat.
+    #[test]
+    fn substitute_rest_splits_nested_tuple() {
+        let p = vec![Pat::Rest("args".to_string())];
+        let b = vec![("args".to_string(), vec!["(print, (hello, world))".to_string()])];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["print", "hello, world"]);
+    }
+
+    /// Pat::Var with multi-element binding: join with ", ".
+    #[test]
+    fn substitute_var_joins_multi_element() {
+        let p = vec![Pat::Var("args".to_string())];
+        let b = vec![("args".to_string(), vec!["a".to_string(), "b".to_string(), "c".to_string()])];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["a, b, c"]);
+    }
+
+    /// Pat::Var with single-element binding: unchanged.
+    #[test]
+    fn substitute_var_single_element() {
+        let p = vec![Pat::Var("x".to_string())];
+        let b = vec![("x".to_string(), vec!["hello".to_string()])];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["hello"]);
+    }
+
+    /// Pat::Var with empty binding: emits ?name.
+    #[test]
+    fn substitute_var_empty_binding() {
+        let p = vec![Pat::Var("x".to_string())];
+        let b = vec![("x".to_string(), vec![])];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["?x"]);
+    }
+
+    /// Pat::Rest with empty binding: emits nothing.
+    #[test]
+    fn substitute_rest_empty_binding() {
+        let p = vec![Pat::Rest("x".to_string())];
+        let b = vec![("x".to_string(), vec![])];
+        let f = substitute(&p, &b);
+        assert!(f.is_empty());
+    }
+
+    /// Pat::Rest with multi-element binding: splat directly (unchanged).
+    #[test]
+    fn substitute_rest_multi_element() {
+        let p = vec![Pat::Rest("args".to_string())];
+        let b = vec![("args".to_string(), vec!["a".to_string(), "b".to_string(), "c".to_string()])];
+        let f = substitute(&p, &b);
+        assert_eq!(f, vec!["a", "b", "c"]);
     }
 }
