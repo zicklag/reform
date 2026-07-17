@@ -1,5 +1,11 @@
-$ load ./iflib/iflib.rf
+The description of the kitchen is [Your favorite room in the house.{if cooking}
 
-The description of my-bedroom is (My bedroom is cool.).
+It's kind of hot in here right now.{otherwise}
+
+You should get something cooking shouldn't you?{end if}
+
+The kitchen is great.].
 
 $facts
+
+

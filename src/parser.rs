@@ -21,6 +21,52 @@ pub enum Stmt {
     Quit,
 }
 
+/// Expand a template string `[...]` into multiple words.
+///
+/// Text between `{...}` blocks becomes `(text)` — a single parenthesized word.
+/// `{...}` blocks themselves become `{`, words..., `}` — the braces as separate
+/// punctuation words with the inner content split by whitespace.
+///
+/// Example: `[It is very much {if locked}locked{otherwise}open{end if}]`
+/// expands to: `(It is very much )`, `{`, `if`, `locked`, `}`, `(locked)`,
+/// `{`, `otherwise`, `}`, `(open)`, `{`, `end`, `if`, `}`
+fn expand_template(s: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut remaining = s;
+
+    while !remaining.is_empty() {
+        if let Some(open_idx) = remaining.find('{') {
+            // Check if there's a matching closing brace
+            if let Some(close_idx) = remaining[open_idx..].find('}') {
+                // Text before the brace — wrap in parens as a single word
+                if open_idx > 0 {
+                    result.push(format!("({})", &remaining[..open_idx]));
+                }
+                let inner = &remaining[open_idx + 1..open_idx + close_idx];
+                // Emit {, inner words, }
+                result.push("{".to_string());
+                for word in inner.split_whitespace() {
+                    if !word.is_empty() {
+                        result.push(word.to_string());
+                    }
+                }
+                result.push("}".to_string());
+                remaining = &remaining[open_idx + close_idx + 1..];
+            } else {
+                // No closing brace — treat the whole remaining text as literal
+                result.push(format!("({})", remaining));
+                remaining = "";
+            }
+        } else {
+            // No more braces — rest is literal text
+            result.push(format!("({})", remaining));
+            remaining = "";
+        }
+    }
+
+    result
+}
+
 peg::parser! {
     grammar file_parser() for str {
         /// Parse a reform file
@@ -49,30 +95,33 @@ peg::parser! {
         rule sentence() -> Fact =
             words:word() ++ _ continuation:(newline() indent() words:word() ++ _ { words })* {
                 let mut f = vec!["sentence".to_owned()];
-                f.extend(words);
+                for w in words { f.extend(w); }
                 for cont in continuation {
-                    f.extend(cont);
+                    for w in cont { f.extend(w); }
                 }
                 f
             }
 
-        /// A word in a sentence is anything not whitespace separated by whitespace.
-        /// Balanced parentheses are treated as a single word.
-        /// Punctuation characters (:;.) are split into their own words.
-        /// A word in a sentence is anything not whitespace separated by whitespace.
-        /// Balanced parentheses are treated as a single word, with internal
-        /// newlines replaced by spaces.
-        /// Punctuation characters (:;.{}) are split into their own words.
-        rule word() -> String =
+        /// A word in a sentence. Returns a Vec because template strings `[...]`
+        /// can expand into multiple words.
+        ///
+        /// - `(...)` — balanced paren group, single word (content without parens)
+        /// - `[...]` — template string, expands into multiple words
+        /// - `{` / `}` / `:` / `;` / `.` — punctuation, single word
+        /// - anything else — non-whitespace non-punctuation, single word
+        rule word() -> Vec<String> =
+            // A template string — expands into multiple words
+            "[" s:$((!['[' | ']'] [_])*) "]" { expand_template(s) } /
             // A balanced paren group — return content without outer parens
-            "(" s:balanced_content() ")" { s.to_owned() } /
+            "(" s:balanced_content() ")" { vec![s.to_owned()] } /
             // A punctuation character
-            s:$([':' | ';' | '.' | '{' | '}']) { s.to_owned() } /
+            s:$([':' | ';' | '.' | '{' | '}']) { vec![s.to_owned()] } /
             // Any non-whitespace, non-punctuation chars
-            s:$((![' ' | '\t' | '\n' | '\r' | ':' | ';' | '.' | '{' | '}'] [_])+) { s.to_owned() }
+            s:$((![' ' | '\t' | '\n' | '\r' | ':' | ';' | '.' | '{' | '}'] [_])+) { vec![s.to_owned()] }
+
         rule prompt() -> Fact = ">" _ words:word() ++ _ {
             let mut f = vec!["prompt".to_owned()];
-            f.extend(words);
+            for w in words { f.extend(w); }
             f
         }
 
@@ -229,6 +278,133 @@ mod test {
             panic!("expected a fact, got {:?}", stmts[1]);
         }
     }
+
+    #[test]
+    fn expand_template_simple() {
+        let result = expand_template("It is very much {if locked}locked{otherwise}open{end if}");
+        assert_eq!(result, vec![
+            "(It is very much )",
+            "{",
+            "if",
+            "locked",
+            "}",
+            "(locked)",
+            "{",
+            "otherwise",
+            "}",
+            "(open)",
+            "{",
+            "end",
+            "if",
+            "}",
+        ]);
+    }
+
+    #[test]
+    fn expand_template_no_braces() {
+        let result = expand_template("plain text only");
+        assert_eq!(result, vec!["(plain text only)"]);
+    }
+
+    #[test]
+    fn expand_template_empty() {
+        let result = expand_template("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn expand_template_leading_braces() {
+        let result = expand_template("{if x}then{end if}");
+        assert_eq!(result, vec![
+            "{",
+            "if",
+            "x",
+            "}",
+            "(then)",
+            "{",
+            "end",
+            "if",
+            "}",
+        ]);
+    }
+
+    #[test]
+    fn expand_template_trailing_text() {
+        let result = expand_template("{if x}then{end if}after");
+        assert_eq!(result, vec![
+            "{",
+            "if",
+            "x",
+            "}",
+            "(then)",
+            "{",
+            "end",
+            "if",
+            "}",
+            "(after)",
+        ]);
+    }
+
+    #[test]
+    fn expand_template_unclosed_brace() {
+        let result = expand_template("text {unclosed");
+        assert_eq!(result, vec!["(text {unclosed)"]);
+    }
+
+    #[test]
+    fn sentence_with_template_string() {
+        let input = "The description is [It is very much {if locked}locked{otherwise}open{end if}].\n";
+        let stmts = parse_file(input).unwrap();
+        assert_eq!(stmts.len(), 1);
+        if let Stmt::Fact(f) = &stmts[0] {
+            assert_eq!(f[0], "sentence");
+            assert_eq!(f[1..], [
+                "The", "description", "is",
+                "(It is very much )",
+                "{", "if", "locked", "}",
+                "(locked)",
+                "{", "otherwise", "}",
+                "(open)",
+                "{", "end", "if", "}",
+                ".",
+            ]);
+        } else {
+            panic!("expected a fact, got {:?}", stmts[0]);
+        }
+    }
+
+    #[test]
+    fn sentence_with_template_no_braces() {
+        let input = "The description is [plain text].\n";
+        let stmts = parse_file(input).unwrap();
+        assert_eq!(stmts.len(), 1);
+        if let Stmt::Fact(f) = &stmts[0] {
+            assert_eq!(f[0], "sentence");
+            assert_eq!(f[1..], ["The", "description", "is", "(plain text)", "."]);
+        } else {
+            panic!("expected a fact, got {:?}", stmts[0]);
+        }
+    }
+
+    #[test]
+    fn sentence_with_template_and_parens() {
+        let input = "The description is [It is (very) much {if x}special{end if}].\n";
+        let stmts = parse_file(input).unwrap();
+        assert_eq!(stmts.len(), 1);
+        if let Stmt::Fact(f) = &stmts[0] {
+            assert_eq!(f[0], "sentence");
+            assert_eq!(f[1..], [
+                "The", "description", "is",
+                "(It is (very) much )",
+                "{", "if", "x", "}",
+                "(special)",
+                "{", "end", "if", "}",
+                ".",
+            ]);
+        } else {
+            panic!("expected a fact, got {:?}", stmts[0]);
+        }
+    }
 }
 
 /// Parse a pattern tuple like `(pred, arg1, ?var)` into a Pattern.
@@ -261,3 +437,10 @@ pub fn parse_pattern(s: &str) -> Option<crate::fact::Pattern> {
             .collect(),
     )
 }
+
+/// Parse a fact tuple string like `"(pred, arg1, arg2)"` into its elements.
+/// Returns None if the string is not a valid fact tuple.
+pub fn parse_fact_str(s: &str) -> Option<Vec<String>> {
+    file_parser::fact(s).ok()
+}
+
