@@ -9,3 +9,19 @@ The kitchen is great.].
 $facts
 
 
+$ rule example2
+  (
+    # Find all the items the player is carrying from all the
+    # separate "player is carying" facts
+    $(
+      player is carrying $item
+    )*
+    # Delete the previous list of all player items if ther was one
+    $(
+      - all player items $( $any )*
+    )?
+  )
+  (
+    # Create a single fact with the full list of items
+    all player items $( $item )*
+  )
