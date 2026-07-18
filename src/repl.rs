@@ -5,75 +5,25 @@ use crate::fact::{format_fact, parse_pattern_from_str, split_patterns};
 use crate::parser::{Stmt, parse_stmt};
 use crate::rule::Rule;
 
-/// Run the REPL with full control over all options.
-pub fn run_repl_full(
-    engine: &mut Engine,
-    show_help: bool,
-    prompt_mode: bool,
-    verbose: bool,
-    allow_commands: bool,
-) -> anyhow::Result<()> {
-    run_repl_with_help(engine, show_help, prompt_mode, verbose, allow_commands)
+/// Options controlling REPL behavior.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReplOptions {
+    /// Print the command list on startup.
+    pub show_help: bool,
+    /// Prepend `> ` to input lines as prompt(...) facts.
+    pub prompt_mode: bool,
+    /// Print auto-run firing counts.
+    pub verbose: bool,
+    /// Allow $-prefixed commands when in prompt mode.
+    pub allow_commands: bool,
 }
 
-/// Run a simple REPL that reads lines and processes them.
-/// `show_help` controls whether the command list is printed on startup.
-pub fn run_repl(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
-    run_repl_with_help(engine, true, prompt_mode, false, false)
-}
-
-/// Run the REPL without printing the command list.
-pub fn run_repl_quiet(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
-    run_repl_with_help(engine, false, prompt_mode, false, false)
-}
-
-/// Run a simple REPL that reads lines and processes them, with verbose output.
-pub fn run_repl_verbose(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
-    run_repl_with_help(engine, true, prompt_mode, true, false)
-}
-
-/// Run the REPL without printing the command list, with verbose output.
-pub fn run_repl_quiet_verbose(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
-    run_repl_with_help(engine, false, prompt_mode, true, false)
-}
-
-/// Run a simple REPL that reads lines and processes them, with allow_commands.
-pub fn run_repl_allow_commands(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
-    run_repl_with_help(engine, true, prompt_mode, false, true)
-}
-
-/// Run the REPL without printing the command list, with allow_commands.
-pub fn run_repl_quiet_allow_commands(engine: &mut Engine, prompt_mode: bool) -> anyhow::Result<()> {
-    run_repl_with_help(engine, false, prompt_mode, false, true)
-}
-
-/// Run a simple REPL that reads lines and processes them, with verbose and allow_commands.
-pub fn run_repl_verbose_allow_commands(
-    engine: &mut Engine,
-    prompt_mode: bool,
-) -> anyhow::Result<()> {
-    run_repl_with_help(engine, true, prompt_mode, true, true)
-}
-
-/// Run the REPL without printing the command list, with verbose and allow_commands.
-pub fn run_repl_quiet_verbose_allow_commands(
-    engine: &mut Engine,
-    prompt_mode: bool,
-) -> anyhow::Result<()> {
-    run_repl_with_help(engine, false, prompt_mode, true, true)
-}
-
-fn run_repl_with_help(
-    engine: &mut Engine,
-    show_help: bool,
-    prompt_mode: bool,
-    verbose: bool,
-    allow_commands: bool,
-) -> anyhow::Result<()> {
+/// Run the REPL with the given options.
+pub fn run_repl(engine: &mut Engine, options: ReplOptions) -> anyhow::Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
     println!("Reform Engine REPL");
-    if show_help {
+    if options.show_help {
         println!("Commands:");
         println!("  (pred, arg1, arg2)  - assert a fact");
         println!("  -(pred, arg1, arg2)  - retract a fact");
@@ -86,7 +36,7 @@ fn run_repl_with_help(
         println!();
     }
 
-    if prompt_mode {
+    if options.prompt_mode {
         print!("> ");
         stdout.flush()?;
     }
@@ -96,7 +46,7 @@ fn run_repl_with_help(
         let line = line.trim().to_string();
 
         if line.is_empty() {
-            if prompt_mode {
+            if options.prompt_mode {
                 print!("> ");
                 stdout.flush()?;
             }
@@ -104,14 +54,14 @@ fn run_repl_with_help(
         }
 
         // Determine the input to parse
-        let input = if prompt_mode && allow_commands {
+        let input = if options.prompt_mode && options.allow_commands {
             // Lines starting with $, (, or - are commands; everything else is a prompt
             if line.starts_with('$') || line.starts_with('(') || line.starts_with('-') {
                 line.clone()
             } else {
                 format!("> {}", line)
             }
-        } else if prompt_mode {
+        } else if options.prompt_mode {
             // Always prepend "> " so plain input becomes a prompt fact
             format!("> {}", line)
         } else {
@@ -129,14 +79,14 @@ fn run_repl_with_help(
                 }
                 if should_auto_run {
                     let firings = engine.run_fixedpoint();
-                    if verbose && firings > 0 {
+                    if options.verbose && firings > 0 {
                         println!("  [auto-run: {} firings]", firings);
                     }
                 }
             }
         }
 
-        if prompt_mode {
+        if options.prompt_mode {
             print!("> ");
             stdout.flush()?;
         }
@@ -144,6 +94,8 @@ fn run_repl_with_help(
 
     Ok(())
 }
+
+
 
 /// Load and execute a script file.
 /// `base_dir` is the directory to resolve relative `load` paths against.
@@ -173,8 +125,6 @@ fn load_script_from(
     Ok(())
 }
 
-/// Execute a parsed statement. Returns false if the program should quit.
-/// Uses cwd (`.`) as base directory for `load` commands.
 fn exec_stmt(engine: &mut Engine, stmt: Stmt) -> bool {
     exec_stmt_from(engine, stmt, std::path::Path::new("."))
 }
@@ -185,7 +135,7 @@ fn exec_stmt_from(engine: &mut Engine, stmt: Stmt, base_dir: &std::path::Path) -
         Stmt::Quit => return false,
         Stmt::Facts => {
             println!("  [facts after run:]");
-            engine.dump_facts();
+            print!("{}", engine.dump_facts());
         }
         Stmt::Load(path) => {
             let resolved = if std::path::Path::new(&path).is_relative() {
@@ -260,6 +210,17 @@ fn exec_stmt_from(engine: &mut Engine, stmt: Stmt, base_dir: &std::path::Path) -
                     }
                 }
             }
+        }
+        Stmt::Panic(args) => {
+            eprintln!("{}", args.join(" "));
+            std::process::exit(1);
+        }
+        Stmt::Println(args) => {
+            println!("{}", args.join(" "));
+        }
+        Stmt::Print(args) => {
+            print!("{}", args.join(" "));
+            let _ = io::stdout().flush();
         }
     }
     true

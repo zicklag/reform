@@ -1,27 +1,21 @@
-The description of the kitchen is [Your favorite room in the house.{if cooking}
+$ rule parse
+    (
+        - sentence $( $arg )*
+    )
+    (
+        $( $arg )*
+    )
 
-It's kind of hot in here right now.{otherwise}
-
-You should get something cooking shouldn't you?{end if}
-
-The kitchen is great.].
-
-$facts
-
+player is carrying hat
+player is carrying lamp
+player is carrying key
 
 $ rule example2
   (
-    # Find all the items the player is carrying from all the
-    # separate "player is carying" facts
-    $(
-      player is carrying $item
-    )*
-    # Delete the previous list of all player items if ther was one
-    $(
-      - all player items $( $any )*
-    )?
+    - player is carrying $item
   )
   (
-    # Create a single fact with the full list of items
-    all player items $( $item )*
+    inventory $item
   )
+
+$ facts 

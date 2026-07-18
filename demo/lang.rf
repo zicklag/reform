@@ -1,37 +1,41 @@
 # This is a comment
 
 # Facts are just tuples
-(john, awesome, 100)
+$ john awesome 100
 
 # Rule is a special kind of fact that operates on other facts.
 # Rule handling is built into the engine.
-(rule, rule_name,
-    ( -(?x, north of, ..?y), (here, ..?y) ),
-    ( (I, moved) )
-)
+$ rule rule_name
+  (
+    - $x (north of) ..?y
+    here ..?y
+  )
+  (
+    I moved
+  )
 
 # Print is a special rule handled by the repl that will print
 # out it's arguments.
-(print, hello world)
+$ println hello world
 
 # Lines without a tuple will be interpreted as a "sentence"
 This is a sentence
 
 # The above line is equivalent to this fact below
-(sentence, This, is, a, sentence)
+This is a sentence
 
 # Lines starting with a > are similar to sentences except they create
 # a "prompt" rule.
 > This is a prompt
 
 # The above line is equivalent to this fact
-(prompt, This, is, a, prompt)
+> This is a prompt
 
 # You can make assertions, the program panics if the fact does not exist
-$ assert (fact, should exist)
+$ assert john awesome 100
 
 # Or negative assertions
-$ assert not (fact, exists)
+$ assert-not (fact exists)
 
 # You can also print the list of all facts
 $ facts

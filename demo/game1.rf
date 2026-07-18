@@ -3,7 +3,7 @@ $ load ./iflib/iflib.rf
 
 # Core world modeling
 
-# In reform we don't need to make "kinds" explictly.
+# In reform we don't need to make "kinds" explicitly.
 # We just say one thing is another.
 # So now all bedrooms are considered rooms
 bedroom is a room
@@ -66,4 +66,3 @@ understand unmoose as unmoosing
 When unmoosing
     say (You are not a moose anymore.) and
     now the player is not a moose
-

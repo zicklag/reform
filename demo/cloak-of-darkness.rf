@@ -1,51 +1,48 @@
 # Parse sentences without modification
-(rule, sentence_parser,
-    ( -(sentence, ..?args) ),
-    ( (..?args) )
-)
+$ rule sentence_parser
+  (
+    - sentence ..?args
+  )
+  (
+    ..?args
+  )
 # "is not" rules annihilate matching "is" rules
-(rule, negation,
-    (
-        -(?thing, is, not, ..?assertion),
-        -(?thing, is, ..?assertion),
-    ),
-    ()
-)
+$ rule negation
+  (
+    - $thing is not ..?assertion
+    - $thing is ..?assertion
+  )
+  (
+  )
 # saying "now" before an "is" rule represents an update.
 # If "only one thing can be ..?args" then it auto-removes
 # the old thing that was
-(rule, update,
-    (
-        -(now, ?thing, is, ..?args, ?other),
-        -(?old, is, ..?args, ?other),
-        (only, one, thing, can, be, ..?args)
-    ),
-    (
-        (?thing, is, ..?args, ?other)
-    )
-)
+$ rule update
+  (
+    - now $thing is ..?args $other
+    - $old is ..?args $other
+    only one thing can be ..?args
+  )
+  (
+    $thing is ..?args $other
+  )
 # If the above rule doesn't match, then "now" statement just
 # adds an assertion for the new "is" rule
-(rule, update,
-    (
-        -(now, ?thing, is, ..?args),
-    ),
-    (
-        (?thing, is, ..?args)
-    )
-)
+$ rule update
+  (
+    - now $thing is ..?args
+  )
+  (
+    $thing is ..?args
+  )
 # Use understand to define prompt parsing
-(rule, understand,
-    (
-        -(understand, ..?u, as, ..?p)
-    ),
-    (
-        (rule, understand_phrase,
-            ( -(prompt, ..?u, ..?args) ),
-            ( (prompt, ..?p, ..?args) )
-        )
-    )
-)
+$ rule understand
+  (
+    - understand ..?u as ..?p
+  )
+  (
+    rule understand_phrase ( - prompt ..?u ..?args ) ( prompt ..?p ..?args )
+  )
 
 understand l as look
 understand n as go north
@@ -53,98 +50,89 @@ understand s as go south
 understand e as go east
 understand w as go west
 
-(rule, look,
-    (
-        -(prompt, look),
-        (player, is, in, ?here),
-        (?desc, is, description, of, ?here)
-    ),
-    (
-        (print, ?desc)
-    )
-)
+$ rule look
+  (
+    - prompt look
+    player is in $here
+    $desc is description of $here
+  )
+  (
+    print $desc
+  )
 
 # Set west and south as opposites of east and north
 west is opposite of east
 south is opposite of north
 
-# Normalie directions to be in terms of north and east
-(rule, normalize_dirs,
-    (
-        -(?x, is, south, of, ?y)
-    ),
-    (
-        (?y, is, north, of, ?x)
-    )
-)
-(rule, normalize_dirs,
-    (
-        -(?x, is, west, of, ?y)
-    ),
-    (
-        (?y, is, east, of, ?x)
-    )
-)
+# Normalize directions to be in terms of north and east
+$ rule normalize_dirs
+  (
+    - $x is south of $y
+  )
+  (
+    $y is north of $x
+  )
+$ rule normalize_dirs
+  (
+    - $x is west of $y
+  )
+  (
+    $y is east of $x
+  )
 
 # Go based on the directions of rooms
-(rule, go,
-    (
-        -(prompt, go, ?dir),
-        -(player, is, in, ?here),
-        (?there, is, ?dir, of, ?here),
-    ),
-    (
-        (player, is, in, ?there),
-        (prompt, look),
-    )
-)
+$ rule go
+  (
+    - prompt go $dir
+    - player is in $here
+    $there is $dir of $here
+  )
+  (
+    player is in $there
+    prompt look
+  )
 # Since room relations are normalized to be in terms of north and east
 # we have this second rule to handle if you are going west or south
-(rule, go,
-    (
-        -(prompt, go, ?dir),
-        -(player, is, in, ?here),
-        (?here, is, ?opDir, of, ?there),
-        (?dir, is, opposite, of, ?opDir),
-    ),
-    (
-        (player, is, in, ?there),
-        (prompt, look),
-    )
-)
+$ rule go
+  (
+    - prompt go $dir
+    - player is in $here
+    $here is $opDir of $there
+    $dir is opposite of $opDir
+  )
+  (
+    player is in $there
+    prompt look
+  )
 
-# Special descrition for going north in the foyer.
-# This has to come before the defaut going rule since we don't have rule specificity
+# Special description for going north in the foyer.
+# This has to come before the default going rule since we don't have rule specificity
 # ordering yet.
-(rule, go,
-    (
-        -(prompt, go, north),
-        (player, is, in, foyer)
-    ),
-    (
-        (print, (You've only just arrived, and besides, the weather outside seems to be getting worse.))
-    )
-)
+$ rule go
+  (
+    - prompt go north
+    player is in foyer
+  )
+  (
+    print (You've only just arrived, and besides, the weather outside seems to be getting worse.)
+  )
 
 # Default going rule.
-(rule, go,
-    (
-        -(prompt, go, ?dir),
-    ),
-    (
-        (print, (You can't go that way))
-    )
-)
+$ rule go
+  (
+    - prompt go $dir
+  )
+  (
+    print (You can't go that way)
+  )
 
 understand i as inventory
-(rule, inventory,
-    (
-        -(prompt, inventory)
-    ),
-    (
-        
-    )
-)
+$ rule inventory
+  (
+    - prompt inventory
+  )
+  (
+  )
 
 # Only allow one description for any thing
 only one thing can be description of
@@ -169,9 +157,10 @@ message is in bar
 intact is status of message
 only one thing can be status of
 
-$facts
-(print, (
+$ facts
+$ println (
 
 
-))
+
+)
 > look

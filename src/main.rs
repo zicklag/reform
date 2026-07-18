@@ -1,6 +1,6 @@
 use clap::Parser;
 use reform::engine::Engine;
-use reform::repl;
+use reform::repl::{self, ReplOptions};
 
 #[derive(Parser)]
 #[command(name = "reform-engine", about = "A minimal reflective rule engine")]
@@ -33,12 +33,18 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    let options = ReplOptions {
+        show_help: args.files.is_empty(),
+        prompt_mode: args.prompt_mode,
+        verbose: args.verbose,
+        allow_commands: args.allow_commands,
+    };
+
     if args.files.is_empty() {
         println!("Usage: reform-engine [file1 file2 ...]");
         println!("  Load files, then enter interactive REPL.");
         println!();
-        repl::run_repl_full(&mut engine, true, args.prompt_mode, args.verbose, args.allow_commands)
-    } else {
-        repl::run_repl_full(&mut engine, false, args.prompt_mode, args.verbose, args.allow_commands)
     }
+
+    repl::run_repl(&mut engine, options)
 }

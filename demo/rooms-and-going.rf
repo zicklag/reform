@@ -1,45 +1,75 @@
 
 # Rules for going in a direction
-(rule, go_dir,
-    ( -(go, ?dir), -(here, is, ?here), (?going, ?dir, of, ?here) ),
-    ( (here, is, ?going), (print, (You are in the ), ?going, .) )
-)
-(rule, go_fail,
-    ( -(go, ?dir), (here, is, ?here), !(?going, ?dir, of, ?here) ),
-    ( (print, (You can't go that way.)) )
-)
+$ rule go_dir
+  (
+    - go $dir
+    - here is $here
+    $going $dir of $here
+  )
+  (
+    here is $going
+    print (You are in the ) $going .
+  )
+$ rule go_fail
+  (
+    - go $dir
+    here is $here
+    ! $going $dir of $here
+  )
+  (
+    print (You can't go that way.)
+  )
 
 # Everything that has a "north of" also has a reversed "south of"
-(rule, north_of_south,
-    ( (?x, north, of, ?y) ),
-    ( (?y, south, of, ?x) ),
-)
-(rule, south_of_north,
-    ( (?y, south, of, ?x) ),
-    ( (?x, north, of, ?y) ),
-)
+$ rule north_of_south
+  (
+    $x north of $y
+  )
+  (
+    $y south of $x
+  )
+$ rule south_of_north
+  (
+    $y south of $x
+  )
+  (
+    $x north of $y
+  )
 
 # Sentence parsing, so we can define the world in simpler language
 
-(rule, parse_dir_of,
-    ( -(sentence, ?room1, is, ?dir, of, ?room2) ),
-    ( (?room1, ?dir, of, ?room2) )
-)
-(rule, parse_you_are_in,
-    ( -(sentence, You, are, in, ?here) ),
-    ( (here, is, ?here) )
-)
+$ rule parse_dir_of
+  (
+    - sentence $room1 is $dir of $room2
+  )
+  (
+    $room1 $dir of $room2
+  )
+$ rule parse_you_are_in
+  (
+    - sentence You are in $here
+  )
+  (
+    here is $here
+  )
 
-# Prmopt parsing
+# Prompt parsing
 
-(rule, parse_go,
-    ( -(prompt, go, ?where) ),
-    ( (go, ?where) )
-)
-(rule, parse_whereami,
-    ( -(prompt, where, am, I), (here, is, ?here) ),
-    ( (print, (You are in the ), ?here) )
-)
+$ rule parse_go
+  (
+    - prompt go $where
+  )
+  (
+    go $where
+  )
+$ rule parse_whereami
+  (
+    - prompt where am I
+    here is $here
+  )
+  (
+    print (You are in the ) $here
+  )
 
 # Sentences defining our game world
 

@@ -1,168 +1,154 @@
-# [The] ?x is [a] ?y
-(rule, def_x_is_y,
-    (
-        -(sentence, [?a1], ?x, is, [?a2], ?y),
-        ?(?a1, is, article),
-        ?(?a2, is, article),
-    ),
-    (
-        (?x, is, ?y)
-    )
-)
+# [The] $x is [a] $y
+$ rule def_x_is_y
+  (
+    - sentence [$a1] $x is [$a2] $y
+    $a1 is article
+    $a2 is article
+  )
+  (
+    $x is $y
+  )
 
 # "is" transitivity: i.e. if John is a person, and a person is a thing,
 # then john is also a thing. This works for anything that "is" not just
 # "kinds".
-(rule, is_transitivity,
-    (
-        (?x, is, ?y),
-        (?y, is, ?z),
-    ),
-    (
-        (?x, is, ?z)
-    )
-)
+$ rule is_transitivity
+  (
+    $x is $y
+    $y is $z
+  )
+  (
+    $x is $z
+  )
 
-# [The] ?prop of [the] ?thing is ?value
-(rule, prop_of_thing,
-    (
-        -(sentence, [?a1], ?prop, of, [?a2], ?thing, is, ?value, [.]),
-        (?a1, is, article),
-        (?a2, is, article),
-    ),
-    (
-        (?value, is, ?prop, of, ?thing)
-    )
-)
+# [The] $prop of [the] $thing is $value
+$ rule prop_of_thing
+  (
+    - sentence [$a1] $prop of [$a2] $thing is $value [.]
+    $a1 is article
+    $a2 is article
+  )
+  (
+    $value is $prop of $thing
+  )
 
-# [The] ?noun is ?rel [of] [a] ?other
-(rule, rel_somthing_other,
-    (
-        -(sentence, [?a1], ?thing, is, ?rel, [?prep], [?a2], ?other, [.]),
-        (?a1, is, article),
-        (?a2, is, article),
-        (?prep, is, preposition),
-    ),
-    (
-        (?thing, is, ?rel, [?prep], ?other)
-    )
-)
+# [The] $noun is $rel [of] [a] $other
+$ rule rel_something_other
+  (
+    - sentence [$a1] $thing is $rel [$prep] [$a2] $other [.]
+    $a1 is article
+    $a2 is article
+    $prep is preposition
+  )
+  (
+    $thing is $rel [$prep] $other
+  )
 
-# "is" elmination rule: if something "is" another thing and "is not" another
+# "is" elimination rule: if something "is" another thing and "is not" another
 # thing, then both rules are destroyed.
-(rule, rel_something_not_other,
-    (
-        -(?thing, is, not, ?other),
-        -(?thing, is, ?other)
-    ),
-    ()
-)
+$ rule rel_something_not_other
+  (
+    - $thing is not $other
+    - $thing is $other
+  )
+  (
+  )
 
 # Auto reverse relations: lets you define relations that automatically
 # define their inverses.
 #
-# ?rel1 of is the reverse of ?rel2 of
-(rule, def_reverse_rel,
-    (
-        -(sentence, ?rel1, [?prep1], is, the, reverse, of, ?rel2, [?prep2], [.]),
-    ),
-    (
-        (rule, reverse_rel,
-            ( (?thing, is, ?rel1, [?prep1], ?other) ),
-            ( (?other, is, ?rel2, [?prep2], ?thing) )
-        ),
-        (rule, reverse_rel,
-            ( (?thing, is, ?rel2, [?prep2], ?other) ),
-            ( (?other, is, ?rel1, [?prep1], ?thing) )
-        ),
-    )
-)
+# $rel1 of is the reverse of $rel2 of
+$ rule def_reverse_rel
+  (
+    - sentence $rel1 [$prep1] is the reverse of $rel2 [$prep2] [.]
+  )
+  (
+    rule reverse_rel ( $thing is $rel1 [$prep1] $other ) ( $other is $rel2 [$prep2] $thing )
+    rule reverse_rel ( $thing is $rel2 [$prep2] $other ) ( $other is $rel1 [$prep1] $thing )
+  )
 
 # The say command for printing text
 Say is say-token
 say is say-token
-(rule, say,
-    (
-        -(sentence, ?cmd, ..?args),
-        (?cmd, is, say-token)
-    ),
-    (
-        (print, ..?args)
-    )
-)
+$ rule say
+  (
+    - sentence $cmd ..?args
+    $cmd is say-token
+  )
+  (
+    print ..?args
+  )
 
-# ?act is an action
-(rule, def_action,
-    (
-        -(sentence, ?act, is, an, action),
-    ),
-    (
-        (?act, is, action),
-    )
-)
+# $act is an action
+$ rule def_action
+  (
+    - sentence $act is an action
+  )
+  (
+    $act is action
+  )
 
 # Understanding prompts as actions.
 # This converts the action to an (enact, action, ...args) fact.
 #
-# Understand ..word as ?act
+# Understand ..word as $act
 Understand is understand-token
 understand is understand-token
-(rule, understand_action,
-    (
-        -(sentence, ?understand, ?word, as, ?act, [.]),
-        (?act, is, action),
-        (?understand, is, understand-token)
-    ),
-    (
-        (rule, enact_action,
-            ( -(prompt, ?word, ..?args) ),
-            ( (enact, ?act, ..?args) ),
-        )
-    )
-)
+$ rule understand_action
+  (
+    - sentence $understand $word as $act [.]
+    $act is action
+    $understand is understand-token
+  )
+  (
+    rule enact_action ( - prompt $word ..?args ) ( enact $act ..?args )
+  )
 
-# When ?acting ..?facts
+# When $acting ..?facts
 when is when-token
 When is when-token
 
-(rule, when_1,
-    (
-        -(sentence, ?when, ?act, ..?factChain, [.]),
-        (?act, is, action),
-        (?when, is, when-token)
-    ),
-    (
-        (rule, when_1_out,
-            ( -(enact, ?act, ..?args) ),
-            ( (when_2, ..?factChain) )
-        )
-    )
-)
+$ rule when_1
+  (
+    - sentence $when $act ..?factChain [.]
+    $act is action
+    $when is when-token
+  )
+  (
+    rule when_1_out ( - enact $act ..?args ) ( when_2 ..?factChain )
+  )
 
-(rule, when_2a,
-    ( -(when_2, [now], ..?fact, and, [now], ..?rest) ),
-    ( (sentence, ..?fact), (when_2, ..?rest) )
-)
+$ rule when_2a
+  (
+    - when_2 [now] ..?fact and [now] ..?rest
+  )
+  (
+    sentence ..?fact
+    when_2 ..?rest
+  )
 
-(rule, when_2b,
-    ( -(when_2, ..?fact) ),
-    ( (sentence, ..?fact) )
-)
+$ rule when_2b
+  (
+    - when_2 ..?fact
+  )
+  (
+    sentence ..?fact
+  )
 
 # Prelude
 
 ## Define the basic english articles
 
 # lowercase "an" is defined in bootstrap
-an is article
-a is an article
-the is an article
-A is an article
-An is an article
-The is an article
+$ an is article
+$ a is article
+$ the is article
+$ A is article
+$ An is article
+$ The is article
 
 ## Define prepositions
-of is a preposition
-to is a preposition
-from is a preposition
-in is a preposition
+$ of is preposition
+$ to is preposition
+$ from is preposition
+$ in is preposition

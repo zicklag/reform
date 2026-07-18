@@ -1,4 +1,4 @@
-use crate::fact::{Bindings, Fact, format_fact, parse_pattern_from_str, split_patterns};
+use crate::fact::{Bindings, Fact, format_fact, parse_pattern_from_str};
 use crate::rule::Rule;
 
 /// A snapshot of the engine state for checkpoint/restore.
@@ -18,6 +18,45 @@ pub struct Engine {
     checkpoints: Vec<Checkpoint>,
 }
 
+/// Split a rule pattern/body string into individual pattern lines,
+/// joining lines that are inside `$( ... )` blocks (which span multiple lines).
+fn split_pattern_lines(s: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut depth: u32 = 0;
+    for line in s.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            // Always drop empty/comment lines; they are never part of a pattern.
+            continue;
+        }
+        // Track $( ... ) depth across lines
+        for c in trimmed.chars() {
+            if c == '(' { depth += 1; }
+            else if c == ')' { depth = depth.saturating_sub(1); }
+        }
+        if depth > 0 {
+            // Inside a $( block — accumulate
+            if !current.is_empty() { current.push(' '); }
+            current.push_str(trimmed);
+        } else {
+            // Not inside a block — this is a complete pattern line
+            if !current.is_empty() {
+                if !current.is_empty() { current.push(' '); }
+                current.push_str(trimmed);
+                result.push(current.clone());
+                current.clear();
+            } else {
+                result.push(trimmed.to_string());
+            }
+        }
+    }
+    if !current.is_empty() {
+        result.push(current);
+    }
+    result
+}
+
 impl Engine {
     /// Create a new empty engine.
     pub fn new() -> Self {
@@ -32,6 +71,10 @@ impl Engine {
     /// `print(...)` facts are handled as built-in output and not stored.
     pub fn assert(&mut self, fact: Fact) {
         if fact.len() >= 2 && fact[0] == "print" {
+            println!("{}", fact[1..].concat());
+            return;
+        }
+        if fact.len() >= 2 && fact[0] == "println" {
             println!("{}", fact[1..].concat());
             return;
         }
@@ -91,7 +134,15 @@ impl Engine {
         self.checkpoints.len()
     }
 
-    /// Rebuild rules from rule(...) facts in the fact base.
+
+    /// Rebuild rules from rule facts in the fact base.
+    ///
+    /// Rule facts have the format: [rule, name, pattern_content, body_content]
+    /// where pattern_content and body_content are raw strings from paren groups.
+    /// Patterns are separated by lines, but `$(` ... `)` blocks span multiple lines
+    /// and must be joined into a single pattern.
+    /// `-` prefix on a pattern line means consume it.
+    /// `!` prefix on a pattern line means negation.
     pub fn rebuild_rules(&mut self) {
         self.rules.clear();
 
@@ -101,31 +152,27 @@ impl Engine {
             }
             let name = fact[1].clone();
 
-            // Format: rule(name, match_patterns, effect_patterns)
-            // match_patterns and effect_patterns are comma-separated strings.
-            // `-` prefix on a match means consume it.
-            // `!` prefix on a match means negation.
             let match_str = &fact[2];
             let effect_str = &fact[3];
 
-            // Split match patterns respecting quotes and parens
-            let match_strs = split_patterns(match_str);
-            let effect_strs = split_patterns(effect_str);
+            // Split match patterns by line, joining lines inside $( ... ) blocks
+            let match_lines = split_pattern_lines(match_str);
+            let effect_lines = split_pattern_lines(effect_str);
 
             // Parse match patterns, tracking consume and negation
             let mut matches = Vec::new();
             let mut not_matches = Vec::new();
             let mut consume_indices: Vec<usize> = Vec::new();
 
-            for (i, m) in match_strs.iter().enumerate() {
-                let m = m.trim();
+            for (i, m) in match_lines.iter().enumerate() {
                 if let Some(rest) = m.strip_prefix('-') {
-                    // Consume this match
+                    let rest = rest.trim();
                     if let Some(mp) = parse_pattern_from_str(rest) {
                         matches.push(mp);
                         consume_indices.push(i);
                     }
                 } else if let Some(rest) = m.strip_prefix('!') {
+                    let rest = rest.trim();
                     if let Some(mp) = parse_pattern_from_str(rest) {
                         not_matches.push(mp);
                     }
@@ -135,10 +182,9 @@ impl Engine {
             }
 
             let mut effects = Vec::new();
-            for e in effect_strs {
-                let e = e.trim();
+            for e in effect_lines {
                 if !e.is_empty() {
-                    if let Some(ep) = parse_pattern_from_str(e) {
+                    if let Some(ep) = parse_pattern_from_str(&e) {
                         effects.push(ep);
                     }
                 }
@@ -198,20 +244,21 @@ impl Engine {
                 if !rule.check_negations(&self.facts, bindings) {
                     continue;
                 }
-                // Check if this rule will actually change anything
+                // Check if this rule will actually change anything.
+                // The fact base changes only if a consumed fact is not re-produced
+                // or if an effect fact is not already present.
+                let new_facts = rule.apply(bindings);
                 let mut changed = false;
 
-                // Check if any consumed facts exist
                 for &ci in rule.consumed_indices() {
                     if ci < matched_facts.len() {
-                        if self.facts.contains(&matched_facts[ci]) {
+                        let consumed = &matched_facts[ci];
+                        if self.facts.contains(consumed) && !new_facts.contains(consumed) {
                             changed = true;
                         }
                     }
                 }
 
-                // Check if any effect facts are new
-                let new_facts = rule.apply(bindings);
                 for fact in &new_facts {
                     if !self.facts.contains(fact) {
                         changed = true;
@@ -245,26 +292,248 @@ impl Engine {
         total_firings
     }
 
-    /// Print all current facts.
-    pub fn dump_facts(&self) {
+    /// Return a formatted string of all current facts.
+    pub fn dump_facts(&self) -> String {
+        let mut s = String::new();
         if self.facts.is_empty() {
-            println!("  (no facts)");
-            return;
+            s.push_str("  (no facts)
+");
+            return s;
         }
         for fact in &self.facts {
-            println!("  {}", format_fact(fact));
+            s.push_str(&format!("  {}
+", format_fact(fact)));
         }
+        s
     }
 
-    /// Print all current rules.
-    pub fn dump_rules(&self) {
+    /// Return a formatted string of all current rules.
+    pub fn dump_rules(&self) -> String {
+        let mut s = String::new();
         if self.rules.is_empty() {
-            println!("  (no rules)");
-            return;
+            s.push_str("  (no rules)
+");
+            return s;
         }
         for rule in &self.rules {
-            println!("  {}: {} patterns, {} effects, {} consumed",
-                rule.name, rule.matches.len(), rule.effects.len(), rule.consumes.len());
+            s.push_str(&format!("  {}: {} patterns, {} effects, {} consumed
+",
+                rule.name, rule.matches.len(), rule.effects.len(), rule.consumes.len()));
         }
+        s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_assert_adds_fact() {
+        let mut eng = Engine::new();
+        let f = vec!["hello".to_string(), "world".to_string()];
+        eng.assert(f.clone());
+        assert_eq!(eng.facts().len(), 1);
+        assert_eq!(eng.facts()[0], f);
+    }
+
+    #[test]
+    fn engine_assert_deduplicates() {
+        let mut eng = Engine::new();
+        let f = vec!["hello".to_string(), "world".to_string()];
+        eng.assert(f.clone());
+        eng.assert(f.clone());
+        assert_eq!(eng.facts().len(), 1);
+    }
+
+    #[test]
+    fn engine_retract_removes_fact() {
+        let mut eng = Engine::new();
+        let f = vec!["hello".to_string(), "world".to_string()];
+        eng.assert(f.clone());
+        eng.retract(&f);
+        assert!(eng.facts().is_empty());
+    }
+
+    #[test]
+    fn engine_retract_nonexistent() {
+        let mut eng = Engine::new();
+        let f = vec!["hello".to_string(), "world".to_string()];
+        eng.retract(&f);
+        assert!(eng.facts().is_empty());
+    }
+
+    #[test]
+    fn engine_print_fact_not_stored() {
+        let mut eng = Engine::new();
+        let f = vec!["print".to_string(), "hello".to_string()];
+        eng.assert(f);
+        assert!(eng.facts().is_empty());
+    }
+
+    #[test]
+    fn engine_save_and_restore_checkpoint() {
+        let mut eng = Engine::new();
+        eng.save_checkpoint();
+        let f = vec!["hello".to_string(), "world".to_string()];
+        eng.assert(f);
+        assert_eq!(eng.facts().len(), 1);
+        let restored = eng.restore_checkpoint();
+        assert!(restored);
+        assert!(eng.facts().is_empty());
+    }
+
+    #[test]
+    fn engine_restore_to_index() {
+        let mut eng = Engine::new();
+        eng.save_checkpoint();
+        let f1 = vec!["first".to_string()];
+        eng.assert(f1);
+        eng.save_checkpoint();
+        let f2 = vec!["second".to_string()];
+        eng.assert(f2);
+        assert_eq!(eng.facts().len(), 2);
+        let restored = eng.restore_to(0);
+        assert!(restored);
+        assert!(eng.facts().is_empty());
+    }
+
+    #[test]
+    fn engine_rebuild_rules_from_facts() {
+        let mut eng = Engine::new();
+        let rule_fact = vec![
+            "rule".to_string(),
+            "test".to_string(),
+            "hello $x".to_string(),
+            "hi $x".to_string(),
+        ];
+        eng.assert(rule_fact);
+        eng.rebuild_rules();
+        assert_eq!(eng.rules().len(), 1);
+        assert_eq!(eng.rules()[0].name, "test");
+    }
+
+    #[test]
+    fn engine_rebuild_rules_ignores_non_rule() {
+        let mut eng = Engine::new();
+        let f = vec!["hello".to_string(), "world".to_string()];
+        eng.assert(f);
+        eng.rebuild_rules();
+        assert!(eng.rules().is_empty());
+    }
+
+    #[test]
+    fn engine_run_fixedpoint_no_rules() {
+        let mut eng = Engine::new();
+        let firings = eng.run_fixedpoint();
+        assert_eq!(firings, 0);
+    }
+
+    #[test]
+    fn engine_run_fixedpoint_simple_rule() {
+        let mut eng = Engine::new();
+        let rule_fact = vec![
+            "rule".to_string(),
+            "test".to_string(),
+            "- hello $x".to_string(),
+            "hi $x".to_string(),
+        ];
+        eng.assert(rule_fact);
+        let fact = vec!["hello".to_string(), "world".to_string()];
+        eng.assert(fact);
+        let firings = eng.run_fixedpoint();
+        assert_eq!(firings, 1);
+        assert!(!eng.facts().iter().any(|f| f == &vec!["hello".to_string(), "world".to_string()]));
+        assert!(eng.facts().iter().any(|f| f == &vec!["hi".to_string(), "world".to_string()]));
+    }
+
+    #[test]
+    fn engine_run_fixedpoint_chain() {
+        let mut eng = Engine::new();
+        let rule1 = vec![
+            "rule".to_string(),
+            "r1".to_string(),
+            "- a $x".to_string(),
+            "b $x".to_string(),
+        ];
+        eng.assert(rule1);
+        let rule2 = vec![
+            "rule".to_string(),
+            "r2".to_string(),
+            "- b $x".to_string(),
+            "c $x".to_string(),
+        ];
+        eng.assert(rule2);
+        let fact = vec!["a".to_string(), "1".to_string()];
+        eng.assert(fact);
+        let firings = eng.run_fixedpoint();
+        assert_eq!(firings, 2);
+        assert!(!eng.facts().iter().any(|f| f == &vec!["a".to_string(), "1".to_string()]));
+        assert!(!eng.facts().iter().any(|f| f == &vec!["b".to_string(), "1".to_string()]));
+        assert!(eng.facts().iter().any(|f| f == &vec!["c".to_string(), "1".to_string()]));
+    }
+
+    #[test]
+    fn engine_run_fixedpoint_stops_when_stable() {
+        let mut eng = Engine::new();
+        let rule_fact = vec![
+            "rule".to_string(),
+            "test".to_string(),
+            "a $x".to_string(),
+            "a $x".to_string(),
+        ];
+        eng.assert(rule_fact);
+        let fact = vec!["a".to_string(), "1".to_string()];
+        eng.assert(fact);
+        let firings = eng.run_fixedpoint();
+        assert_eq!(firings, 0);
+    }
+
+    #[test]
+    fn engine_dump_facts_does_not_panic() {
+        let mut eng = Engine::new();
+        let _ = eng.dump_facts();
+        let f = vec!["hello".to_string(), "world".to_string()];
+        eng.assert(f);
+        let _ = eng.dump_facts();
+    }
+
+    #[test]
+    fn engine_dump_rules_does_not_panic() {
+        let mut eng = Engine::new();
+        let _ = eng.dump_rules();
+        let rule_fact = vec![
+            "rule".to_string(),
+            "test".to_string(),
+            "hello $x".to_string(),
+            "hi $x".to_string(),
+        ];
+        eng.assert(rule_fact);
+        eng.rebuild_rules();
+        let _ = eng.dump_rules();
+    }
+
+    #[test]
+    fn engine_checkpoint_count() {
+        let mut eng = Engine::new();
+        assert_eq!(eng.checkpoint_count(), 0);
+        eng.save_checkpoint();
+        assert_eq!(eng.checkpoint_count(), 1);
+        eng.save_checkpoint();
+        assert_eq!(eng.checkpoint_count(), 2);
+    }
+
+    #[test]
+    fn engine_restore_to_invalid_index() {
+        let mut eng = Engine::new();
+        let result = eng.restore_to(0);
+        assert!(!result);
+    }
+
+    #[test]
+    fn engine_restore_checkpoint_no_checkpoints() {
+        let mut eng = Engine::new();
+        let result = eng.restore_checkpoint();
+        assert!(!result);
     }
 }
