@@ -1,8 +1,0 @@
-# Interactive Fiction Library
-#
-# Loads the core IF engine, English sentence parser, and prompt parser.
-# Game files should load this library, then define their world with sentences.
-
-$ load ./if.txt
-$ load ./english.txt
-$ load ./prompt.txt

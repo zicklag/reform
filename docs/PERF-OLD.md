@@ -3,12 +3,12 @@
 ## Current Engine: One Fact Asserted
 
 ```
-assert("north_of", "Kitchen", "Bedroom")
+Kitchen north of Bedroom
 ```
 
 1. **Push to `facts` vec** — O(1).
 2. **Run fixed-point loop:**
-   - `rebuild_rules()` — scan all facts for `rule(...)` facts, parse pattern strings, build `Rule` structs. O(F). If no new `rule(...)` facts, this is a no-op (same rules as last iteration).
+   - `rebuild_rules()` — scan all facts for `rule` facts, parse pattern strings, build `Rule` structs. O(F). If no new `rule` facts, this is a no-op (same rules as last iteration).
    - `find_all_matches` — for each rule, for each pattern, scan all facts. O(R × P × F).
    - Apply matches: retract consumed facts, assert effect facts (push to `facts`).
    - Repeat until no rule fires.
@@ -40,10 +40,10 @@ assert("north_of", "Kitchen", "Bedroom")
 
 **Cost**: O(R × P × |delta|) per iteration. |delta| is typically 1-10 (the new facts from the previous iteration's rule firings).
 
-### The critical path: a `rule(...)` fact
+### The critical path: a `rule` fact
 
 ```
-assert("rule", "reverse_rel", "(?thing, is, ?rel, [?prep], ?other)", "(?other, is, ?rel2, [?prep2], ?thing)")
+assert("rule", "reverse_rel", "$thing is $rel $( $prep )? $other", "$other is $rel2 $( $prep2 )? $thing")
 ```
 
 1. Insert into index + delta.

@@ -294,3 +294,23 @@ These are triggered by just creating new facts, with the `$` syntax to prevent t
 - `println any number of message args` print all of args to stdout followed by a newline
 - `print args` print all the args out without a newline after it
 - `- fact` can be used to remove a fact immediately
+
+## Errata
+
+The following clarifications were recorded during implementation and should be worked into the main document above.
+
+1. **Escaping `{` and `}` in templates** — Inside `[...]` template blocks, literal curly braces may be escaped with a backslash: `\{` and `\}`. Unescaped braces are always interpreted as substitution delimiters.
+
+2. **Nested `[...]` in templates** — Square brackets follow the same balance-tracking rules as parentheses. Nested balanced brackets are valid; a lone `]` must be escaped with `\]`.
+
+3. **Rule conflict resolution** — When multiple rules match the same facts, the rule with the highest specificity (most constrained pattern) fires first. Specificity is determined by the pattern structure: more literal arguments, fewer wildcards/optionals, and deeper nesting increase specificity. Exact algorithm TBD.
+
+4. **Character encoding** — UTF-8.
+
+5. **`find` output** — Facts are printed to stdout in normal form, one per line.
+
+6. **`$any` is not a keyword** — It is a conventional placeholder name, equivalent to `$x` or any other name.
+
+7. **Prefixes do not compose** — `$` and `>` cannot be combined. A line starts with at most one prefix character.
+
+8. **`load` from rule bodies** — If a rule body produces a `load` fact, it triggers a load mid-turn. Cyclic/re-entrant loading behavior is not yet specified; implementers should guard against infinite loops.
