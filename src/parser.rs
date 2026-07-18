@@ -1,10 +1,12 @@
-use crate::{Arg, Fact};
+use crate::rule::{ArgTemplate, Body, BodyFact, BodyFactRepetition, BodyItem, Pattern, PatternFact, PatternFactRepetition, PatternItem, RepeatedArgs, RepetitionKind};
+use crate::Arg;
 
-pub use reform_parser::facts;
+pub use reform_parser::{facts, pattern, body};
 
 peg::parser! {
     grammar reform_parser() for str {
         use peg::RuleResult;
+        use crate::Fact;
 
         // A file is a sequence of facts.
         pub rule facts() -> Vec<Fact> =
@@ -194,5 +196,86 @@ peg::parser! {
             while p < b.len() && b[p] == b' ' { p += 1; }
             RuleResult::Matched(p, p - pos)
         }}
+
+        // -----------------------------------------------------------------------
+        // Rule pattern / body parsing
+        // -----------------------------------------------------------------------
+
+        // Parse a rule pattern from its literal string content.
+        pub rule pattern() -> Pattern =
+            ws() items:(pattern_item())* ws() { Pattern(items) }
+
+        rule pattern_item() -> PatternItem =
+            fact_repetition:pattern_fact_repetition() { PatternItem::FactRepetition(fact_repetition) } /
+            fact:pattern_fact() { PatternItem::Fact(fact) }
+
+        rule pattern_fact_repetition() -> PatternFactRepetition =
+            ws() "$("
+                ws() facts:(pattern_fact())*
+            ")"
+            kind:repetition_kind()
+            eol()
+            { PatternFactRepetition { kind, facts } }
+
+        rule pattern_fact() -> PatternFact =
+            " "* "-" args:arg_templates() fact_end() { PatternFact { removed: true, args } } /
+            " "* args:arg_templates() fact_end() { PatternFact { removed: false, args } }
+
+        // Parse a rule body from its literal string content.
+        pub rule body() -> Body =
+            ws() items:(body_item())* ws() { Body(items) }
+
+        rule body_item() -> BodyItem =
+            fact_repetition:body_fact_repetition() { BodyItem::FactRepetition(fact_repetition) } /
+            fact:body_fact() { BodyItem::Fact(fact) }
+
+        rule body_fact_repetition() -> BodyFactRepetition =
+            ws() "$("
+                ws() facts:(body_fact())*
+            ")"
+            kind:repetition_kind()
+            eol()
+            { BodyFactRepetition { kind, facts } }
+
+        rule body_fact() -> BodyFact =
+            " "* args:arg_templates() fact_end()
+            { BodyFact(args) }
+
+
+
+        rule repetition_kind() -> RepetitionKind =
+            "?" { RepetitionKind::Optional } /
+            "+" { RepetitionKind::OneOrMore } /
+            "*" { RepetitionKind::ZeroOrMore }
+        // Parse a sequence of arg templates on a single line. Requires at least
+        // one arg template; spaces between (and around) args are skipped.
+        rule arg_templates() -> Vec<ArgTemplate> =
+            " "* args:(arg:arg_template() " "* { arg })+ " "* { args }
+
+        rule arg_template() -> ArgTemplate =
+            repeated:arg_repetition() { ArgTemplate::RepeatedArgs(repeated) } /
+            placeholder:placeholder() { ArgTemplate::Placeholder(placeholder) } /
+            literal:literal_word() { ArgTemplate::Literal(literal) }
+
+        rule arg_repetition() -> RepeatedArgs =
+            "$("
+                args:arg_templates()
+            ")"
+            kind:repetition_kind()
+            { RepeatedArgs { kind, args } }
+
+        rule placeholder() -> String =
+            "$" name:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*") [_])+)
+            { name.to_string() }
+        rule literal_word() -> Arg =
+            word:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*") [_])+)
+            { word.into() }
+
+        // End of a fact: a newline/EOF, or a closing `)` (lookahead, not consumed)
+        // for facts that live inside a single-line `$( ... )?` block.
+        rule fact_end() = eol() / &(")")
+
+        // Whitespace (spaces, tabs, newlines) skipped around pattern/body items.
+        rule ws() = (" " / "\t" / "\n")*
     }
 }

@@ -19,8 +19,10 @@ impl Rule {
             bail!("rule fact must have exactly 4 arguments, got {}", fact.len());
         }
         let name = Arg::from(fact[1].as_ref());
-        let pattern = Pattern::parse(fact[2].as_ref())?;
-        let body = Body::parse(fact[3].as_ref())?;
+        let pattern = crate::parser::pattern(fact[2].as_ref())
+            .with_context(|| format!("failed to parse rule pattern: {}", fact[2].as_ref()))?;
+        let body = crate::parser::body(fact[3].as_ref())
+            .with_context(|| format!("failed to parse rule body: {}", fact[3].as_ref()))?;
         Ok(Rule { name, pattern, body })
     }
 }
@@ -29,21 +31,9 @@ impl Rule {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, derive_more::Deref)]
 pub struct Pattern(pub Vec<PatternItem>);
 
-impl Pattern {
-    fn parse(text: &str) -> Result<Self> {
-        Ok(Pattern(parse_pattern_items(text)?))
-    }
-}
-
 /// A rule body, producing facts when the pattern matches.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, derive_more::Deref)]
 pub struct Body(pub Vec<BodyItem>);
-
-impl Body {
-    fn parse(text: &str) -> Result<Self> {
-        Ok(Body(parse_body_items(text)?))
-    }
-}
 
 /// A single item in a pattern: a fact or a repeated block of facts.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
@@ -107,276 +97,144 @@ pub struct RepeatedArgs {
     pub args: Vec<ArgTemplate>,
 }
 
-// ---------------------------------------------------------------------------
-// Pattern parsing
-// ---------------------------------------------------------------------------
+use std::fmt;
 
-fn parse_pattern_items(text: &str) -> Result<Vec<PatternItem>> {
-    let mut items = Vec::new();
-    let mut lines = text.lines().peekable();
-
-    while let Some(line) = lines.next() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "$ rule {}", self.name)?;
+        writeln!(f, "  (")?;
+        for item in self.pattern.iter() {
+            writeln!(f, "    {item}")?;
         }
-
-        if trimmed.starts_with("$(") {
-            // Fact-level repetition block: $( ... )?|+|*
-            let mut facts = Vec::new();
-            loop {
-                let inner = lines
-                    .next()
-                    .context("unexpected end of input in pattern repetition block")?;
-                let inner = inner.trim();
-                if inner.starts_with(')') {
-                    let rest = inner[1..].trim();
-                    let kind = match rest.chars().next() {
-                        Some('?') => RepetitionKind::Optional,
-                        Some('+') => RepetitionKind::OneOrMore,
-                        Some('*') => RepetitionKind::ZeroOrMore,
-                        _ => bail!("pattern repetition block must end with ?, +, or *"),
-                    };
-                    items.push(PatternItem::FactRepetition(PatternFactRepetition {
-                        kind,
-                        facts,
-                    }));
-                    break;
-                }
-                if inner.is_empty() || inner.starts_with('#') {
-                    continue;
-                }
-                let removed = inner.starts_with('-');
-                let args_text = if removed {
-                    inner[1..].trim_start()
-                } else {
-                    inner
-                };
-                let args = parse_arg_templates(args_text)?;
-                facts.push(PatternFact { removed, args });
-            }
-        } else {
-            let removed = trimmed.starts_with('-');
-            let args_text = if removed {
-                trimmed[1..].trim_start()
-            } else {
-                trimmed
-            };
-            let args = parse_arg_templates(args_text)?;
-            items.push(PatternItem::Fact(PatternFact { removed, args }));
+        writeln!(f, "  )")?;
+        writeln!(f, "  (")?;
+        for item in self.body.iter() {
+            writeln!(f, "    {item}")?;
         }
+        write!(f, "  )")
     }
-
-    Ok(items)
 }
 
-// ---------------------------------------------------------------------------
-// Body parsing
-// ---------------------------------------------------------------------------
-
-fn parse_body_items(text: &str) -> Result<Vec<BodyItem>> {
-    let mut items = Vec::new();
-    let mut lines = text.lines().peekable();
-
-    while let Some(line) = lines.next() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
+impl fmt::Display for Pattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for item in self.0.iter() {
+            write!(f, "{item}")?;
         }
-
-        if trimmed.starts_with("$(") {
-            // Fact-level repetition block
-            let mut facts = Vec::new();
-            loop {
-                let inner = lines
-                    .next()
-                    .context("unexpected end of input in body repetition block")?;
-                let inner = inner.trim();
-                if inner.starts_with(')') {
-                    let rest = inner[1..].trim();
-                    let kind = match rest.chars().next() {
-                        Some('?') => RepetitionKind::Optional,
-                        Some('+') => RepetitionKind::OneOrMore,
-                        Some('*') => RepetitionKind::ZeroOrMore,
-                        _ => bail!("body repetition block must end with ?, +, or *"),
-                    };
-                    items.push(BodyItem::FactRepetition(BodyFactRepetition {
-                        kind,
-                        facts,
-                    }));
-                    break;
-                }
-                if inner.is_empty() || inner.starts_with('#') {
-                    continue;
-                }
-                let args = parse_arg_templates(inner)?;
-                facts.push(BodyFact(args));
-            }
-        } else {
-            let args = parse_arg_templates(trimmed)?;
-            items.push(BodyItem::Fact(BodyFact(args)));
-        }
+        Ok(())
     }
-
-    Ok(items)
 }
 
-// ---------------------------------------------------------------------------
-// Arg template parsing
-// ---------------------------------------------------------------------------
-
-/// Parse a space-separated sequence of arg templates from `text`.
-fn parse_arg_templates(text: &str) -> Result<Vec<ArgTemplate>> {
-    let mut args = Vec::new();
-    let mut pos = 0;
-    let bytes = text.as_bytes();
-
-    while pos < bytes.len() {
-        // Skip whitespace
-        if bytes[pos].is_ascii_whitespace() {
-            pos += 1;
-            continue;
+impl fmt::Display for Body {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for item in self.0.iter() {
+            write!(f, "{item}")?;
         }
-
-        // Comment
-        if bytes[pos] == b'#' {
-            break;
-        }
-
-        // Placeholder or arg repetition block
-        if bytes[pos] == b'$' {
-            pos += 1;
-            if pos < bytes.len() && bytes[pos] == b'(' {
-                // Arg repetition block: $( ... )?|+|*
-                pos += 1; // skip '('
-                let inner = parse_arg_templates_until(text, &mut pos, b')')?;
-                if pos >= bytes.len() || bytes[pos] != b')' {
-                    bail!("expected ')' to close arg repetition block");
-                }
-                pos += 1; // skip ')'
-                let kind = match bytes.get(pos) {
-                    Some(b'?') => {
-                        pos += 1;
-                        RepetitionKind::Optional
-                    }
-                    Some(b'+') => {
-                        pos += 1;
-                        RepetitionKind::OneOrMore
-                    }
-                    Some(b'*') => {
-                        pos += 1;
-                        RepetitionKind::ZeroOrMore
-                    }
-                    _ => bail!("arg repetition block must end with ?, +, or *"),
-                };
-                args.push(ArgTemplate::RepeatedArgs(RepeatedArgs {
-                    kind,
-                    args: inner,
-                }));
-            } else {
-                // Placeholder name
-                let start = pos;
-                while pos < bytes.len()
-                    && (bytes[pos].is_ascii_alphanumeric() || bytes[pos] == b'_')
-                {
-                    pos += 1;
-                }
-                if pos == start {
-                    bail!("expected placeholder name after '$'");
-                }
-                let name = text[start..pos].to_string();
-                args.push(ArgTemplate::Placeholder(name));
-            }
-        } else {
-            // Literal word
-            let start = pos;
-            while pos < bytes.len()
-                && !bytes[pos].is_ascii_whitespace()
-                && bytes[pos] != b'#'
-            {
-                pos += 1;
-            }
-            let word = text[start..pos].to_string();
-            args.push(ArgTemplate::Literal(Arg::from(word)));
-        }
+        Ok(())
     }
-
-    Ok(args)
 }
 
-/// Parse arg templates until the byte `end` is encountered (not consumed).
-fn parse_arg_templates_until(
-    text: &str,
-    pos: &mut usize,
-    end: u8,
-) -> Result<Vec<ArgTemplate>> {
-    let mut args = Vec::new();
-    let bytes = text.as_bytes();
-
-    while *pos < bytes.len() && bytes[*pos] != end {
-        // Skip whitespace
-        if bytes[*pos].is_ascii_whitespace() {
-            *pos += 1;
-            continue;
-        }
-
-        // Placeholder
-        if bytes[*pos] == b'$' {
-            *pos += 1;
-            if *pos < bytes.len() && bytes[*pos] == b'(' {
-                // Nested arg repetition block
-                *pos += 1;
-                let inner = parse_arg_templates_until(text, pos, b')')?;
-                if *pos >= bytes.len() || bytes[*pos] != b')' {
-                    bail!("expected ')' to close nested arg repetition block");
-                }
-                *pos += 1;
-                let kind = match bytes.get(*pos) {
-                    Some(b'?') => {
-                        *pos += 1;
-                        RepetitionKind::Optional
-                    }
-                    Some(b'+') => {
-                        *pos += 1;
-                        RepetitionKind::OneOrMore
-                    }
-                    Some(b'*') => {
-                        *pos += 1;
-                        RepetitionKind::ZeroOrMore
-                    }
-                    _ => bail!("arg repetition block must end with ?, +, or *"),
-                };
-                args.push(ArgTemplate::RepeatedArgs(RepeatedArgs {
-                    kind,
-                    args: inner,
-                }));
-            } else {
-                let start = *pos;
-                while *pos < bytes.len()
-                    && (bytes[*pos].is_ascii_alphanumeric() || bytes[*pos] == b'_')
-                {
-                    *pos += 1;
-                }
-                if *pos == start {
-                    bail!("expected placeholder name after '$'");
-                }
-                let name = text[start..*pos].to_string();
-                args.push(ArgTemplate::Placeholder(name));
-            }
-        } else {
-            // Literal word
-            let start = *pos;
-            while *pos < bytes.len()
-                && !bytes[*pos].is_ascii_whitespace()
-                && bytes[*pos] != end
-                && bytes[*pos] != b'#'
-            {
-                *pos += 1;
-            }
-            let word = text[start..*pos].to_string();
-            args.push(ArgTemplate::Literal(Arg::from(word)));
+impl fmt::Display for PatternItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PatternItem::Fact(fact) => write!(f, "{fact}"),
+            PatternItem::FactRepetition(rep) => write!(f, "{rep}"),
         }
     }
+}
 
-    Ok(args)
+impl fmt::Display for PatternFact {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.removed {
+            write!(f, "- ")?;
+        }
+        for (i, arg) in self.args.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{arg}")?;
+        }
+        writeln!(f)
+    }
+}
+
+impl fmt::Display for BodyFact {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, arg) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{arg}")?;
+        }
+        writeln!(f)
+    }
+}
+
+impl fmt::Display for PatternFactRepetition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let suffix = match self.kind {
+            RepetitionKind::Optional => "?",
+            RepetitionKind::OneOrMore => "+",
+            RepetitionKind::ZeroOrMore => "*",
+        };
+        write!(f, "$(")?;
+        for fact in &self.facts {
+            write!(f, "  {fact}")?;
+        }
+        writeln!(f, "){suffix}")
+    }
+}
+
+impl fmt::Display for BodyFactRepetition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let suffix = match self.kind {
+            RepetitionKind::Optional => "?",
+            RepetitionKind::OneOrMore => "+",
+            RepetitionKind::ZeroOrMore => "*",
+        };
+        write!(f, "$(")?;
+        for fact in &self.facts {
+            write!(f, "  {fact}")?;
+        }
+        writeln!(f, "){suffix}")
+    }
+}
+
+
+impl fmt::Display for BodyItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BodyItem::Fact(fact) => write!(f, "{fact}"),
+            BodyItem::FactRepetition(rep) => write!(f, "{rep}"),
+        }
+    }
+}
+
+
+
+impl fmt::Display for ArgTemplate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ArgTemplate::Literal(arg) => write!(f, "{arg}"),
+            ArgTemplate::Placeholder(name) => write!(f, "${name}"),
+            ArgTemplate::RepeatedArgs(rep) => write!(f, "{rep}"),
+        }
+    }
+}
+
+impl fmt::Display for RepeatedArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let suffix = match self.kind {
+            RepetitionKind::Optional => "?",
+            RepetitionKind::OneOrMore => "+",
+            RepetitionKind::ZeroOrMore => "*",
+        };
+        write!(f, "$(")?;
+        for (i, arg) in self.args.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{arg}")?;
+        }
+        write!(f, "){suffix}")
+    }
 }

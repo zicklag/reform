@@ -3,3 +3,13 @@ The description of the
     [My name is {if the house is open} the great{else}something is not right{end if}after ifff
 
     yeah.].
+
+$ rule example
+  (
+    - sentence $( $a1 )? $x is $( $a2 )? $y
+    $( $a1 is article )?
+    $( $a2 is article )?
+  )
+  (
+    $x is $y
+  )
