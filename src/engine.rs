@@ -2,6 +2,41 @@ use crate::rule::Rule;
 use crate::{parser, Arg, Fact};
 use anyhow::{anyhow, bail, Result};
 
+/// A parsed engine command extracted from a fact.
+#[derive(Debug)]
+enum Command<'a> {
+    Remove(&'a [&'a str]),
+    Println(&'a [&'a str]),
+    Print(&'a [&'a str]),
+    Quit,
+    Panic(&'a [&'a str]),
+    Assert(&'a [&'a str]),
+    AssertNot(&'a [&'a str]),
+    Find(&'a [&'a str]),
+    Facts,
+    Load(&'a [&'a str]),
+}
+
+/// Try to parse a fact as a command. Returns `None` if the fact is not a
+/// recognized command keyword.
+fn parse_command<'a>(args: &'a [&'a str]) -> Option<Command<'a>> {
+    let first = *args.first()?;
+    let rest = &args[1..];
+    Some(match first {
+        "-" => Command::Remove(rest),
+        "println" => Command::Println(rest),
+        "print" => Command::Print(rest),
+        "quit" => Command::Quit,
+        "panic" => Command::Panic(rest),
+        "assert" => Command::Assert(rest),
+        "assert-not" => Command::AssertNot(rest),
+        "find" => Command::Find(rest),
+        "facts" => Command::Facts,
+        "load" => Command::Load(rest),
+        _ => return None,
+    })
+}
+
 /// The Reform rule engine: a fact store plus the registered rules that fire
 /// against it each turn.
 #[derive(Debug, Default)]
@@ -96,17 +131,28 @@ impl Engine {
                     .collect(),
             ),
         };
-        let is_command = stored.first().map(is_command_keyword).unwrap_or(false);
-        if stored.is_rule() {
-            let strs: Vec<&str> = stored.iter().map(|a| &**a).collect();
+        let is_rule = stored.is_rule();
+        // Build strs from args (not stored) to avoid a borrow conflict when
+        // moving stored into add_fact below.
+        let strs: Vec<&str> = match &*args[0] {
+            "$" => args[1..].iter().map(|a| &**a).collect(),
+            ">" => std::iter::once("prompt")
+                .chain(args[1..].iter().map(|a| &**a))
+                .collect(),
+            _ => std::iter::once("sentence")
+                .chain(args.iter().map(|a| &**a))
+                .collect(),
+        };
+        let cmd = parse_command(&strs);
+        if is_rule {
             self.add_rule(Rule::parse(&strs)?);
         }
-        if !is_command {
-            self.add_fact(stored.clone());
+        if cmd.is_none() {
+            self.add_fact(stored);
         }
         self.settle()?;
-        if is_command {
-            self.execute_command(&stored)?;
+        if let Some(cmd) = cmd {
+            self.execute_command(cmd)?;
         }
         Ok(())
     }
@@ -121,13 +167,19 @@ impl Engine {
         } else {
             fact
         };
-        if stripped.is_rule() {
-            let strs: Vec<&str> = stripped.iter().map(|a| &**a).collect();
+        let is_rule = stripped.is_rule();
+        // Build strs from args (not stripped) to avoid a borrow conflict.
+        let strs: Vec<&str> = if &*args[0] == "$" {
+            args[1..].iter().map(|a| &**a).collect()
+        } else {
+            args.iter().map(|a| &**a).collect()
+        };
+        let cmd = parse_command(&strs);
+        if is_rule {
             self.add_rule(Rule::parse(&strs)?);
         }
-        let is_command = stripped.first().map(is_command_keyword).unwrap_or(false);
-        if is_command {
-            self.execute_command(&stripped)?;
+        if let Some(cmd) = cmd {
+            self.execute_command(cmd)?;
         } else {
             self.add_fact(stripped);
         }
@@ -180,12 +232,11 @@ impl Engine {
 
     // -- commands ----------------------------------------------------------
 
-    fn execute_command(&mut self, fact: &Fact) -> Result<()> {
-        let args: Vec<&str> = fact.iter().map(|a| &**a).collect();
-        match args[0] {
-            "-" => {
-                if args.len() > 1 {
-                    let fact_str = args[1..].join(" ");
+    fn execute_command(&mut self, cmd: Command) -> Result<()> {
+        match cmd {
+            Command::Remove(args) => {
+                if !args.is_empty() {
+                    let fact_str = args.join(" ");
                     let parsed = parser::facts(&fact_str)?;
                     for f in parsed {
                         self.remove_fact(&f);
@@ -193,40 +244,40 @@ impl Engine {
                 }
                 Ok(())
             }
-            "println" => {
-                println!("{}", args[1..].join(" "));
+            Command::Println(args) => {
+                println!("{}", args.join(" "));
                 Ok(())
             }
-            "print" => {
-                print!("{}", args[1..].join(" "));
+            Command::Print(args) => {
+                print!("{}", args.join(" "));
                 Ok(())
             }
-            "quit" => {
+            Command::Quit => {
                 self.quit = true;
                 Ok(())
             }
-            "panic" => Err(anyhow!("panic: {}", args[1..].join(" "))),
-            "assert" => {
-                let target = Fact(args[1..].iter().map(|s| Arg::from(*s)).collect());
+            Command::Panic(args) => Err(anyhow!("panic: {}", args.join(" "))),
+            Command::Assert(args) => {
+                let target = Fact(args.iter().map(|s| Arg::from(*s)).collect());
                 if self.contains(&target) {
                     Ok(())
                 } else {
                     Err(anyhow!("assert failed: fact {:?} not in engine", target))
                 }
             }
-            "assert-not" => {
-                let target = Fact(args[1..].iter().map(|s| Arg::from(*s)).collect());
+            Command::AssertNot(args) => {
+                let target = Fact(args.iter().map(|s| Arg::from(*s)).collect());
                 if !self.contains(&target) {
                     Ok(())
                 } else {
                     Err(anyhow!("assert-not failed: fact {:?} is in engine", target))
                 }
             }
-            "find" => {
-                let pattern_str = if args.len() == 2 {
-                    args[1].to_string()
+            Command::Find(args) => {
+                let pattern_str = if args.len() == 1 {
+                    args[0].to_string()
                 } else {
-                    args[1..].join(" ")
+                    args.join(" ")
                 };
                 let pat = parser::pattern(&pattern_str)?;
                 for f in self.find_matching_facts(&pat)? {
@@ -234,19 +285,18 @@ impl Engine {
                 }
                 Ok(())
             }
-            "facts" => {
+            Command::Facts => {
                 for f in &self.facts {
                     println!("{}", normal_form_fact(f));
                 }
                 Ok(())
             }
-            "load" => {
-                let path = args.get(1).copied().unwrap_or("");
+            Command::Load(args) => {
+                let path = args.first().copied().unwrap_or("");
                 let src = std::fs::read_to_string(path)
                     .map_err(|e| anyhow!("load {}: {e}", path))?;
                 self.load_str_inner(&src)
             }
-            _ => Ok(()),
         }
     }
 
@@ -264,13 +314,6 @@ impl Engine {
             .cloned()
             .collect())
     }
-}
-
-fn is_command_keyword(a: &Arg) -> bool {
-    matches!(
-        &**a,
-        "-" | "println" | "print" | "quit" | "panic" | "assert" | "assert-not" | "find" | "facts" | "load"
-    )
 }
 
 /// Render a fact as a single normal-form line: args space-separated, each
