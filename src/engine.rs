@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use crate::rule::Rule;
 use crate::{parser, Arg, Fact};
 use anyhow::{anyhow, bail, Result};
@@ -39,12 +40,27 @@ fn parse_command<'a>(args: &'a [&'a str]) -> Option<Command<'a>> {
 
 /// The Reform rule engine: a fact store plus the registered rules that fire
 /// against it each turn.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Engine {
     facts: Vec<Fact>,
     rules: Vec<Rule>,
     quit: bool,
     changed: bool,
+    /// Directory that `$ load` relative paths resolve against.
+    /// `None` means resolve against the process current working directory.
+    base_dir: Option<PathBuf>,
+}
+
+impl Default for Engine {
+    fn default() -> Self {
+        Self {
+            facts: Vec::new(),
+            rules: Vec::new(),
+            quit: false,
+            changed: false,
+            base_dir: None,
+        }
+    }
 }
 
 impl Engine {
@@ -100,6 +116,21 @@ impl Engine {
 
     pub fn load_str(&mut self, src: &str) -> Result<()> {
         self.load_str_inner(src)
+    }
+
+    /// Load facts from a file, setting `base_dir` to the file's parent
+    /// directory so that `$ load` directives inside the file resolve
+    /// relative to the file's location.
+    pub fn load_file(&mut self, path: &Path) -> Result<()> {
+        let src = std::fs::read_to_string(path)
+            .map_err(|e| anyhow!("load {}: {e}", path.display()))?;
+        let prev = self.base_dir.take();
+        if let Some(parent) = path.parent() {
+            self.base_dir = Some(parent.to_path_buf());
+        }
+        let result = self.load_str_inner(&src);
+        self.base_dir = prev;
+        result
     }
 
     fn load_str_inner(&mut self, src: &str) -> Result<()> {
@@ -291,10 +322,20 @@ impl Engine {
                 Ok(())
             }
             Command::Load(args) => {
-                let path = args.first().copied().unwrap_or("");
-                let src = std::fs::read_to_string(path)
-                    .map_err(|e| anyhow!("load {}: {e}", path))?;
-                self.load_str_inner(&src)
+                let raw = args.first().copied().unwrap_or("");
+                let path = match &self.base_dir {
+                    Some(dir) => dir.join(raw),
+                    None => PathBuf::from(raw),
+                };
+                let src = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow!("load {}: {e}", path.display()))?;
+                let prev = self.base_dir.take();
+                if let Some(parent) = path.parent() {
+                    self.base_dir = Some(parent.to_path_buf());
+                }
+                let result = self.load_str_inner(&src);
+                self.base_dir = prev;
+                result
             }
         }
     }

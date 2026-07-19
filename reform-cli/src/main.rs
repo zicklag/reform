@@ -29,14 +29,7 @@ fn main() {
     let mut engine = Engine::new();
 
     for path in &cli.files {
-        let src = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("reform: {}: {e}", path.display());
-                std::process::exit(1);
-            }
-        };
-        if let Err(e) = engine.load_str(&src) {
+        if let Err(e) = engine.load_file(path) {
             eprintln!("reform: {}: {e}", path.display());
             std::process::exit(1);
         }

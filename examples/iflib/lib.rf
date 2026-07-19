@@ -1,0 +1,8 @@
+$ load ./core.rf
+
+an is article
+a is an article
+the is an article
+An is an article
+A is an article
+The is an article
