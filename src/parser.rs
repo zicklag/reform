@@ -8,30 +8,21 @@ peg::parser! {
         use peg::RuleResult;
         use crate::Fact;
 
-        // A file is a sequence of facts.
+        // A file is a sequence of facts, separated by blank or comment-only
+        // lines.
         pub rule facts() -> Vec<Fact> =
-            // We may start with any number of blank lines
-            blank_line()*
-
-            // Followed by a sequence of one or more facts
-            facts:(fact()*)
-
-            // And following with any number of blank lines
-            blank_line()*
-
-            // Return the parsed facts
+            sep()*
+            facts:(f:fact() sep()* { f })*
+            (" " / "\t" / "\n")*
             { facts }
 
         // A fact is a list of parsed arguments
         rule fact() -> Fact =
-            // First we consume the current indentation level and record it
-            // as the "base" implementation level of the fact.
+            // Consume the current indentation level as the "base" indent.
             base:measure_indent()
-            // then we can parse the first line
-            first_line:line_args() eol()
-            // The fact may or may not continue on the following lines.
-            // The continued_line rule will only match on lines that are indented
-            // under the base indentation level.
+            // Parse the first line (a trailing comment is allowed).
+            first_line:line_args() comment()? eol()
+            // The fact may continue on following, more-indented lines.
             rest:(continued_line(base))*
             {
                 let mut v = first_line;
@@ -39,17 +30,20 @@ peg::parser! {
                 Fact(v)
             }
 
-        // Parse the arguments from a single line
+        // A separator between facts: a blank line or a comment-only line.
+        rule sep() = comment_line() / blank_line()
+        // A comment-only line (at any indentation).
+        rule comment_line() = (" " / "\t")* comment() eol()
+        // A comment runs from `#` to the end of the line (newline not consumed).
+        rule comment() = "#" (!eol() [_])*
+
+        // Parse the arguments from a single line. A trailing comment is
+        // allowed (consumed here so callers don't have to).
         rule line_args() -> Vec<Arg> =
-            // Collect batches of args separated by spaces.
-            // They are batches instead of just "args" because template
-            // args expand to multiple args
-            args:(batch:line_arg_batch() " "* { batch } )+
-
-            // Flatten ths list of batches into a list of args
+            args:(batch:line_arg_batch() " "* { batch })+
+            " "*
+            comment()?
             { args.into_iter().flat_map(|x| x.into_iter()).collect() }
-
-        // Any valid line argument
         rule line_arg_batch() -> Vec<Arg> =
             template_args() /
             arg:literal_arg() { vec![arg] } /
@@ -138,20 +132,18 @@ peg::parser! {
         // and that parses to a single argument.
         rule plain_word() -> Arg =
             word:$(
-                // The word must be one or more characters
+                // One or more characters. The word stops at brackets, a
+                // comment (`#`), a space / end of line, or punctuation that
+                // is followed by a space / end of line.
                 (
-                    // Don't match any kind of brackets in plain words
                     not_brackets()
-                    // And the word will stop at either a space or end of line,
-                    // or punctuation followed by a space, without including
-                    // the punctuation
+                    !("#")
                     !( punctuation()? (" " / eol()) )
-                    // Everything else is matched by the word
                     [_]
                 )+
-            ) { dbg!(word.into()) } /
+            ) { word.into() } /
             // A single item of punctuation is also allowed
-            p:punctuation(){ p.into() }
+            p:punctuation() { p.into() }
 
         // Matches normal sentence punctuation.
         rule punctuation() -> &'input str = $( ";" / "." / "'" / ":" )
@@ -165,10 +157,11 @@ peg::parser! {
         // Parse a line that is continuing a previous fact indented at the provided
         // `base` level.
         rule continued_line(base: usize) -> Vec<Arg> =
-            // A blank line is a valid continued line, it just doesn't add any args
-            blank_line() { vec![] } /
-            // Otherwise we match only if this line is prefixed by more indentation than
-            // the `base` and we parse the line's args followed by the end of the line.
+            // A blank or comment-only line is a valid continuation that adds
+            // no arguments.
+            (blank_line() / (greater_indent_than(base) comment() eol())) { vec![] } /
+            // Otherwise match only if indented more than `base`, then parse
+            // the line's args and the end of the line.
             greater_indent_than(base) args:line_args() eol()
             { args }
 
@@ -177,7 +170,6 @@ peg::parser! {
 
         // A whitespace-only line.
         rule blank_line() = ("\t" / " ")* "\n"
-
         // Match on all of the leading spaces only if there are more than the
         // given `base` indentation.
         rule greater_indent_than(base: usize) = #{|input, pos| {
@@ -214,7 +206,7 @@ peg::parser! {
                 ws() facts:(pattern_fact())*
             ws() ")"
             kind:repetition_kind()
-            eol()
+            (" " / "\t")* eol()
             { PatternFactRepetition { kind, facts } }
 
         rule pattern_fact() -> PatternFact =

@@ -1,5 +1,6 @@
 use internment::ArcIntern;
 
+pub mod engine;
 pub mod parser;
 pub mod rule;
 
