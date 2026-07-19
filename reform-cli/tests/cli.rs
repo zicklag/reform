@@ -2,9 +2,9 @@ mod cli_tests {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    /// Path to the compiled `reform-cli` binary.
+    /// Path to the compiled `reform` binary.
     fn reform() -> String {
-        std::env::var("CARGO_BIN_EXE_reform-cli").expect("CARGO_BIN_EXE_reform-cli set")
+        std::env::var("CARGO_BIN_EXE_reform").expect("CARGO_BIN_EXE_reform set")
     }
 
     /// Run the binary with the given stdin and return its stdout.
@@ -35,10 +35,9 @@ mod cli_tests {
         ( prompt look )
         ( $ println you see a cave )
     "#;
-        let dir = std::env::temp_dir();
-        let path = dir.join("reform_cli_game.rf");
-        std::fs::write(&path, game).unwrap();
-        let (out, _err) = run("look\n", &[path.to_str().unwrap()]);
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(game.as_bytes()).unwrap();
+        let (out, _err) = run("look\n", &[file.path().to_str().unwrap()]);
         assert!(out.contains("you see a cave"), "stdout was: {out:?}");
     }
 
@@ -71,10 +70,9 @@ mod cli_tests {
     $ println started
     $ quit
     "#;
-        let dir = std::env::temp_dir();
-        let path = dir.join("reform_cli_quit.rf");
-        std::fs::write(&path, game).unwrap();
-        let (out, _err) = run("look\n", &[path.to_str().unwrap()]);
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(game.as_bytes()).unwrap();
+        let (out, _err) = run("look\n", &[file.path().to_str().unwrap()]);
         assert!(out.contains("started"), "stdout was: {out:?}");
         // The REPL never ran, so `look` produced no prompt processing output.
         assert!(!out.contains("you see a cave"), "stdout was: {out:?}");

@@ -4,7 +4,7 @@ A programming language based on an Expert System. Language is detailed in docs/D
 
 ## Testing
 
-Use `cargo llvm-cov --json` to analyze test coverage. We would like to maintain 100% test coverage of the `reform` crate. `reform-cli` is not as important to have full test coverage of.
+Use `cargo llvm-cov -p reform --json` to analyze test coverage. We would like to maintain 100% test coverage of the `reform` crate. `reform-cli` is not as important to have full test coverage of.
 
 ## Coding Principles
 

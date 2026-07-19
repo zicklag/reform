@@ -1,5 +1,6 @@
 [workspace]
 members = ["reform-cli"]
+default-members = ["reform-cli"]
 
 [package]
 name = "reform"
