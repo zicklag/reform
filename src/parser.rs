@@ -297,12 +297,11 @@ peg::parser! {
 fn merge_text(chunks: Vec<BodyChunk>) -> Vec<BodyChunk> {
     let mut merged: Vec<BodyChunk> = Vec::new();
     for chunk in chunks {
-        if let BodyChunk::Text(t) = &chunk {
-            if let Some(BodyChunk::Text(prev)) = merged.last_mut() {
+        if let BodyChunk::Text(t) = &chunk
+            && let Some(BodyChunk::Text(prev)) = merged.last_mut() {
                 prev.push_str(t);
                 continue;
             }
-        }
         merged.push(chunk);
     }
     merged

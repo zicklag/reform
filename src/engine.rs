@@ -290,7 +290,7 @@ impl Engine {
 }
 
 fn arg_str(a: &Arg) -> &str {
-    &**a
+    a
 }
 
 fn is_command_keyword(a: &Arg) -> bool {
@@ -308,12 +308,12 @@ fn normal_form_fact(f: &Fact) -> String {
 }
 
 fn normal_form_arg(a: &Arg) -> String {
-    let s: &str = &**a;
+    let s: &str = a;
     if s.is_empty() {
         return "()".to_string();
     }
     let needs = s.chars().any(|c| c.is_whitespace() || c == '(' || c == ')')
-        || s.ends_with(|c| matches!(c, ';' | '.' | ':' | '\''));
+        || s.ends_with([';', '.', ':', '\'']);
     if !needs {
         return s.to_string();
     }

@@ -31,8 +31,8 @@ impl Rule {
     /// Check structural invariants the parser can't enforce on its own:
     ///
     /// * Every placeholder name is used at exactly one nesting context — the
-    /// same stack of repetition kinds (`?`/`+`/`*`) must enclose every use of
-    /// a given name, both within the pattern and within the body.
+    ///   same stack of repetition kinds (`?`/`+`/`*`) must enclose every use of
+    ///   a given name, both within the pattern and within the body.
     /// * Every placeholder referenced in the body is declared by the pattern,
     ///   at the same nesting context (so a list-bound placeholder is iterated,
     ///   not dropped in as a scalar).
@@ -685,15 +685,14 @@ impl Rule {
     pub fn removed_facts(&self, facts: &[Fact], b: &Bindings) -> Vec<Fact> {
         let mut out = Vec::new();
         for item in &self.pattern.0 {
-            if let PatternItem::Fact(pf) = item {
-                if pf.removed {
+            if let PatternItem::Fact(pf) = item
+                && pf.removed {
                     for f in facts {
                         if !pf.match_fact(f, b).is_empty() {
                             out.push(f.clone());
                         }
                     }
                 }
-            }
         }
         out
     }
@@ -785,7 +784,7 @@ fn normal_form_arg(v: &Arg) -> String {
         return "()".to_string();
     }
     let needs = s.chars().any(|c| c.is_whitespace() || c == '(' || c == ')')
-        || s.ends_with(|c| matches!(c, ';' | '.' | ':' | '\''));
+        || s.ends_with([';', '.', ':', '\'']);
     if !needs {
         return s.to_string();
     }
