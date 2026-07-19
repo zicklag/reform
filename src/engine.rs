@@ -99,8 +99,7 @@ impl Engine {
     // -- loading -----------------------------------------------------------
 
     pub fn load_str(&mut self, src: &str) -> Result<()> {
-        let result = self.load_str_inner(src);
-        result
+        self.load_str_inner(src)
     }
 
     fn load_str_inner(&mut self, src: &str) -> Result<()> {

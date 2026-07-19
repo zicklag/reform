@@ -1,7 +1,16 @@
 use crate::rule::{ArgTemplate, Body, BodyChunk, Pattern, PatternFact, PatternFactRepetition, PatternItem, RepeatedArgs, RepeatBlock, RepetitionKind};
 use crate::Arg;
 
-pub use reform_parser::{facts, pattern, body};
+pub use reform_parser::{facts, pattern};
+
+/// Parse a rule body template. The body grammar is *infallible*: every input
+/// string parses (any character that isn't part of a `$…` placeholder or
+/// `$( … )` repetition is consumed as opaque literal text, including stray
+/// `(`, `)`, and `$`). We expose the infallible signature so callers don't
+/// carry a `Result` for a condition that can never occur.
+pub fn body(src: &str) -> Body {
+    reform_parser::body(src).expect("body parser is infallible")
+}
 
 peg::parser! {
     grammar reform_parser() for str {

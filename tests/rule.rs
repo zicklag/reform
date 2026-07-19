@@ -1,245 +1,14 @@
 use reform::Arg;
 use reform::rule::{
-    ArgTemplate, BindValue, Bindings, Body, BodyChunk, PatternFact, PatternFactRepetition,
-    PatternItem, RepeatBlock, RepeatedArgs, RepetitionKind, Rule,
+    ArgTemplate, BindValue, Bindings, Body, BodyChunk, PatternFact, RepeatBlock, RepetitionKind,
 };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn rule(name: &str, pat: &str, body: &str) -> Rule {
-    Rule::parse(&["rule", name, pat, body]).unwrap()
-}
-
 fn fact(args: &[&str]) -> reform::Fact {
     reform::Fact(args.iter().map(|s| Arg::from(*s)).collect())
-}
-
-// ---------------------------------------------------------------------------
-// Display impls
-// ---------------------------------------------------------------------------
-
-#[test]
-fn rule_display() {
-    let r = rule("test", "a $x b", "c $x d");
-    let s = format!("{}", r);
-    assert!(s.contains("$ rule test"), "display: {s}");
-    assert!(s.contains("a $x b"), "display: {s}");
-    assert!(s.contains("c $x d"), "display: {s}");
-}
-
-#[test]
-fn pattern_display() {
-    let p = reform::parser::pattern("a $x b").unwrap();
-    let s = format!("{}", p);
-    assert!(s.contains("a $x b"), "display: {s}");
-}
-
-#[test]
-fn body_display_text() {
-    let b = Body(vec![BodyChunk::Text("hello".to_string())]);
-    let s = format!("{}", b);
-    assert_eq!(s, "hello");
-}
-
-#[test]
-fn body_display_text_with_dollar() {
-    let b = Body(vec![BodyChunk::Text("$5".to_string())]);
-    let s = format!("{}", b);
-    assert_eq!(s, "$$5");
-}
-
-#[test]
-fn body_display_placeholder() {
-    let b = Body(vec![BodyChunk::Placeholder("x".to_string())]);
-    let s = format!("{}", b);
-    assert_eq!(s, "$x");
-}
-
-#[test]
-fn body_display_repeat() {
-    let b = Body(vec![BodyChunk::Repeat(RepeatBlock {
-        kind: RepetitionKind::ZeroOrMore,
-        chunks: vec![BodyChunk::Placeholder("x".to_string())],
-    })]);
-    let s = format!("{}", b);
-    assert_eq!(s, "$($x)*");
-}
-
-#[test]
-fn repeat_block_display_optional() {
-    let r = RepeatBlock {
-        kind: RepetitionKind::Optional,
-        chunks: vec![BodyChunk::Text("x".to_string())],
-    };
-    assert_eq!(format!("{}", r), "$(x)?");
-}
-
-#[test]
-fn repeat_block_display_one_or_more() {
-    let r = RepeatBlock {
-        kind: RepetitionKind::OneOrMore,
-        chunks: vec![BodyChunk::Text("x".to_string())],
-    };
-    assert_eq!(format!("{}", r), "$(x)+");
-}
-
-#[test]
-fn repeat_block_display_zero_or_more() {
-    let r = RepeatBlock {
-        kind: RepetitionKind::ZeroOrMore,
-        chunks: vec![BodyChunk::Text("x".to_string())],
-    };
-    assert_eq!(format!("{}", r), "$(x)*");
-}
-
-#[test]
-fn pattern_item_fact_display() {
-    let pi = PatternItem::Fact(PatternFact {
-        removed: false,
-        negated: false,
-        args: vec![ArgTemplate::Literal(Arg::from("hello"))],
-    });
-    let s = format!("{}", pi);
-    assert!(s.contains("hello"), "display: {s}");
-}
-
-#[test]
-fn pattern_item_fact_repetition_display() {
-    let pi = PatternItem::FactRepetition(PatternFactRepetition {
-        kind: RepetitionKind::ZeroOrMore,
-        facts: vec![PatternFact {
-            removed: false,
-            negated: false,
-            args: vec![ArgTemplate::Literal(Arg::from("x"))],
-        }],
-    });
-    let s = format!("{}", pi);
-    assert!(s.contains("x"), "display: {s}");
-}
-
-#[test]
-fn pattern_fact_display_removed() {
-    let pf = PatternFact {
-        removed: true,
-        negated: false,
-        args: vec![ArgTemplate::Literal(Arg::from("x"))],
-    };
-    let s = format!("{}", pf);
-    assert!(s.starts_with("- "), "display: {s}");
-}
-
-#[test]
-fn pattern_fact_display_negated() {
-    let pf = PatternFact {
-        removed: false,
-        negated: true,
-        args: vec![ArgTemplate::Literal(Arg::from("x"))],
-    };
-    let s = format!("{}", pf);
-    assert!(s.starts_with("! "), "display: {s}");
-}
-
-#[test]
-fn pattern_fact_display_neither() {
-    let pf = PatternFact {
-        removed: false,
-        negated: false,
-        args: vec![ArgTemplate::Literal(Arg::from("x"))],
-    };
-    let s = format!("{}", pf);
-    assert!(s.trim() == "x", "display: {s}");
-}
-
-#[test]
-fn pattern_fact_repetition_display_optional() {
-    let pfr = PatternFactRepetition {
-        kind: RepetitionKind::Optional,
-        facts: vec![PatternFact {
-            removed: false,
-            negated: false,
-            args: vec![ArgTemplate::Literal(Arg::from("x"))],
-        }],
-    };
-    let s = format!("{}", pfr);
-    assert!(s.contains("?"), "display: {s}");
-}
-
-#[test]
-fn pattern_fact_repetition_display_one_or_more() {
-    let pfr = PatternFactRepetition {
-        kind: RepetitionKind::OneOrMore,
-        facts: vec![PatternFact {
-            removed: false,
-            negated: false,
-            args: vec![ArgTemplate::Literal(Arg::from("x"))],
-        }],
-    };
-    let s = format!("{}", pfr);
-    assert!(s.contains("+"), "display: {s}");
-}
-
-#[test]
-fn pattern_fact_repetition_display_zero_or_more() {
-    let pfr = PatternFactRepetition {
-        kind: RepetitionKind::ZeroOrMore,
-        facts: vec![PatternFact {
-            removed: false,
-            negated: false,
-            args: vec![ArgTemplate::Literal(Arg::from("x"))],
-        }],
-    };
-    let s = format!("{}", pfr);
-    assert!(s.contains("*"), "display: {s}");
-}
-
-#[test]
-fn arg_template_display_literal() {
-    let a = ArgTemplate::Literal(Arg::from("hello"));
-    assert_eq!(format!("{}", a), "hello");
-}
-
-#[test]
-fn arg_template_display_placeholder() {
-    let a = ArgTemplate::Placeholder("x".to_string());
-    assert_eq!(format!("{}", a), "$x");
-}
-
-#[test]
-fn arg_template_display_repeated_args() {
-    let a = ArgTemplate::RepeatedArgs(RepeatedArgs {
-        kind: RepetitionKind::ZeroOrMore,
-        args: vec![ArgTemplate::Placeholder("x".to_string())],
-    });
-    assert_eq!(format!("{}", a), "$($x)*");
-}
-
-#[test]
-fn repeated_args_display_optional() {
-    let r = RepeatedArgs {
-        kind: RepetitionKind::Optional,
-        args: vec![ArgTemplate::Literal(Arg::from("x"))],
-    };
-    assert_eq!(format!("{}", r), "$(x)?");
-}
-
-#[test]
-fn repeated_args_display_one_or_more() {
-    let r = RepeatedArgs {
-        kind: RepetitionKind::OneOrMore,
-        args: vec![ArgTemplate::Literal(Arg::from("x"))],
-    };
-    assert_eq!(format!("{}", r), "$(x)+");
-}
-
-#[test]
-fn repeated_args_display_zero_or_more() {
-    let r = RepeatedArgs {
-        kind: RepetitionKind::ZeroOrMore,
-        args: vec![ArgTemplate::Literal(Arg::from("x"))],
-    };
-    assert_eq!(format!("{}", r), "$(x)*");
 }
 
 // ---------------------------------------------------------------------------
@@ -403,22 +172,6 @@ fn match_reps_at_least_one_zero_inner() {
     assert!(matches.is_empty());
 }
 
-// -- PatternFact Display with multiple args ----------------------------------
-
-#[test]
-fn pattern_fact_display_multiple_args() {
-    let pf = PatternFact {
-        removed: false,
-        negated: false,
-        args: vec![
-            ArgTemplate::Literal(Arg::from("a")),
-            ArgTemplate::Literal(Arg::from("b")),
-        ],
-    };
-    let s = format!("{}", pf);
-    assert!(s.trim() == "a b", "display: {s}");
-}
-
 // -- render_chunks placeholder with no binding -------------------------------
 
 #[test]
@@ -539,21 +292,6 @@ fn match_reps_at_least_one_zero_inner_guard() {
     assert!(matches.is_empty());
 }
 
-// -- RepeatedArgs Display with multiple args (line 359) --------------------
-
-#[test]
-fn repeated_args_display_multiple_args() {
-    let r = RepeatedArgs {
-        kind: RepetitionKind::ZeroOrMore,
-        args: vec![
-            ArgTemplate::Literal(Arg::from("a")),
-            ArgTemplate::Literal(Arg::from("b")),
-        ],
-    };
-    let s = format!("{}", r);
-    assert_eq!(s, "$(a b)*");
-}
-
 // -- match_reps at_least_one with zero inner match (line 540-542) ------------
 
 #[test]
@@ -617,4 +355,86 @@ fn render_repeat_driver_not_many_fallback() {
     bindings.bind_scalar("x", Arg::from("val"));
     let s = b.render(&bindings);
     assert_eq!(s, "", "scalar binding should not drive iteration");
+}
+
+// ---------------------------------------------------------------------------
+// Fact-level repetition Optional paths (match_fact_repetition)
+// ---------------------------------------------------------------------------
+// These must use a *multi-line* pattern so the `$( … )?` sits on its own
+// line and parses as a `PatternItem::FactRepetition` (a single-line
+// `$( a )? b` instead parses as an *arg-level* repeated-args and never
+// reaches `match_fact_repetition`).
+
+/// `$( a )?` (fact-level optional) with a matching fact present: takes the
+/// first match (the `Optional if !matched_idx.is_empty()` arm).
+#[test]
+fn fact_rep_optional_with_match() {
+    let p = reform::parser::pattern("$( a )?\nb").unwrap();
+    let facts = vec![fact(&["a"]), fact(&["b"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+}
+
+/// `$( a )?` (fact-level optional) with no matching fact: takes nothing
+/// (the `Optional => vec![]` arm) and falls through to `want_absent`.
+#[test]
+fn fact_rep_optional_without_match() {
+    let p = reform::parser::pattern("$( a )?\nb").unwrap();
+    let facts = vec![fact(&["b"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+}
+
+/// A `+` fact-level repetition whose inner is a `*` arg-repetition that can
+/// match zero args. The zero-width guard in `match_reps` (the `mid == start`
+/// branch with `at_least_one`) treats the zero match as the single required
+/// iteration.
+#[test]
+fn match_reps_plus_with_zero_width_inner() {
+    // `prefix` makes the whole line a single Fact (not a top-level fact
+    // repetition); `$( $( $x )* )+` is a repeated-args whose inner `*` can
+    // match zero args. Matched against `prefix` (nothing after it), the `+`
+    // still succeeds via one zero-width iteration.
+    let p = reform::parser::pattern("prefix $( $( $x )* )+").unwrap();
+    let facts = vec![fact(&["prefix"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1, "+ with zero-width inner should match once");
+}
+
+/// Two fact-level repetitions sharing a placeholder `$x` (both at the `*`
+/// nesting context, so validation accepts them). When the second repetition
+/// matches, the accumulated bindings already hold `$x` as a `Many` list, so
+/// the per-fact `bf.get(name)` returns `Many` — exercising the `_ => None`
+/// arm of the list-collection `filter_map` and the empty-list branch of
+/// `if !list.is_empty()`.
+#[test]
+fn fact_rep_shared_placeholder_many_in_filter_map() {
+    let p = reform::parser::pattern("$( a $x )*\n$( b $x )*").unwrap();
+    let facts = vec![fact(&["a", "1"]), fact(&["b", "2"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+}
+
+/// A `*` arg-repetition whose inner `$( $x )*` matches zero args exercises
+/// the zero-width no-op branch of `match_reps` with `at_least_one == false`
+/// (the `mid == start` guard that skips both the extend and the recursive
+/// call). The match still succeeds via the `*`'s zero-iteration path.
+#[test]
+fn match_reps_star_with_zero_width_inner() {
+    let p = reform::parser::pattern("prefix $( $( $x )* )*").unwrap();
+    let facts = vec![fact(&["prefix"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1, "* with zero-width inner should match once");
+}
+
+/// A fact-level `+` repetition with no matching facts takes nothing and is
+/// neither `want_present` nor `want_absent` (OneOrMore is not optional), so
+/// both `match_fact_repetition` branches are skipped and the rest of the
+/// pattern still matches.
+#[test]
+fn fact_rep_plus_with_no_match_skips_both_branches() {
+    let p = reform::parser::pattern("$( a )+\nb").unwrap();
+    let facts = vec![fact(&["b"])];
+    let matches = p.find_matches(&facts);
+    assert!(matches.is_empty(), "+ with no matching fact should not match");
 }

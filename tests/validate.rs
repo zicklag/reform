@@ -232,3 +232,37 @@ $ rule r
         "got: {err}"
     );
 }
+
+/// A placeholder used at two different nesting depths *within the body* is
+/// rejected (the body's own `collect_body` consistency check, independent of
+/// the pattern).
+#[test]
+fn body_internal_inconsistent_nesting_rejected() {
+    let src = r#"
+$ rule r
+    ( a )
+    ( $( $x )* $( $x )+ )
+"#;
+    let err = parse_rule(src).expect_err("should reject");
+    assert!(err.contains("inconsistent nesting"), "got: {err}");
+    assert!(err.contains("body"), "got: {err}");
+}
+
+/// A placeholder used at two different nesting depths *within a single
+/// repeated arg list* of a pattern fact is rejected (the nested
+/// `collect_arg` consistency check, exercised through the `Fact` arm of
+/// `collect_pattern`).
+#[test]
+fn pattern_repeated_arg_inconsistent_nesting_rejected() {
+    // The leading `prefix` makes this a `Fact` (not a top-level `$(` fact
+    // repetition); the `$( $x $( $x )* )+` is a repeated-args whose inner
+    // placeholder `$x` appears at two different nesting depths.
+    let src = r#"
+$ rule r
+    ( prefix $( $x $( $x )* )+ )
+    ( a )
+"#;
+    let err = parse_rule(src).expect_err("should reject");
+    assert!(err.contains("inconsistent nesting"), "got: {err}");
+    assert!(err.contains("pattern"), "got: {err}");
+}

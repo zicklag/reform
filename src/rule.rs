@@ -21,8 +21,7 @@ impl Rule {
         let name = Arg::from(fact[1]);
         let pattern = crate::parser::pattern(fact[2])
             .with_context(|| format!("failed to parse rule pattern: {}", fact[2]))?;
-        let body = crate::parser::body(fact[3])
-            .with_context(|| format!("failed to parse rule body: {}", fact[3]))?;
+        let body = crate::parser::body(fact[3]);
         let rule = Rule { name, pattern, body };
         rule.validate()?;
         Ok(rule)
@@ -223,145 +222,6 @@ fn collect_body(chunks: &[BodyChunk], stack: &mut RepContext, out: &mut UseMap, 
         }
     }
     Ok(())
-}
-
-use std::fmt;
-
-impl fmt::Display for Rule {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "$ rule {}", self.name)?;
-        writeln!(f, "  (")?;
-        for item in self.pattern.iter() {
-            writeln!(f, "    {item}")?;
-        }
-        writeln!(f, "  )")?;
-        writeln!(f, "  (")?;
-        write!(f, "{}", self.body)?;
-        writeln!(f, "  )")
-    }
-}
-
-impl fmt::Display for Pattern {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for item in self.0.iter() {
-            write!(f, "{item}")?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Display for Body {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for chunk in self.0.iter() {
-            write!(f, "{chunk}")?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Display for BodyChunk {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            // Escape `$` so the text round-trips through the body parser.
-            BodyChunk::Text(s) => {
-                for c in s.chars() {
-                    if c == '$' {
-                        write!(f, "$$")?;
-                    } else {
-                        write!(f, "{c}")?;
-                    }
-                }
-                Ok(())
-            }
-            BodyChunk::Placeholder(name) => write!(f, "${name}"),
-            BodyChunk::Repeat(r) => write!(f, "{r}"),
-        }
-    }
-}
-
-impl fmt::Display for RepeatBlock {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let suffix = match self.kind {
-            RepetitionKind::Optional => "?",
-            RepetitionKind::OneOrMore => "+",
-            RepetitionKind::ZeroOrMore => "*",
-        };
-        write!(f, "$(")?;
-        for chunk in &self.chunks {
-            write!(f, "{chunk}")?;
-        }
-        write!(f, "){suffix}")
-    }
-}
-
-impl fmt::Display for PatternItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PatternItem::Fact(fact) => write!(f, "{fact}"),
-            PatternItem::FactRepetition(rep) => write!(f, "{rep}"),
-        }
-    }
-}
-
-impl fmt::Display for PatternFact {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Only one of removed/negated should be set, but handle both defensively.
-        if self.removed {
-            write!(f, "- ")?;
-        } else if self.negated {
-            write!(f, "! ")?;
-        }
-        for (i, arg) in self.args.iter().enumerate() {
-            if i > 0 {
-                write!(f, " ")?;
-            }
-            write!(f, "{arg}")?;
-        }
-        writeln!(f)
-    }
-}
-
-impl fmt::Display for PatternFactRepetition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let suffix = match self.kind {
-            RepetitionKind::Optional => "?",
-            RepetitionKind::OneOrMore => "+",
-            RepetitionKind::ZeroOrMore => "*",
-        };
-        write!(f, "$(")?;
-        for fact in &self.facts {
-            write!(f, "  {fact}")?;
-        }
-        writeln!(f, "){suffix}")
-    }
-}
-
-impl fmt::Display for ArgTemplate {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ArgTemplate::Literal(arg) => write!(f, "{arg}"),
-            ArgTemplate::Placeholder(name) => write!(f, "${name}"),
-            ArgTemplate::RepeatedArgs(rep) => write!(f, "{rep}"),
-        }
-    }
-}
-
-impl fmt::Display for RepeatedArgs {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let suffix = match self.kind {
-            RepetitionKind::Optional => "?",
-            RepetitionKind::OneOrMore => "+",
-            RepetitionKind::ZeroOrMore => "*",
-        };
-        write!(f, "$(")?;
-        for (i, arg) in self.args.iter().enumerate() {
-            if i > 0 {
-                write!(f, " ")?;
-            }
-            write!(f, "{arg}")?;
-        }
-        write!(f, "){suffix}")
-    }
 }
 
 use crate::Fact;
@@ -731,31 +591,31 @@ fn render_chunks(chunks: &[BodyChunk], b: &Bindings, out: &mut String) {
 
 fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String) {
     // The list-bound placeholders appearing in this block drive the iteration.
-    let drivers: Vec<String> = list_placeholders(&r.chunks)
+    // Collect each one's bound list exactly once — by construction every entry
+    // here is a `Many` value (that's the filter), so there is no second
+    // fallible lookup and no dead branch when we read the lengths or elements.
+    let driver_lists: Vec<(String, Vec<Arg>)> = list_placeholders(&r.chunks)
         .into_iter()
-        .filter(|n| matches!(b.get(n), Some(BindValue::Many(_))))
+        .filter_map(|name| match b.get(&name) {
+            Some(BindValue::Many(list)) => Some((name, list.clone())),
+            _ => None,
+        })
         .collect();
-    if drivers.is_empty() {
+    let Some((_, first)) = driver_lists.first() else {
         return;
-    }
-    let n = match b.get(&drivers[0]) {
-        Some(BindValue::Many(l)) => l.len(),
-        _ => 0,
     };
-    // Validate all drivers have the same length.
-    for name in &drivers {
-        match b.get(name) {
-            Some(BindValue::Many(l)) if l.len() == n => {}
-            _ => return,
+    let n = first.len();
+    // All drivers must have the same length, otherwise the bindings are
+    // inconsistent and the block renders nothing.
+    for (_, list) in &driver_lists {
+        if list.len() != n {
+            return;
         }
     }
     for i in 0..n {
         let mut b2 = b.clone();
-        for name in &drivers {
-            if let Some(BindValue::Many(list)) = b.get(name) {
-                b2.map
-                    .insert(name.clone(), BindValue::One(list[i].clone()));
-            }
+        for (name, list) in &driver_lists {
+            b2.map.insert(name.clone(), BindValue::One(list[i].clone()));
         }
         render_chunks(&r.chunks, &b2, out);
     }

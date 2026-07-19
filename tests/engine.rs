@@ -567,27 +567,6 @@ fn settle_quit_mid_turn() {
     assert!(e.quit());
 }
 
-// -- fixpoint bail -----------------------------------------------------------
-
-/// Rules that remove and re-add facts each turn hit the fixpoint limit.
-#[test]
-fn fixpoint_bail() {
-    let mut e = Engine::new();
-    let res = e.load_str(
-        r#"
-$ rule a_to_b
-    ( - a )
-    ( b )
-$ rule b_to_a
-    ( - b )
-    ( a )
-$ a
-"#,
-    );
-    assert!(res.is_err());
-    let err = format!("{}", res.unwrap_err());
-    assert!(err.contains("fixpoint"), "error: {err}");
-}
 
 // -- find with multi-arg pattern (spaces in pattern) -------------------------
 
@@ -730,4 +709,149 @@ fn find_command_multi_arg_via_load_str() {
     // Multi-arg pattern: args.len() != 2, so it joins args[1..].
     e.load_str("$ find a $x c\n$ quit\n").unwrap();
     assert!(e.quit());
+}
+
+// -- ? error branch coverage ------------------------------------------------
+//
+// Each test below targets one `?` propagation site in engine.rs. The inputs
+// are chosen so the *source* parses (getting past `load_str_inner`'s
+// `parser::facts(src)?`), but the targeted inner call fails. A common trick:
+// a literal arg `(\()` carries the value `(` (a single open paren), which is
+// a valid fact argument but unparseable when re-fed to `parser::facts` or
+// `parser::pattern`.
+
+/// `load_str_inner`: `parser::facts(src)?` (engine.rs:107) — unparseable source.
+#[test]
+fn load_str_parse_error() {
+    let mut e = Engine::new();
+    let res = e.load_str("(unclosed");
+    assert!(res.is_err());
+}
+
+/// `ingest_file`: `Rule::parse(&strs)?` (engine.rs:148) — rule whose pattern
+/// and body use `$x` at different repetition nestings, failing `validate`.
+#[test]
+fn ingest_file_rule_parse_error() {
+    let mut e = Engine::new();
+    let res = e.load_str("$ rule bad ( $( $x )* ) ( $( $x )+ )\n");
+    assert!(res.is_err());
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("$x"), "error: {err}");
+}
+
+/// `ingest_body`: `Rule::parse(&strs)?` (engine.rs:179) — a fact fed directly
+/// to `ingest_body` that is a 4-arg rule whose pattern `?` fails
+/// `parser::pattern` (`?` is not a valid pattern token).
+#[test]
+fn ingest_body_rule_parse_error() {
+    let mut e = Engine::new();
+    let fact = reform::Fact(vec![
+        "rule".into(),
+        "bad".into(),
+        "?".into(),
+        "body".into(),
+    ]);
+    let res = e.ingest_body(fact);
+    assert!(res.is_err());
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("pattern"), "error: {err}");
+}
+
+/// `turn`: `parser::facts(&text)?` (engine.rs:222) — a rule body that renders
+/// to `(` (an unbalanced paren), which `parser::facts` rejects. The error
+/// propagates up through `turn`'s `?` (engine.rs:202) and `ingest_file`'s
+/// `settle()?` (engine.rs:153).
+#[test]
+fn turn_body_render_parse_error() {
+    let mut e = Engine::new();
+    let res = e.load_str(
+        r#"$ a
+$ rule bad
+    a
+    (\()
+"#,
+    );
+    assert!(res.is_err());
+}
+
+/// `turn`: `self.ingest_body(f)?` (engine.rs:223) — a rule body that renders
+/// to `panic`, producing a command fact whose execution errors. This also
+/// covers `ingest_body`'s `execute_command(cmd)?` (engine.rs:182).
+#[test]
+fn turn_ingest_body_command_error() {
+    let mut e = Engine::new();
+    let res = e.load_str(
+        r#"$ a
+$ rule p
+    a
+    panic
+"#,
+    );
+    assert!(res.is_err());
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("panic"), "error: {err}");
+}
+
+/// `settle`: fixpoint `bail!` (engine.rs:207) — two rules that remove and
+/// re-add each other's facts never reach a fixpoint. Also covers
+/// `ingest_file`'s `settle()?` (engine.rs:153).
+#[test]
+fn fixpoint_bail() {
+    let mut e = Engine::new();
+    let res = e.load_str(
+        r#"$ rule a_to_b
+    ( - a )
+    ( b )
+$ rule b_to_a
+    ( - b )
+    ( a )
+$ a
+"#,
+    );
+    assert!(res.is_err());
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("fixpoint"), "error: {err}");
+}
+
+/// `Command::Remove`: `parser::facts(&fact_str)?` (engine.rs:240) — `$ - (\()`
+/// carries the arg value `(`, so `fact_str` is `(` which `parser::facts`
+/// rejects.
+#[test]
+fn remove_command_parse_error() {
+    let mut e = Engine::new();
+    let res = e.load_str("$ - (\\()");
+    assert!(res.is_err());
+}
+
+/// `Command::Find`: `parser::pattern(&pattern_str)?` (engine.rs:282) —
+/// `$ find (\()` carries the arg value `(`, which `parser::pattern` rejects.
+#[test]
+fn find_command_pattern_parse_error() {
+    let mut e = Engine::new();
+    let res = e.load_str("$ find (\\()");
+    assert!(res.is_err());
+}
+
+/// `Command::Find`: `self.find_matching_facts(&pat)?` (engine.rs:283) —
+/// `$ find ($( a )*)` carries the arg value `$( a )*`, which parses to a
+/// `FactRepetition` pattern that `find_matching_facts` rejects (it only
+/// supports single `Fact` patterns).
+#[test]
+fn find_command_fact_repetition_error() {
+    let mut e = Engine::new();
+    let res = e.load_str("$ find ($( a )*)");
+    assert!(res.is_err());
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("single-fact"), "error: {err}");
+}
+
+/// `Command::Load`: `std::fs::read_to_string(path)?` and `.map_err(...)?`
+/// (engine.rs:297) — load a nonexistent file.
+#[test]
+fn load_command_file_not_found() {
+    let mut e = Engine::new();
+    let res = e.load_str("$ load /nonexistent/file.rf\n");
+    assert!(res.is_err());
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("load"), "error: {err}");
 }

@@ -1,5 +1,6 @@
 use reform::engine::normal_form_fact;
 use reform::parser::{body, facts};
+use reform::rule::{BodyChunk, RepetitionKind};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -158,33 +159,30 @@ fn domain_name_keeps_dot() {
 // ---------------------------------------------------------------------------
 // Body parsing
 // ---------------------------------------------------------------------------
-
 /// `$$` in a body produces a literal `$` text chunk.
 #[test]
 fn body_double_dollar_is_literal_dollar() {
-    let b = body("$$").expect("body parse");
+    let b = body("$$");
     assert_eq!(b.len(), 1);
-    // Display re-escapes `$` as `$$` for round-trip
-    assert_eq!(format!("{}", b), "$$");
+    assert!(matches!(&b.0[..], [BodyChunk::Text(t)] if t == "$"), "got {:?}", b);
 }
 
 /// A bare `$` in a body (not followed by a valid placeholder name) is
 /// literal text.
 #[test]
 fn body_bare_dollar_is_literal() {
-    let b = body("$").expect("body parse");
+    let b = body("$");
     assert_eq!(b.len(), 1);
-    // Display re-escapes `$` as `$$` for round-trip
-    assert_eq!(format!("{}", b), "$$");
+    assert!(matches!(&b.0[..], [BodyChunk::Text(t)] if t == "$"), "got {:?}", b);
 }
 
 /// An empty body produces no chunks.
 #[test]
 fn body_empty() {
-    let b = body("").expect("body parse");
+    let b = body("");
     assert_eq!(b.len(), 0);
-    assert_eq!(format!("{}", b), "");
 }
+
 
 // ---------------------------------------------------------------------------
 // Edge cases
@@ -255,24 +253,30 @@ fn escaped_backslash_in_literal_arg() {
 
 // -- body $$ and $ alone in repeat -------------------------------------------
 
-/// `$$` inside a `$( ... )` repeat block produces a literal `$`.
+/// `$$` inside a `$( ... )` repeat block produces a literal `$` text chunk.
 #[test]
 fn body_double_dollar_in_repeat() {
     use reform::parser::body;
-    let b = body("$( $$x )*").unwrap();
+    let b = body("$( $$x )*");
     assert_eq!(b.len(), 1);
-    let s = format!("{}", b);
-    assert!(s.contains("$$x"), "body display: {s}");
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Repeat(r)] if r.kind == RepetitionKind::ZeroOrMore
+            && matches!(&r.chunks[..], [BodyChunk::Text(t)] if t == " $x ")),
+        "got {:?}", b
+    );
 }
 
 /// A bare `$` inside a `$( ... )` repeat block is literal text.
 #[test]
 fn body_bare_dollar_in_repeat() {
     use reform::parser::body;
-    let b = body("$( $ )*").unwrap();
+    let b = body("$( $ )*");
     assert_eq!(b.len(), 1);
-    let s = format!("{}", b);
-    assert!(s.contains("$$"), "body display: {s}");
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Repeat(r)] if r.kind == RepetitionKind::ZeroOrMore
+            && matches!(&r.chunks[..], [BodyChunk::Text(t)] if t == " $ ")),
+        "got {:?}", b
+    );
 }
 
 // -- normal_form_arg backslash escape ----------------------------------------
