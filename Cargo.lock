@@ -339,10 +339,18 @@ name = "reform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
  "derive_more",
  "internment",
  "peg",
+]
+
+[[package]]
+name = "reform-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "reform",
 ]
 
 [[package]]

@@ -26,6 +26,29 @@ fn bindings_merge_scalar() {
 }
 
 #[test]
+fn pattern_duplicate_placeholder_conflict() {
+    // Pattern `$x $x` matching fact `a b`: first `$x` binds to `a`, second
+    // `$x` tries to bind to `b` but bind_scalar returns false (conflict).
+    use reform::rule::PatternItem;
+    let pf = reform::parser::pattern("$x $x").unwrap();
+    let PatternItem::Fact(pf) = &pf[0] else { panic!("expected Fact pattern") };
+    let f = fact(&["a", "b"]);
+    let matches = pf.matches_fact(&f);
+    assert!(matches.is_none(), "conflicting placeholders should not match");
+}
+
+#[test]
+fn pattern_duplicate_placeholder_matches() {
+    // Pattern `$x $x` matching fact `a a`: both bind to the same value.
+    use reform::rule::PatternItem;
+    let pf = reform::parser::pattern("$x $x").unwrap();
+    let PatternItem::Fact(pf) = &pf[0] else { panic!("expected Fact pattern") };
+    let f = fact(&["a", "a"]);
+    let matches = pf.matches_fact(&f);
+    assert!(matches.is_some(), "same placeholder with same value should match");
+}
+
+#[test]
 fn bindings_merge_scalar_conflict() {
     let mut a = Bindings::new();
     a.bind_scalar("x", Arg::from("1"));

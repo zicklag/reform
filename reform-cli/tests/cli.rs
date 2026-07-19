@@ -2,9 +2,9 @@ mod cli_tests {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    /// Path to the compiled `reform` binary.
+    /// Path to the compiled `reform-cli` binary.
     fn reform() -> String {
-        std::env::var("CARGO_BIN_EXE_reform").expect("CARGO_BIN_EXE_reform set")
+        std::env::var("CARGO_BIN_EXE_reform-cli").expect("CARGO_BIN_EXE_reform-cli set")
     }
 
     /// Run the binary with the given stdin and return its stdout.
@@ -84,7 +84,8 @@ mod cli_tests {
     #[test]
     fn cloak_of_darkness_wins() {
         let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let path = format!("{dir}/examples/cloak-of-darkness.rf");
+        // CARGO_MANIFEST_DIR is reform-cli/; examples are at the workspace root.
+        let path = format!("{dir}/../examples/cloak-of-darkness.rf");
         let (out, _err) = run(
             "s\nn\nw\ninventory\nhang cloak on hook\ne\ns\nread message\n",
             &[&path],
@@ -98,7 +99,7 @@ mod cli_tests {
     #[test]
     fn cloak_of_darkness_loses_when_trampled() {
         let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let path = format!("{dir}/examples/cloak-of-darkness.rf");
+        let path = format!("{dir}/../examples/cloak-of-darkness.rf");
         let (out, _err) = run(
             "s\nexamine bar\nexamine bar\nn\nw\nhang cloak on hook\ne\ns\nread message\n",
             &[&path],
