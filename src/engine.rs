@@ -9,6 +9,8 @@ pub struct Engine {
     facts: Vec<Fact>,
     rules: Vec<Rule>,
     quit: bool,
+    loading: bool,
+    changed: bool,
 }
 
 impl Engine {
@@ -42,6 +44,7 @@ impl Engine {
             false
         } else {
             self.facts.push(fact);
+            self.changed = true;
             true
         }
     }
@@ -50,7 +53,11 @@ impl Engine {
     pub fn remove_fact(&mut self, fact: &Fact) -> bool {
         let before = self.facts.len();
         self.facts.retain(|f| f != fact);
-        self.facts.len() != before
+        let removed = self.facts.len() != before;
+        if removed {
+            self.changed = true;
+        }
+        removed
     }
 
     pub fn add_rule(&mut self, rule: Rule) {
@@ -70,6 +77,16 @@ impl Engine {
     /// file — e.g. `assert` — sees the facts that earlier facts and rules
     /// produced.
     pub fn load_str(&mut self, src: &str) -> Result<()> {
+        if self.loading {
+            bail!("re-entrant load detected: load called while already loading");
+        }
+        self.loading = true;
+        let result = self.load_str_inner(src);
+        self.loading = false;
+        result
+    }
+
+    fn load_str_inner(&mut self, src: &str) -> Result<()> {
         for fact in parser::facts(src)? {
             self.ingest_file(fact)?;
             if self.quit {
@@ -108,7 +125,7 @@ impl Engine {
         // Register a rule. Commands are ephemeral (not stored); only genuine
         // data facts and rules are kept in the fact store.
         if stored.is_rule() {
-            let strs: Vec<&str> = stored.iter().map(arg_str).collect();
+            let strs: Vec<&str> = stored.iter().map(|a| &**a).collect();
             self.add_rule(Rule::parse(&strs)?);
         }
         if !is_command {
@@ -139,7 +156,7 @@ impl Engine {
             fact
         };
         if stripped.is_rule() {
-            let strs: Vec<&str> = stripped.iter().map(arg_str).collect();
+            let strs: Vec<&str> = stripped.iter().map(|a| &**a).collect();
             self.add_rule(Rule::parse(&strs)?);
         }
         let is_command = stripped.first().map(is_command_keyword).unwrap_or(false);
@@ -166,9 +183,9 @@ impl Engine {
             if self.quit {
                 return Ok(());
             }
-            let before = self.facts.clone();
+            self.changed = false;
             self.turn()?;
-            if self.quit || self.facts == before {
+            if self.quit || !self.changed {
                 return Ok(());
             }
         }
@@ -206,15 +223,20 @@ impl Engine {
     // -- commands ----------------------------------------------------------
 
     fn execute_command(&mut self, fact: &Fact) -> Result<()> {
-        let args: Vec<&str> = fact.iter().map(arg_str).collect();
+        let args: Vec<&str> = fact.iter().map(|a| &**a).collect();
         if args.is_empty() {
             return Ok(());
         }
         match args[0] {
             "-" => {
-                // `- a b c` removes the fact (a b c).
+                // `- a b c` removes the fact (a b c). Parse through the fact
+                // parser so normal-form escaping is handled correctly.
                 if args.len() > 1 {
-                    self.remove_fact(&Fact(args[1..].iter().map(|s| Arg::from(*s)).collect()));
+                    let fact_str = args[1..].join(" ");
+                    let parsed = parser::facts(&fact_str)?;
+                    for f in parsed {
+                        self.remove_fact(&f);
+                    }
                 }
                 Ok(())
             }
@@ -254,7 +276,7 @@ impl Engine {
                     args[1..].join(" ")
                 };
                 let pat = parser::pattern(&pattern_str)?;
-                for f in self.find_matching_facts(&pat) {
+                for f in self.find_matching_facts(&pat)? {
                     println!("{}", normal_form_fact(&f));
                 }
                 Ok(())
@@ -269,28 +291,26 @@ impl Engine {
                 let path = args.get(1).copied().unwrap_or("");
                 let src = std::fs::read_to_string(path)
                     .map_err(|e| anyhow!("load {}: {e}", path))?;
-                self.load_str(&src)
+                self.load_str_inner(&src)
             }
             _ => Ok(()),
         }
     }
 
     /// Facts in the engine that match the given (single-fact-line) pattern.
-    fn find_matching_facts(&self, pat: &crate::rule::Pattern) -> Vec<Fact> {
+    pub fn find_matching_facts(&self, pat: &crate::rule::Pattern) -> Result<Vec<Fact>> {
+        if pat.len() != 1 {
+            bail!("find only supports single-fact patterns");
+        }
         let Some(crate::rule::PatternItem::Fact(pf)) = pat.first() else {
-            // Multi-line patterns aren't supported by `find`; fall back to all.
-            return self.facts.clone();
+            bail!("find only supports single-fact patterns");
         };
-        self.facts
+        Ok(self.facts
             .iter()
             .filter(|f| pf.matches_fact(f).is_some())
             .cloned()
-            .collect()
+            .collect())
     }
-}
-
-fn arg_str(a: &Arg) -> &str {
-    a
 }
 
 fn is_command_keyword(a: &Arg) -> bool {
@@ -302,29 +322,7 @@ fn is_command_keyword(a: &Arg) -> bool {
 
 /// Render a fact as a single normal-form line: args space-separated, each
 /// wrapped in parens if it needs it.
-fn normal_form_fact(f: &Fact) -> String {
-    let parts: Vec<String> = f.iter().map(normal_form_arg).collect();
+pub fn normal_form_fact(f: &Fact) -> String {
+    let parts: Vec<String> = f.iter().map(crate::normal_form_arg).collect();
     parts.join(" ")
-}
-
-fn normal_form_arg(a: &Arg) -> String {
-    let s: &str = a;
-    if s.is_empty() {
-        return "()".to_string();
-    }
-    let needs = s.chars().any(|c| c.is_whitespace() || c == '(' || c == ')')
-        || s.ends_with([';', '.', ':', '\'']);
-    if !needs {
-        return s.to_string();
-    }
-    let mut out = String::from("(");
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            ')' => out.push_str("\\)"),
-            _ => out.push(c),
-        }
-    }
-    out.push(')');
-    out
 }

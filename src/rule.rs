@@ -14,15 +14,15 @@ pub struct Rule {
 
 impl Rule {
     /// Parse a `rule` fact (4 arguments: `rule`, name, pattern, body) into a [`Rule`].
-    pub fn parse<S: AsRef<str>>(fact: &[S]) -> Result<Self> {
+    pub fn parse(fact: &[&str]) -> Result<Self> {
         if fact.len() != 4 {
             bail!("rule fact must have exactly 4 arguments, got {}", fact.len());
         }
-        let name = Arg::from(fact[1].as_ref());
-        let pattern = crate::parser::pattern(fact[2].as_ref())
-            .with_context(|| format!("failed to parse rule pattern: {}", fact[2].as_ref()))?;
-        let body = crate::parser::body(fact[3].as_ref())
-            .with_context(|| format!("failed to parse rule body: {}", fact[3].as_ref()))?;
+        let name = Arg::from(fact[1]);
+        let pattern = crate::parser::pattern(fact[2])
+            .with_context(|| format!("failed to parse rule pattern: {}", fact[2]))?;
+        let body = crate::parser::body(fact[3])
+            .with_context(|| format!("failed to parse rule body: {}", fact[3]))?;
         let rule = Rule { name, pattern, body };
         rule.validate()?;
         Ok(rule)
@@ -305,10 +305,10 @@ impl fmt::Display for PatternItem {
 
 impl fmt::Display for PatternFact {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Only one of removed/negated should be set, but handle both defensively.
         if self.removed {
             write!(f, "- ")?;
-        }
-        if self.negated {
+        } else if self.negated {
             write!(f, "! ")?;
         }
         for (i, arg) in self.args.iter().enumerate() {
@@ -456,8 +456,7 @@ impl PatternFact {
 /// Placeholder names appearing directly (not nested in a deeper repetition)
 /// in a pattern-arg list — these are list-bound when the list is repeated.
 fn top_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
-    pats
-        .iter()
+    pats.iter()
         .filter_map(|a| match a {
             ArgTemplate::Placeholder(n) => Some(n.clone()),
             _ => None,
@@ -627,7 +626,6 @@ fn match_fact_repetition(
             continue;
         }
         for b2 in pf.match_fact(&facts[i], b) {
-            let _ = i;
             matched.push(b2);
             matched_idx.push(i);
         }
@@ -680,7 +678,7 @@ impl Rule {
         self.pattern.find_matches(facts)
     }
 
- /// Facts matched by pattern facts marked for removal (`-`), given a set of
+    /// Facts matched by pattern facts marked for removal (`-`), given a set of
     /// bindings. Used to delete the consumed facts when the rule fires.
     pub fn removed_facts(&self, facts: &[Fact], b: &Bindings) -> Vec<Fact> {
         let mut out = Vec::new();
@@ -717,13 +715,13 @@ fn render_chunks(chunks: &[BodyChunk], b: &Bindings, out: &mut String) {
         match chunk {
             BodyChunk::Text(t) => out.push_str(t),
             BodyChunk::Placeholder(name) => match b.get(name) {
-                Some(BindValue::One(v)) => out.push_str(&normal_form_arg(v)),
+                Some(BindValue::One(v)) => out.push_str(&crate::normal_form_arg(v)),
                 Some(BindValue::Many(list)) => {
                     for (i, v) in list.iter().enumerate() {
                         if i > 0 {
                             out.push(' ');
                         }
-                        out.push_str(&normal_form_arg(v));
+                        out.push_str(&crate::normal_form_arg(v));
                     }
                 }
                 None => {}
@@ -739,13 +737,20 @@ fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String) {
         .into_iter()
         .filter(|n| matches!(b.get(n), Some(BindValue::Many(_))))
         .collect();
-    let n = drivers
-        .first()
-        .and_then(|n| match b.get(n) {
-            Some(BindValue::Many(l)) => Some(l.len()),
-            _ => None,
-        })
-        .unwrap_or(0);
+    if drivers.is_empty() {
+        return;
+    }
+    let n = match b.get(&drivers[0]) {
+        Some(BindValue::Many(l)) => l.len(),
+        _ => 0,
+    };
+    // Validate all drivers have the same length.
+    for name in &drivers {
+        match b.get(name) {
+            Some(BindValue::Many(l)) if l.len() == n => {}
+            _ => return,
+        }
+    }
     for i in 0..n {
         let mut b2 = b.clone();
         for name in &drivers {
@@ -773,29 +778,4 @@ fn collect_ph_names(chunks: &[BodyChunk], out: &mut Vec<String>) {
             BodyChunk::Text(_) => {}
         }
     }
-}
-
-/// Render a single argument in fact normal form so it survives re-parsing:
-/// wrap in parens (with escaping) if it contains whitespace, parens, or
-/// trailing punctuation.
-fn normal_form_arg(v: &Arg) -> String {
-    let s: &str = v.as_ref();
-    if s.is_empty() {
-        return "()".to_string();
-    }
-    let needs = s.chars().any(|c| c.is_whitespace() || c == '(' || c == ')')
-        || s.ends_with([';', '.', ':', '\'']);
-    if !needs {
-        return s.to_string();
-    }
-    let mut out = String::from("(");
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            ')' => out.push_str("\\)"),
-            _ => out.push(c),
-        }
-    }
-    out.push(')');
-    out
 }

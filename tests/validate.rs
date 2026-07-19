@@ -84,3 +84,151 @@ $ rule r
 "#;
     parse_rule(src).expect("should parse");
 }
+
+/// A rule with no name (only `rule` keyword, no name argument) is rejected.
+#[test]
+fn rule_with_no_name_rejected() {
+    let src = r#"
+$ rule
+    ( a )
+    ( b )
+"#;
+    let err = parse_rule(src).expect_err("should reject");
+    assert!(
+        err.contains("exactly 4 arguments"),
+        "got: {err}"
+    );
+}
+
+/// A rule with extra arguments beyond the required 4 is rejected.
+#[test]
+fn rule_with_wrong_number_of_args_rejected() {
+    let src = r#"
+$ rule r extra
+    ( a )
+    ( b )
+"#;
+    let err = parse_rule(src).expect_err("should reject");
+    assert!(
+        err.contains("exactly 4 arguments"),
+        "got: {err}"
+    );
+}
+
+/// An empty pattern (no pattern items) is valid.
+#[test]
+fn empty_pattern_accepted() {
+    let src = r#"
+$ rule r
+    ( )
+    ( b )
+"#;
+    parse_rule(src).expect("empty pattern should be valid");
+}
+
+/// An empty body (no body chunks) is valid.
+#[test]
+fn empty_body_accepted() {
+    let src = r#"
+$ rule r
+    ( a )
+    ( )
+"#;
+    parse_rule(src).expect("empty body should be valid");
+}
+
+/// A pattern fact with both `-` (removal) and `!` (negation) markers.
+/// The parser doesn't have a combined `-!` production, so `-!a` fails to
+/// parse. However `!-a` is valid: `!` is the negation marker and `-a` is
+/// a literal argument.
+#[test]
+fn pattern_with_both_removal_and_negation_mixed() {
+    let src = r#"
+$ rule r
+    ( -!a )
+    ( b )
+"#;
+    let err = parse_rule(src).expect_err("should reject");
+    assert!(
+        err.contains("failed to parse rule pattern"),
+        "got: {err}"
+    );
+
+    let src = r#"
+$ rule r
+    ( !-a )
+    ( b )
+"#;
+    parse_rule(src).expect("!-a should parse as negation of literal `-a`");
+}
+
+/// Placeholder names with special characters (like `@`) are valid.
+#[test]
+fn placeholder_with_special_chars_accepted() {
+    let src = r#"
+$ rule r
+    ( a $x@y )
+    ( b $x@y )
+"#;
+    parse_rule(src).expect("placeholder with special chars should be valid");
+}
+
+/// A pattern consisting only of negated (`!`) facts is valid.
+#[test]
+fn pattern_only_negation_accepted() {
+    let src = r#"
+$ rule r
+    ( !a )
+    ( b )
+"#;
+    parse_rule(src).expect("negation-only pattern should be valid");
+}
+
+/// A pattern consisting only of removal (`-`) facts is valid.
+#[test]
+fn pattern_only_removal_accepted() {
+    let src = r#"
+$ rule r
+    ( -a )
+    ( b )
+"#;
+    parse_rule(src).expect("removal-only pattern should be valid");
+}
+
+/// A body placeholder referencing a pattern placeholder at the same nesting
+/// depth (another variant of the consistent-placeholder test).
+#[test]
+fn body_placeholder_matches_pattern_accepted() {
+    let src = r#"
+$ rule r
+    ( a $x b )
+    ( c $x d )
+"#;
+    parse_rule(src).expect("should parse");
+}
+
+/// Nested repetitions with consistent placeholder nesting are valid.
+#[test]
+fn nested_repetitions_consistent_accepted() {
+    let src = r#"
+$ rule r
+    ( $( a $( b $x )* )* )
+    ( $( $( $x )* )* )
+"#;
+    parse_rule(src).expect("nested consistent repetitions should be valid");
+}
+
+/// Nested repetitions with inconsistent placeholder nesting are rejected.
+#[test]
+fn nested_repetitions_inconsistent_rejected() {
+    let src = r#"
+$ rule r
+    ( $( a $( b $x )* )* )
+    ( $( $x )* )
+"#;
+    let err = parse_rule(src).expect_err("should reject");
+    assert!(
+        err.contains("different nesting"),
+        "got: {err}"
+    );
+}

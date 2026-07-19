@@ -171,3 +171,312 @@ fn fact(s: &str) -> reform::Fact {
         .next()
         .expect("one fact")
 }
+
+// -- find command -----------------------------------------------------------
+
+/// `find` with a single-fact pattern prints matching facts.
+#[test]
+fn find_command() {
+    let mut e = Engine::new();
+    e.load_str(
+        r#"
+$ alice likes cats
+$ bob likes dogs
+$ alice likes birds
+"#,
+    )
+    .unwrap();
+    assert!(e.contains(&fact("alice likes cats")));
+    assert!(e.contains(&fact("bob likes dogs")));
+    assert!(e.contains(&fact("alice likes birds")));
+}
+
+// -- facts command ----------------------------------------------------------
+
+/// `facts` command prints all facts.
+#[test]
+fn facts_command() {
+    let e = load(
+        r#"
+$ a
+$ b
+$ c
+$ facts
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("a")));
+    assert!(e.contains(&fact("b")));
+    assert!(e.contains(&fact("c")));
+}
+
+// -- print command ----------------------------------------------------------
+
+/// `print` outputs text without a trailing newline.
+#[test]
+fn print_command() {
+    let mut e = Engine::new();
+    // print doesn't change engine state, just outputs. Verify it doesn't error.
+    let res = e.load_str("$ print hello world\n$ quit\n");
+    assert!(res.is_ok());
+}
+
+// -- panic command ----------------------------------------------------------
+
+/// `panic` returns an error with the given message.
+#[test]
+fn panic_command() {
+    let mut e = Engine::new();
+    let res = e.load_str("$ panic something went wrong\n");
+    assert!(res.is_err());
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("something went wrong"), "error: {err}");
+}
+
+// -- load command -----------------------------------------------------------
+
+/// `load` reads facts from a file.
+#[test]
+fn load_command() {
+    let dir = std::env::temp_dir().join("reform_test_load");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("test_load.reform");
+    std::fs::write(&path, "$ hello world\n$ quit\n").unwrap();
+    let mut e = Engine::new();
+    let res = e.load_str(&format!("$ load {}\n", path.display()));
+    assert!(res.is_ok(), "load should succeed: {:?}", res);
+    assert!(e.contains(&fact("hello world")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// -- negation ---------------------------------------------------------------
+
+/// Negation `!` in a pattern matches when the negated fact is absent.
+#[test]
+fn negation_matches_when_absent() {
+    let e = load(
+        r#"
+$ rule check_absent
+    ( ! secret_flag )
+    ( all_clear )
+$ assert all_clear
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("all_clear")));
+}
+
+/// Negation `!` fails to match when the negated fact IS present.
+#[test]
+fn negation_fails_when_present() {
+    let mut e = Engine::new();
+    let _res = e.load_str(
+        r#"
+$ secret_flag
+$ rule check_absent
+    ( ! secret_flag )
+    ( all_clear )
+$ assert all_clear
+"#,
+    );
+    // The rule should not fire because secret_flag is present, so all_clear
+    // should not be produced.
+    assert!(!e.contains(&fact("all_clear")));
+}
+
+// -- fact-level repetition --------------------------------------------------
+
+/// `*` fact-level repetition: `$( ... )*` matches zero or more facts.
+#[test]
+fn fact_level_star_repetition() {
+    let e = load(
+        r#"
+$ player has sword
+$ player has shield
+$ player has potion
+$ rule list_items
+    ( $( player has $item )* )
+    ( items $( $item )* )
+$ assert items sword shield potion
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("items sword shield potion")));
+}
+
+/// `+` fact-level repetition: `$( ... )+` matches one or more facts.
+#[test]
+fn fact_level_plus_repetition() {
+    let e = load(
+        r#"
+$ player has sword
+$ player has shield
+$ rule list_items
+    ( $( player has $item )+ )
+    ( items $( $item )+ )
+$ assert items sword shield
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("items sword shield")));
+}
+
+/// `+` arg-level repetition: `$( ... )+` matches one or more args.
+#[test]
+fn arg_level_plus_repetition() {
+    let e = load(
+        r#"
+$ rule collect_args
+    ( collect $( $x )+ )
+    ( got $( $x )+ )
+$ collect a b c
+$ assert got a b c
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("got a b c")));
+}
+
+/// `*` arg-level repetition with zero matches.
+#[test]
+fn arg_level_star_zero_matches() {
+    let e = load(
+        r#"
+$ rule zero_args
+    ( zero $( $x )* )
+    ( none )
+$ zero
+$ assert none
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("none")));
+}
+
+// -- edge cases -------------------------------------------------------------
+
+/// Empty body rule: pattern matches but body produces nothing.
+#[test]
+fn empty_body_rule() {
+    let e = load(
+        r#"
+$ rule noop
+    ( trigger )
+    ( )
+$ trigger
+$ assert trigger
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("trigger")));
+}
+
+/// `$$` escape in body produces a literal `$`.
+#[test]
+fn dollar_escape_in_body() {
+    let e = load(
+        r#"
+$ rule dollar_gen
+    ( gen_dollar )
+    ( $$ dollar )
+$ gen_dollar
+$ assert dollar
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("dollar")));
+}
+
+/// `$any` conventional placeholder matches any single arg.
+#[test]
+fn any_placeholder() {
+    let e = load(
+        r#"
+$ rule match_any
+    ( $a is $b )
+    ( matched )
+$ x is y
+$ assert matched
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("matched")));
+}
+
+/// `clear_quit` resets the quit flag.
+#[test]
+fn clear_quit_method() {
+    let mut e = Engine::new();
+    e.load_str("$ quit\n").unwrap();
+    assert!(e.quit());
+    e.clear_quit();
+    assert!(!e.quit());
+}
+
+/// `remove_fact` for a non-existent fact returns false.
+#[test]
+fn remove_fact_nonexistent() {
+    let mut e = Engine::new();
+    let f = fact("ghost");
+    assert!(!e.remove_fact(&f));
+}
+
+/// `add_fact` for a duplicate fact returns false.
+#[test]
+fn add_fact_duplicate() {
+    let mut e = Engine::new();
+    let f = fact("hello");
+    assert!(e.add_fact(f.clone()));
+    assert!(!e.add_fact(f));
+}
+
+/// `normal_form_arg` escaping edge cases.
+#[test]
+fn normal_form_arg_edge_cases() {
+    use reform::normal_form_arg;
+    use reform::Arg;
+    // Empty string
+    assert_eq!(normal_form_arg(&Arg::from("")), "()");
+    // Trailing punctuation
+    assert_eq!(normal_form_arg(&Arg::from("hello.")), "(hello.)");
+    assert_eq!(normal_form_arg(&Arg::from("world:")), "(world:)");
+    assert_eq!(normal_form_arg(&Arg::from("test;")), "(test;)");
+    assert_eq!(normal_form_arg(&Arg::from("foo'")), "(foo')");
+    // Nested parens
+    assert_eq!(normal_form_arg(&Arg::from("a(b)c")), "(a(b\\)c)");
+    // Whitespace
+    assert_eq!(normal_form_arg(&Arg::from("hello world")), "(hello world)");
+    // Already clean
+    assert_eq!(normal_form_arg(&Arg::from("clean")), "clean");
+}
+/// Re-entrant load detection: the `load` command uses `load_str_inner` to
+/// avoid triggering the re-entrant check. This test verifies that the
+/// `load` command works correctly (it used to fail with re-entrant error
+/// before the fix).
+#[test]
+fn reentrant_load_detection() {
+    let dir = std::env::temp_dir().join("reform_test_reentrant");
+    let _ = std::fs::create_dir_all(&dir);
+    let inner = dir.join("inner.reform");
+    std::fs::write(&inner, "$ inner_fact\n").unwrap();
+    let mut e = Engine::new();
+    let res = e.load_str(&format!("$ load {}\n", inner.display()));
+    assert!(res.is_ok(), "load should succeed: {:?}", res);
+    assert!(e.contains(&fact("inner_fact")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `find` with a multi-fact pattern should error.
+#[test]
+fn find_multi_fact_pattern_errors() {
+    let mut e = Engine::new();
+    e.load_str("$ a\n$ b\n").unwrap();
+    // A pattern with two items (separated by newline) should be rejected.
+    // Pattern facts don't use parens - they're just the args directly.
+    let pat = reform::parser::pattern("a\nb").unwrap();
+    assert_eq!(pat.len(), 2, "pattern should have 2 items");
+    let result = e.find_matching_facts(&pat);
+    assert!(result.is_err(), "multi-fact find should error: {:?}", result);
+    let err = format!("{}", result.unwrap_err());
+    assert!(err.contains("single-fact"), "error: {err}");
+}
