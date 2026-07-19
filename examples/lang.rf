@@ -1,15 +1,25 @@
-The description of the
-    (huge place) is
-    [My name is {if the house is open} the great{else}something is not right{end if}after ifff
-
-    yeah.].
 
 $ rule example
-  (
-    - sentence $( $a1 )? $x is $( $a2 )? $y
-    $( $a1 is article )?
-    $( $a2 is article )?
-  )
-  (
-    $x is $y
-  )
+    (
+        $rel1 is the reverse of $rel2
+    )
+    (
+        rule reverse_xy
+            (
+                $$x is $rel1 $$y
+            )
+            (
+                $$y is $rel2 $$x
+            )
+    )
+
+$ rule example2
+    (
+        sentence $( $a1 )? $thing1 is $rel $( $prep )? $( $a2 )? $thing2
+        $( $a1 is article )?
+        $( $a2 is article )?
+        $( $prep is preposition )?
+    )
+    (
+        $thing1 is $rel $( $prep )? $thing2
+    )

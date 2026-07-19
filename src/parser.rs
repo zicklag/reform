@@ -1,4 +1,4 @@
-use crate::rule::{ArgTemplate, Body, BodyFact, BodyFactRepetition, BodyItem, Pattern, PatternFact, PatternFactRepetition, PatternItem, RepeatedArgs, RepetitionKind};
+use crate::rule::{ArgTemplate, Body, BodyChunk, Pattern, PatternFact, PatternFactRepetition, PatternItem, RepeatedArgs, RepeatBlock, RepetitionKind};
 use crate::Arg;
 
 pub use reform_parser::{facts, pattern, body};
@@ -212,7 +212,7 @@ peg::parser! {
         rule pattern_fact_repetition() -> PatternFactRepetition =
             ws() "$("
                 ws() facts:(pattern_fact())*
-            ")"
+            ws() ")"
             kind:repetition_kind()
             eol()
             { PatternFactRepetition { kind, facts } }
@@ -221,25 +221,43 @@ peg::parser! {
             " "* "-" args:arg_templates() fact_end() { PatternFact { removed: true, args } } /
             " "* args:arg_templates() fact_end() { PatternFact { removed: false, args } }
 
-        // Parse a rule body from its literal string content.
+        // Parse a rule body as a substitution template. The body is a flat
+        // sequence of chunks: literal text, `$name` placeholders (substituted
+        // from the pattern's bindings at fire time), and `$( ... )?/+/*`
+        // repetition blocks (aligned with the pattern's repetitions). A
+        // literal `$` in the output is written `$$`. The generated text is
+        // later fed to `facts()` to produce real facts, so anything that
+        // isn't a `$`-form placeholder or repetition is opaque literal text —
+        // including parens, newlines, and the contents of generated (inner)
+        // rules. Inner rules that need their own `$x`/`$( ... )` write them
+        // as `$$x`/`$$( ... )`.
         pub rule body() -> Body =
-            ws() items:(body_item())* ws() { Body(items) }
+            chunks:body_chunk()* { Body(merge_text(chunks)) }
 
-        rule body_item() -> BodyItem =
-            fact_repetition:body_fact_repetition() { BodyItem::FactRepetition(fact_repetition) } /
-            fact:body_fact() { BodyItem::Fact(fact) }
+        // A chunk at the top level of a body. A bare `)` is ordinary text
+        // here: it only closes a `$( ... )` block when we are inside one.
+        rule body_chunk() -> BodyChunk =
+            "$$" { BodyChunk::Text("$".to_string()) } /
+            rep:body_repeat() { BodyChunk::Repeat(rep) } /
+            ph:placeholder() { BodyChunk::Placeholder(ph) } /
+            "$" { BodyChunk::Text("$".to_string()) } /
+            text:$((!"$" [_])+) { BodyChunk::Text(text.to_string()) }
 
-        rule body_fact_repetition() -> BodyFactRepetition =
-            ws() "$("
-                ws() facts:(body_fact())*
+        // A chunk inside a `$( ... )` repetition. Here a bare `)` closes the
+        // repetition, so it is not consumed as text.
+        rule body_chunk_in_repeat() -> BodyChunk =
+            "$$" { BodyChunk::Text("$".to_string()) } /
+            rep:body_repeat() { BodyChunk::Repeat(rep) } /
+            ph:placeholder() { BodyChunk::Placeholder(ph) } /
+            "$" { BodyChunk::Text("$".to_string()) } /
+            text:$((!")" !"$" [_])+) { BodyChunk::Text(text.to_string()) }
+
+        rule body_repeat() -> RepeatBlock =
+            "$("
+                chunks:body_chunk_in_repeat()*
             ")"
             kind:repetition_kind()
-            eol()
-            { BodyFactRepetition { kind, facts } }
-
-        rule body_fact() -> BodyFact =
-            " "* args:arg_templates() fact_end()
-            { BodyFact(args) }
+            { RepeatBlock { kind, chunks: merge_text(chunks) } }
 
 
 
@@ -278,4 +296,21 @@ peg::parser! {
         // Whitespace (spaces, tabs, newlines) skipped around pattern/body items.
         rule ws() = (" " / "\t" / "\n")*
     }
+}
+
+/// Merge adjacent [`BodyChunk::Text`] chunks into a single `Text` chunk so the
+/// body tree stays compact (e.g. a `$$` escape followed by a run of literal
+/// text becomes one `Text`).
+fn merge_text(chunks: Vec<BodyChunk>) -> Vec<BodyChunk> {
+    let mut merged: Vec<BodyChunk> = Vec::new();
+    for chunk in chunks {
+        if let BodyChunk::Text(t) = &chunk {
+            if let Some(BodyChunk::Text(prev)) = merged.last_mut() {
+                prev.push_str(t);
+                continue;
+            }
+        }
+        merged.push(chunk);
+    }
+    merged
 }

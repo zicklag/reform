@@ -1,5 +1,6 @@
 use crate::Arg;
 use anyhow::{bail, Context, Result};
+use std::collections::HashSet;
 
 /// A parsed rule with its name, pattern, and body.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
@@ -23,6 +24,18 @@ impl Rule {
             .with_context(|| format!("failed to parse rule pattern: {}", fact[2].as_ref()))?;
         let body = crate::parser::body(fact[3].as_ref())
             .with_context(|| format!("failed to parse rule body: {}", fact[3].as_ref()))?;
+
+        // Every `$name` placeholder used in the body must be declared by the
+        // pattern. An unbound placeholder is a typo, not a literal — use `$$`
+        // to emit a literal `$` (e.g. `$$x` produces `$x` for a generated /
+        // inner rule's own placeholder).
+        let declared = pattern.placeholders();
+        for ph in body.placeholders() {
+            if !declared.contains(&ph) {
+                bail!("body references placeholder `${ph}` not declared in pattern");
+            }
+        }
+
         Ok(Rule { name, pattern, body })
     }
 }
@@ -31,9 +44,34 @@ impl Rule {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, derive_more::Deref)]
 pub struct Pattern(pub Vec<PatternItem>);
 
-/// A rule body, producing facts when the pattern matches.
+/// A rule body: a substitution template that produces facts when the pattern
+/// matches. The body is a flat template of literal text, `$name` placeholders
+/// (substituted from the pattern's bindings at fire time), and
+/// `$( ... )?/+/*` repetition blocks (aligned with the pattern's repetitions).
+/// After substitution the resulting text is parsed by `facts()` to produce
+/// real facts, so any non-placeholder text is opaque — including parens,
+/// newlines, and the entire contents of generated (inner) rules.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, derive_more::Deref)]
-pub struct Body(pub Vec<BodyItem>);
+pub struct Body(pub Vec<BodyChunk>);
+
+/// A single chunk of a rule body template.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
+pub enum BodyChunk {
+    /// Literal text, emitted verbatim. A literal `$` is stored as `$` here and
+    /// escaped as `$$` on display; `$$` in the source produces a single `$`.
+    Text(String),
+    /// A `$name` placeholder, substituted with the matched value at fire time.
+    Placeholder(String),
+    /// A `$( ... )?/+/*` repetition block, iterated over the bound list.
+    Repeat(RepeatBlock),
+}
+
+/// A repeated block of body chunks.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
+pub struct RepeatBlock {
+    pub kind: RepetitionKind,
+    pub chunks: Vec<BodyChunk>,
+}
 
 /// A single item in a pattern: a fact or a repeated block of facts.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
@@ -64,25 +102,7 @@ pub enum RepetitionKind {
     ZeroOrMore,
 }
 
-/// A single item in a rule body: a fact or a repeated block of facts.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
-pub enum BodyItem {
-    Fact(BodyFact),
-    FactRepetition(BodyFactRepetition),
-}
-
-/// A repeated block of body facts.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
-pub struct BodyFactRepetition {
-    pub kind: RepetitionKind,
-    pub facts: Vec<BodyFact>,
-}
-
-/// A fact to create in a rule body.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, derive_more::Deref)]
-pub struct BodyFact(pub Vec<ArgTemplate>);
-
-/// A single argument in a pattern or body: a literal, a placeholder, or a repeated block.
+/// A single argument in a pattern: a literal, a placeholder, or a repeated block.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub enum ArgTemplate {
     Literal(Arg),
@@ -97,6 +117,77 @@ pub struct RepeatedArgs {
     pub args: Vec<ArgTemplate>,
 }
 
+// ---------------------------------------------------------------------------
+// Placeholder collection (used to validate body placeholders against pattern)
+// ---------------------------------------------------------------------------
+
+impl Pattern {
+    /// All placeholder names declared anywhere in the pattern.
+    pub fn placeholders(&self) -> HashSet<String> {
+        let mut set = HashSet::new();
+        for item in &self.0 {
+            collect_pattern_placeholders(item, &mut set);
+        }
+        set
+    }
+}
+
+impl Body {
+    /// All placeholder names referenced anywhere in the body.
+    pub fn placeholders(&self) -> HashSet<String> {
+        let mut set = HashSet::new();
+        for chunk in &self.0 {
+            collect_body_placeholders(chunk, &mut set);
+        }
+        set
+    }
+}
+
+fn collect_pattern_placeholders(item: &PatternItem, set: &mut HashSet<String>) {
+    match item {
+        PatternItem::Fact(f) => {
+            for a in &f.args {
+                collect_arg_placeholders(a, set);
+            }
+        }
+        PatternItem::FactRepetition(r) => {
+            for f in &r.facts {
+                for a in &f.args {
+                    collect_arg_placeholders(a, set);
+                }
+            }
+        }
+    }
+}
+
+fn collect_arg_placeholders(a: &ArgTemplate, set: &mut HashSet<String>) {
+    match a {
+        ArgTemplate::Placeholder(name) => {
+            set.insert(name.clone());
+        }
+        ArgTemplate::RepeatedArgs(r) => {
+            for a in &r.args {
+                collect_arg_placeholders(a, set);
+            }
+        }
+        ArgTemplate::Literal(_) => {}
+    }
+}
+
+fn collect_body_placeholders(chunk: &BodyChunk, set: &mut HashSet<String>) {
+    match chunk {
+        BodyChunk::Placeholder(name) => {
+            set.insert(name.clone());
+        }
+        BodyChunk::Repeat(r) => {
+            for c in &r.chunks {
+                collect_body_placeholders(c, set);
+            }
+        }
+        BodyChunk::Text(_) => {}
+    }
+}
+
 use std::fmt;
 
 impl fmt::Display for Rule {
@@ -108,10 +199,8 @@ impl fmt::Display for Rule {
         }
         writeln!(f, "  )")?;
         writeln!(f, "  (")?;
-        for item in self.body.iter() {
-            writeln!(f, "    {item}")?;
-        }
-        write!(f, "  )")
+        write!(f, "{}", self.body)?;
+        writeln!(f, "  )")
     }
 }
 
@@ -126,10 +215,45 @@ impl fmt::Display for Pattern {
 
 impl fmt::Display for Body {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for item in self.0.iter() {
-            write!(f, "{item}")?;
+        for chunk in self.0.iter() {
+            write!(f, "{chunk}")?;
         }
         Ok(())
+    }
+}
+
+impl fmt::Display for BodyChunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // Escape `$` so the text round-trips through the body parser.
+            BodyChunk::Text(s) => {
+                for c in s.chars() {
+                    if c == '$' {
+                        write!(f, "$$")?;
+                    } else {
+                        write!(f, "{c}")?;
+                    }
+                }
+                Ok(())
+            }
+            BodyChunk::Placeholder(name) => write!(f, "${name}"),
+            BodyChunk::Repeat(r) => write!(f, "{r}"),
+        }
+    }
+}
+
+impl fmt::Display for RepeatBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let suffix = match self.kind {
+            RepetitionKind::Optional => "?",
+            RepetitionKind::OneOrMore => "+",
+            RepetitionKind::ZeroOrMore => "*",
+        };
+        write!(f, "$(")?;
+        for chunk in &self.chunks {
+            write!(f, "{chunk}")?;
+        }
+        write!(f, "){suffix}")
     }
 }
 
@@ -157,18 +281,6 @@ impl fmt::Display for PatternFact {
     }
 }
 
-impl fmt::Display for BodyFact {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, arg) in self.0.iter().enumerate() {
-            if i > 0 {
-                write!(f, " ")?;
-            }
-            write!(f, "{arg}")?;
-        }
-        writeln!(f)
-    }
-}
-
 impl fmt::Display for PatternFactRepetition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let suffix = match self.kind {
@@ -183,33 +295,6 @@ impl fmt::Display for PatternFactRepetition {
         writeln!(f, "){suffix}")
     }
 }
-
-impl fmt::Display for BodyFactRepetition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let suffix = match self.kind {
-            RepetitionKind::Optional => "?",
-            RepetitionKind::OneOrMore => "+",
-            RepetitionKind::ZeroOrMore => "*",
-        };
-        write!(f, "$(")?;
-        for fact in &self.facts {
-            write!(f, "  {fact}")?;
-        }
-        writeln!(f, "){suffix}")
-    }
-}
-
-
-impl fmt::Display for BodyItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BodyItem::Fact(fact) => write!(f, "{fact}"),
-            BodyItem::FactRepetition(rep) => write!(f, "{rep}"),
-        }
-    }
-}
-
-
 
 impl fmt::Display for ArgTemplate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
