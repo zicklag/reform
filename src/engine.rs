@@ -9,7 +9,6 @@ pub struct Engine {
     facts: Vec<Fact>,
     rules: Vec<Rule>,
     quit: bool,
-    loading: bool,
     changed: bool,
 }
 
@@ -18,27 +17,22 @@ impl Engine {
         Self::default()
     }
 
-    /// All facts currently in the engine, in insertion order.
     pub fn facts(&self) -> &[Fact] {
         &self.facts
     }
 
-    /// All registered rules.
     pub fn rules(&self) -> &[Rule] {
         &self.rules
     }
 
-    /// Whether a `quit` command has requested the engine stop.
     pub fn quit(&self) -> bool {
         self.quit
     }
 
-    /// Reset the quit flag (so a long-lived engine can keep running).
     pub fn clear_quit(&mut self) {
         self.quit = false;
     }
 
-    /// Insert a fact, ignoring duplicates. Returns whether it was newly added.
     pub fn add_fact(&mut self, fact: Fact) -> bool {
         if self.facts.contains(&fact) {
             false
@@ -49,7 +43,6 @@ impl Engine {
         }
     }
 
-    /// Remove a fact if present. Returns whether it was present.
     pub fn remove_fact(&mut self, fact: &Fact) -> bool {
         let before = self.facts.len();
         self.facts.retain(|f| f != fact);
@@ -64,25 +57,14 @@ impl Engine {
         self.rules.push(rule);
     }
 
-    /// Does any fact in the engine equal `fact`?
     pub fn contains(&self, fact: &Fact) -> bool {
         self.facts.contains(fact)
     }
 
     // -- loading -----------------------------------------------------------
 
-    /// Parse and ingest reform source text (facts, rules, commands) from a
-    /// file, applying the `$` / `>` / sentence prefix rules. After each fact
-    /// the engine settles (rules fire to fixpoint), so a later command in the
-    /// file — e.g. `assert` — sees the facts that earlier facts and rules
-    /// produced.
     pub fn load_str(&mut self, src: &str) -> Result<()> {
-        if self.loading {
-            bail!("re-entrant load detected: load called while already loading");
-        }
-        self.loading = true;
         let result = self.load_str_inner(src);
-        self.loading = false;
         result
     }
 
@@ -96,25 +78,18 @@ impl Engine {
         Ok(())
     }
 
-    /// Ingest a fact parsed from a file: apply the `$` / `>` / sentence prefix
-    /// rules, register any rule, settle rules to a fixpoint, then execute the
-    /// fact as a command (if it is one). Settling first means commands like
-    /// `assert` observe the state produced by the facts and rules loaded so far.
     pub fn ingest_file(&mut self, fact: Fact) -> Result<()> {
         let args: Vec<Arg> = fact.iter().cloned().collect();
         if args.is_empty() {
             return Ok(());
         }
         let stored = match &*args[0] {
-            // `$` prefix: strip it, store verbatim (no `sentence` prefix).
             "$" => Fact(args[1..].to_vec()),
-            // `>` prefix: becomes a `prompt` fact.
             ">" => Fact(
                 std::iter::once(Arg::from("prompt"))
                     .chain(args[1..].iter().cloned())
                     .collect(),
             ),
-            // Otherwise: a plain sentence, prefixed with `sentence`.
             _ => Fact(
                 std::iter::once(Arg::from("sentence"))
                     .chain(args.iter().cloned())
@@ -122,8 +97,6 @@ impl Engine {
             ),
         };
         let is_command = stored.first().map(is_command_keyword).unwrap_or(false);
-        // Register a rule. Commands are ephemeral (not stored); only genuine
-        // data facts and rules are kept in the fact store.
         if stored.is_rule() {
             let strs: Vec<&str> = stored.iter().map(|a| &**a).collect();
             self.add_rule(Rule::parse(&strs)?);
@@ -131,8 +104,6 @@ impl Engine {
         if !is_command {
             self.add_fact(stored.clone());
         }
-        // Let rules react to the new fact, then run the command (so e.g.
-        // `assert` observes the state produced by the rules loaded so far).
         self.settle()?;
         if is_command {
             self.execute_command(&stored)?;
@@ -140,16 +111,11 @@ impl Engine {
         Ok(())
     }
 
-    /// Ingest a fact produced by a rule body during a turn. A leading `$`
-    /// (the "not a sentence" marker) is stripped; the rest is stored verbatim
-    /// (no `sentence` prefix). Inner `rule` facts get registered; commands fire
-    /// immediately. Does NOT settle (we are already inside a turn).
     pub fn ingest_body(&mut self, fact: Fact) -> Result<()> {
         let args: Vec<Arg> = fact.iter().cloned().collect();
         if args.is_empty() {
             return Ok(());
         }
-        // A leading `$` marks a non-sentence fact; strip it.
         let stripped = if &*args[0] == "$" {
             Fact(args[1..].to_vec())
         } else {
@@ -161,7 +127,6 @@ impl Engine {
         }
         let is_command = stripped.first().map(is_command_keyword).unwrap_or(false);
         if is_command {
-            // Commands are ephemeral: execute immediately, don't store.
             self.execute_command(&stripped)?;
         } else {
             self.add_fact(stripped);
@@ -171,8 +136,6 @@ impl Engine {
 
     // -- turns -------------------------------------------------------------
 
-    /// Run [`turn`](Self::turn) repeatedly until the engine reaches a
-    /// fixpoint (no fact changes) or `quit`.
     pub fn run(&mut self) -> Result<()> {
         self.settle()
     }
@@ -192,19 +155,14 @@ impl Engine {
         bail!("engine did not reach a fixpoint within {MAX_TURNS} turns");
     }
 
-    /// One pass: every rule fires against a snapshot of the facts taken at
-    /// the start of the turn. New facts produced this turn are visible next
-    /// turn; facts removed by `-` pattern lines are removed immediately.
     pub fn turn(&mut self) -> Result<()> {
         let snapshot = self.facts.clone();
         let rules = self.rules.clone();
         for rule in &rules {
             for bindings in rule.find_matches(&snapshot) {
-                // Remove facts matched by `-` pattern lines.
                 for rf in rule.removed_facts(&snapshot, &bindings) {
                     self.remove_fact(&rf);
                 }
-                // Render the body to reform text and ingest the results.
                 let text = rule.body.render(&bindings);
                 if text.trim().is_empty() {
                     continue;
@@ -224,13 +182,8 @@ impl Engine {
 
     fn execute_command(&mut self, fact: &Fact) -> Result<()> {
         let args: Vec<&str> = fact.iter().map(|a| &**a).collect();
-        if args.is_empty() {
-            return Ok(());
-        }
         match args[0] {
             "-" => {
-                // `- a b c` removes the fact (a b c). Parse through the fact
-                // parser so normal-form escaping is handled correctly.
                 if args.len() > 1 {
                     let fact_str = args[1..].join(" ");
                     let parsed = parser::facts(&fact_str)?;

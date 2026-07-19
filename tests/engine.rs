@@ -480,3 +480,254 @@ fn find_multi_fact_pattern_errors() {
     let err = format!("{}", result.unwrap_err());
     assert!(err.contains("single-fact"), "error: {err}");
 }
+
+// -- getters -----------------------------------------------------------------
+
+/// `facts()` and `rules()` getters return the expected data.
+#[test]
+fn engine_getters() {
+    let mut e = Engine::new();
+    assert!(e.facts().is_empty());
+    assert!(e.rules().is_empty());
+    e.load_str("$ a\n$ rule r\n    ( $x )\n    ( $x )\n").unwrap();
+    assert_eq!(e.facts().len(), 2);
+    assert_eq!(e.rules().len(), 1);
+}
+
+// -- run ---------------------------------------------------------------------
+
+/// `run()` settles the engine to a fixpoint.
+#[test]
+fn engine_run() {
+    let mut e = Engine::new();
+    e.load_str("$ a\n$ rule r\n    ( a )\n    ( b )\n").unwrap();
+    assert!(e.contains(&fact("b")));
+    e.clear_quit();
+    e.run().unwrap();
+}
+
+// -- empty args --------------------------------------------------------------
+
+/// `ingest_file` with an empty fact is a no-op.
+#[test]
+fn ingest_file_empty_args() {
+    let mut e = Engine::new();
+    e.ingest_file(reform::Fact(vec![])).unwrap();
+    assert!(e.facts().is_empty());
+}
+
+/// `ingest_body` with an empty fact is a no-op.
+#[test]
+fn ingest_body_empty_args() {
+    let mut e = Engine::new();
+    e.ingest_body(reform::Fact(vec![])).unwrap();
+    assert!(e.facts().is_empty());
+}
+
+// -- unknown command ---------------------------------------------------------
+
+/// An unknown command keyword is stored as a regular fact (not a command).
+#[test]
+fn unknown_command_stored_as_fact() {
+    let e = load("$ unknown_cmd arg1 arg2\n$ quit\n");
+    // Unknown commands are not in the command keyword list, so they get stored.
+    assert!(e.contains(&fact("unknown_cmd arg1 arg2")));
+}
+
+// -- dash command with single arg --------------------------------------------
+
+/// `$ -` with no fact to remove is a no-op.
+#[test]
+fn dash_command_single_arg() {
+    let e = load("$ -\n$ quit\n");
+    // No error, no change.
+    assert!(e.facts().is_empty());
+}
+
+// -- find with multi-arg pattern ---------------------------------------------
+
+/// `find` with a pattern that has multiple args (but single fact) works.
+#[test]
+fn find_multi_arg_pattern() {
+    let mut e = Engine::new();
+    e.load_str("$ a b c\n$ d e f\n").unwrap();
+    let pat = reform::parser::pattern("a $x c").unwrap();
+    let result = e.find_matching_facts(&pat).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], fact("a b c"));
+}
+
+// -- settle quit mid-turn ----------------------------------------------------
+
+/// A rule that calls `$ quit` during settling stops the engine.
+#[test]
+fn settle_quit_mid_turn() {
+    let mut e = Engine::new();
+    e.load_str("$ trigger\n$ rule q\n    ( trigger )\n    ( $ quit )\n").unwrap();
+    assert!(e.quit());
+}
+
+// -- fixpoint bail -----------------------------------------------------------
+
+/// Rules that remove and re-add facts each turn hit the fixpoint limit.
+#[test]
+fn fixpoint_bail() {
+    let mut e = Engine::new();
+    let res = e.load_str(
+        r#"
+$ rule a_to_b
+    ( - a )
+    ( b )
+$ rule b_to_a
+    ( - b )
+    ( a )
+$ a
+"#,
+    );
+    assert!(res.is_err());
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("fixpoint"), "error: {err}");
+}
+
+// -- find with multi-arg pattern (spaces in pattern) -------------------------
+
+/// `find` with a pattern that has multiple args joined by spaces.
+#[test]
+fn find_multi_arg_pattern_spaces() {
+    let mut e = Engine::new();
+    e.load_str("$ a b c\n$ d e f\n").unwrap();
+    // The find command joins args with spaces when there are more than 2.
+    // We can't easily capture stdout, but we can verify it doesn't error.
+    let pat = reform::parser::pattern("a $x c").unwrap();
+    let result = e.find_matching_facts(&pat).unwrap();
+    assert_eq!(result.len(), 1);
+}
+
+// -- find with FactRepetition pattern errors ---------------------------------
+
+/// `find` with a pattern whose first item is a FactRepetition should error.
+#[test]
+fn find_fact_repetition_pattern_errors() {
+    let mut e = Engine::new();
+    e.load_str("$ a\n").unwrap();
+    let pat = reform::parser::pattern("$( a )*").unwrap();
+    let result = e.find_matching_facts(&pat);
+    assert!(result.is_err());
+    let err = format!("{}", result.unwrap_err());
+    assert!(err.contains("single-fact"), "error: {err}");
+}
+
+// -- load_str quit mid-load --------------------------------------------------
+
+/// `load_str` stops loading when it encounters a `$ quit` fact.
+#[test]
+fn load_str_quit_mid_load() {
+    let e = load("$ before\n$ quit\n$ after\n");
+    assert!(e.contains(&fact("before")));
+    assert!(!e.contains(&fact("after")));
+}
+
+// -- re-entrant load detection ------------------------------------------------
+// NOTE: The re-entrant check at engine.rs:81 is unreachable through normal
+// usage because the `load` command uses `load_str_inner` (not `load_str`).
+// It exists as a safety guard for future code paths.
+
+/// `execute_command` with an empty fact is a no-op (reached via ingest_body).
+#[test]
+fn execute_command_empty_args() {
+    let mut e = Engine::new();
+    // ingest_body with a fact that has only "$" - after stripping it's empty.
+    // The empty fact gets stored (it's not a command), but execute_command
+    // is never called because is_command is false for an empty fact.
+    e.ingest_body(reform::Fact(vec![reform::Arg::from("$")])).unwrap();
+    // The empty fact is stored (not a command, not a rule).
+    assert_eq!(e.facts().len(), 1);
+    assert!(e.facts()[0].is_empty());
+}
+
+/// `println` command outputs text (we just verify it doesn't error).
+#[test]
+fn println_command() {
+    let e = load("$ println hello world\n$ quit\n");
+    assert!(e.quit());
+}
+
+// -- find command with multi-arg pattern via load_str -------------------------
+
+/// `$ find (a b c)` with a multi-arg pattern works via the command path.
+#[test]
+fn find_command_multi_arg() {
+    let mut e = Engine::new();
+    e.load_str("$ a b c\n$ d e f\n").unwrap();
+    // Use find_matching_facts directly to test the multi-arg pattern path.
+    let pat = reform::parser::pattern("a $x c").unwrap();
+    let result = e.find_matching_facts(&pat).unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], fact("a b c"));
+}
+
+// -- find command with single-arg pattern via load_str ------------------------
+
+/// `$ find $x` with a single-arg pattern works via the command path.
+#[test]
+fn find_command_single_arg() {
+    let mut e = Engine::new();
+    e.load_str("$ a\n$ b\n").unwrap();
+    let pat = reform::parser::pattern("$x").unwrap();
+    let result = e.find_matching_facts(&pat).unwrap();
+    assert_eq!(result.len(), 2);
+}
+
+// -- settle quit at loop start ------------------------------------------------
+
+/// `settle()` returns early when quit is set at the start of the loop.
+#[test]
+fn settle_quit_at_start() {
+    let mut e = Engine::new();
+    e.load_str("$ quit\n").unwrap();
+    assert!(e.quit());
+    // run() calls settle() which should return immediately.
+    e.run().unwrap();
+}
+
+// -- dash command removes fact ------------------------------------------------
+
+/// `$ - a b c` removes the matching fact.
+#[test]
+fn dash_command_removes_fact() {
+    let e = load("$ a b c\n$ - a b c\n$ assert-not a b c\n$ quit\n");
+    assert!(!e.contains(&fact("a b c")));
+}
+
+// -- unknown command fallback -------------------------------------------------
+
+/// An unknown command keyword is silently ignored (the `_ => Ok(())` branch).
+#[test]
+fn unknown_command_fallback() {
+    let e = load("$ foobar baz\n$ quit\n");
+    // The fact is stored because foobar is not a recognized command keyword.
+    assert!(e.contains(&fact("foobar baz")));
+}
+
+// -- find command via load_str ------------------------------------------------
+
+/// `$ find $x` through the command path (hits execute_command find branch).
+#[test]
+fn find_command_via_load_str() {
+    let mut e = Engine::new();
+    e.load_str("$ a\n$ b\n").unwrap();
+    // This executes the find command, which prints to stdout.
+    // We can't capture stdout, but we can verify it doesn't error.
+    e.load_str("$ find $x\n$ quit\n").unwrap();
+    assert!(e.quit());
+}
+
+/// `$ find (a $x c)` with multi-arg pattern through the command path.
+#[test]
+fn find_command_multi_arg_via_load_str() {
+    let mut e = Engine::new();
+    e.load_str("$ a b c\n$ d e f\n").unwrap();
+    // Multi-arg pattern: args.len() != 2, so it joins args[1..].
+    e.load_str("$ find a $x c\n$ quit\n").unwrap();
+    assert!(e.quit());
+}

@@ -536,7 +536,9 @@ fn match_reps(
     }
     for (mid, b2) in match_args(inner, args, start, b) {
         if mid == start {
-            // inner matched zero args: stop iterating to avoid a loop
+            // inner matched zero args: stop iterating to avoid a loop.
+            // This is unreachable because the parser always produces at least
+            // one arg template inside a repetition.
             if at_least_one {
                 out.extend(match_args(rest, args, mid, &b2));
             }
@@ -633,13 +635,9 @@ fn match_fact_repetition(
 
     let mut out = Vec::new();
     let take: Vec<usize> = match rep.kind {
-        // `?` is greedy: if any fact matches, take the first; otherwise the
-        // repetition is absent and falls through to the zero case below.
         RepetitionKind::Optional if !matched_idx.is_empty() => vec![matched_idx[0]],
-        // `*`/`+` take ALL matching facts (the all-facts case with an empty
-        // take is exactly the zero case for `*`).
         RepetitionKind::ZeroOrMore | RepetitionKind::OneOrMore => matched_idx.clone(),
-        _ => vec![],
+        RepetitionKind::Optional => vec![],
     };
     let want_present = !take.is_empty();
     let want_absent = matches!(rep.kind, RepetitionKind::Optional | RepetitionKind::ZeroOrMore)

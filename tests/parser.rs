@@ -231,3 +231,59 @@ fn double_paren_literal_parens() {
     assert_eq!(f.len(), 1);
     assert_eq!(&f[0], "(example)");
 }
+
+// -- escaped backslash in template -------------------------------------------
+
+/// Escaped backslash `\\\\` in a template produces a literal backslash.
+#[test]
+fn escaped_backslash_in_template() {
+    let f = fact("[a\\\\b]");
+    // Template: [ a\\b ] -> args: [, a\b, ]
+    assert_eq!(f.len(), 3);
+    assert_eq!(&f[1], "a\\b");
+}
+
+// -- escaped backslash in literal arg ----------------------------------------
+
+/// Escaped backslash `\\\\` in a literal arg produces a literal backslash.
+#[test]
+fn escaped_backslash_in_literal_arg() {
+    let f = fact("(a\\\\b)");
+    assert_eq!(f.len(), 1);
+    assert_eq!(&f[0], "a\\b");
+}
+
+// -- body $$ and $ alone in repeat -------------------------------------------
+
+/// `$$` inside a `$( ... )` repeat block produces a literal `$`.
+#[test]
+fn body_double_dollar_in_repeat() {
+    use reform::parser::body;
+    let b = body("$( $$x )*").unwrap();
+    assert_eq!(b.len(), 1);
+    let s = format!("{}", b);
+    assert!(s.contains("$$x"), "body display: {s}");
+}
+
+/// A bare `$` inside a `$( ... )` repeat block is literal text.
+#[test]
+fn body_bare_dollar_in_repeat() {
+    use reform::parser::body;
+    let b = body("$( $ )*").unwrap();
+    assert_eq!(b.len(), 1);
+    let s = format!("{}", b);
+    assert!(s.contains("$$"), "body display: {s}");
+}
+
+// -- normal_form_arg backslash escape ----------------------------------------
+
+/// `normal_form_arg` escapes backslashes in arguments that need wrapping.
+#[test]
+fn normal_form_arg_backslash_escape() {
+    use reform::normal_form_arg;
+    use reform::Arg;
+    // Backslash in an arg that needs parens (has trailing period)
+    assert_eq!(normal_form_arg(&Arg::from("a\\b.")), "(a\\\\b.)");
+    // Backslash in an arg that doesn't need parens stays clean
+    assert_eq!(normal_form_arg(&Arg::from("a\\b")), "a\\b");
+}
