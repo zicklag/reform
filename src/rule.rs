@@ -92,10 +92,13 @@ pub enum PatternItem {
     FactRepetition(PatternFactRepetition),
 }
 
-/// A fact to match in a pattern, optionally marked for removal.
+/// A fact to match in a pattern, optionally marked for removal (`-`) or
+/// negation (`!`). A negated fact matches when NO fact in the engine matches
+/// it (with the current bindings); it binds nothing and consumes nothing.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub struct PatternFact {
     pub removed: bool,
+    pub negated: bool,
     pub args: Vec<ArgTemplate>,
 }
 
@@ -305,6 +308,9 @@ impl fmt::Display for PatternFact {
         if self.removed {
             write!(f, "- ")?;
         }
+        if self.negated {
+            write!(f, "! ")?;
+        }
         for (i, arg) in self.args.iter().enumerate() {
             if i > 0 {
                 write!(f, " ")?;
@@ -388,12 +394,17 @@ impl Bindings {
         self.map.get(name)
     }
 
-    /// Bind `name` to a scalar value, checking consistency with any existing
-    /// binding. Returns false (no change) on conflict.
+    /// Bind `name` to a scalar value. If `name` is already bound to a scalar,
+    /// this checks consistency (equal values). If `name` is bound to a list
+    /// (a list-bound placeholder inside a repetition), the value is appended
+    /// to the list. Returns false on a scalar conflict.
     pub fn bind_scalar(&mut self, name: &str, val: Arg) -> bool {
-        match self.map.get(name) {
+        match self.map.get_mut(name) {
             Some(BindValue::One(existing)) => existing == &val,
-            Some(BindValue::Many(_)) => false,
+            Some(BindValue::Many(list)) => {
+                list.push(val);
+                true
+            }
             None => {
                 self.map.insert(name.to_string(), BindValue::One(val));
                 true
@@ -442,9 +453,18 @@ impl PatternFact {
     }
 }
 
-/// Match a sequence of [`ArgTemplate`]s against `args` starting at `start`,
-/// returning all possible `(end_index, bindings)` pairs where the templates
-/// match `args[start..end]`. Handles within-fact `$( ... )?/+/*` blocks.
+/// Placeholder names appearing directly (not nested in a deeper repetition)
+/// in a pattern-arg list — these are list-bound when the list is repeated.
+fn top_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
+    pats
+        .iter()
+        .filter_map(|a| match a {
+            ArgTemplate::Placeholder(n) => Some(n.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn match_args(pats: &[ArgTemplate], args: &[Arg], start: usize, b: &Bindings) -> Vec<(usize, Bindings)> {
     if pats.is_empty() {
         return vec![(start, b.clone())];
@@ -465,29 +485,44 @@ fn match_args(pats: &[ArgTemplate], args: &[Arg], start: usize, b: &Bindings) ->
                 }
             }
         }
-        ArgTemplate::RepeatedArgs(r) => match r.kind {
-            RepetitionKind::Optional => {
-                // zero iterations
-                out.extend(match_args(rest, args, start, b));
-                // one iteration
-                for (mid, b2) in match_args(&r.args, args, start, b) {
-                    out.extend(match_args(rest, args, mid, &b2));
+        ArgTemplate::RepeatedArgs(r) => {
+            // Pre-populate the repetition's list-bound placeholders with empty
+            // lists, so each iteration appends to them (see bind_scalar).
+            let mut b0 = b.clone();
+            for n in top_placeholders(&r.args) {
+                b0.map.insert(n, BindValue::Many(Vec::new()));
+            }
+            match r.kind {
+                RepetitionKind::Optional => {
+                    // Greedy: prefer consuming one iteration; only fall back to
+                    // zero when no one-iteration parse lets the rest match.
+                    let mut one = Vec::new();
+                    for (mid, b2) in match_args(&r.args, args, start, &b0) {
+                        one.extend(match_args(rest, args, mid, &b2));
+                    }
+                    if !one.is_empty() {
+                        out.extend(one);
+                    } else {
+                        out.extend(match_args(rest, args, start, &b0));
+                    }
+                }
+                RepetitionKind::ZeroOrMore => {
+                    out.extend(match_reps(&r.args, args, start, &b0, false, rest));
+                }
+                RepetitionKind::OneOrMore => {
+                    out.extend(match_reps(&r.args, args, start, &b0, true, rest));
                 }
             }
-            RepetitionKind::ZeroOrMore => {
-                out.extend(match_reps(&r.args, args, start, b, false, rest));
-            }
-            RepetitionKind::OneOrMore => {
-                out.extend(match_reps(&r.args, args, start, b, true, rest));
-            }
-        },
+        }
     }
     out
 }
 
 /// Match `inner` repeated (per `at_least_one`) then `rest`, returning all
-/// `(end, bindings)` where the whole sequence matches. Guards against
-/// infinite recursion when `inner` can match zero args.
+/// `(end, bindings)` where the whole sequence matches. `b` already has the
+/// repetition's list-bound placeholders pre-populated as empty lists; each
+/// iteration appends to them. Guards against infinite recursion when `inner`
+/// can match zero args.
 fn match_reps(
     inner: &[ArgTemplate],
     args: &[Arg],
@@ -532,14 +567,23 @@ fn match_items(items: &[PatternItem], facts: &[Fact], used: &[bool], b: &Binding
     let mut out = Vec::new();
     match first {
         PatternItem::Fact(pf) => {
-            for i in 0..facts.len() {
-                if used[i] {
-                    continue;
+            if pf.negated {
+                // Negation: succeed (with current bindings unchanged) iff NO
+                // fact matches. Binds nothing, consumes nothing.
+                let any = facts.iter().any(|f| !pf.match_fact(f, b).is_empty());
+                if !any {
+                    out.extend(match_items(rest, facts, used, b));
                 }
-                let mut used2 = used.to_vec();
-                used2[i] = true;
-                for b2 in pf.match_fact(&facts[i], b) {
-                    out.extend(match_items(rest, facts, &used2, &b2));
+            } else {
+                for i in 0..facts.len() {
+                    if used[i] {
+                        continue;
+                    }
+                    let mut used2 = used.to_vec();
+                    used2[i] = true;
+                    for b2 in pf.match_fact(&facts[i], b) {
+                        out.extend(match_items(rest, facts, &used2, &b2));
+                    }
                 }
             }
         }

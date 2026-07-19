@@ -1,0 +1,499 @@
+# The Cloak of Darkness, implemented in Reform.
+#
+# Architecture:
+#   * Layer 1 — "core" parse rules: match `sentence ...` facts (plain English
+#     declarations, prefixed by the engine with `sentence`) and rewrite them
+#     into a small "world model". The matched sentence is removed.
+#   * Layer 2 — the game itself, as Inform-like English sentences.
+#   * Layer 3 — game rules react to `prompt ...` facts (player input) and
+#     drive the world model, printing narration with `$ println ...`.
+#
+# A rule fact is:  $ rule NAME ( PATTERN ) ( BODY ), where PATTERN and BODY are
+# each a single parenthesized argument. `(` and `)` go on their own lines so
+# the fact lines inside sit at a uniform indent and parse as separate facts.
+# A pattern fact prefixed with `-` is matched (its placeholders still bind)
+# and then removed when the rule fires; `!` is negation (matches when no fact
+# fits). Each pattern fact must match a DISTINCT engine fact, so a fact you
+# want to match-and-remove is written ONCE, with `-`.
+
+# ===========================================================================
+# Layer 1: core parse rules (English sentences -> world model)
+# ===========================================================================
+
+$ rule parse_room
+    (
+        - sentence $( the )? $name is a room
+    )
+    (
+        room $name
+    )
+
+$ rule parse_desc
+    (
+        - sentence the description of $( the )? $obj is $text
+    )
+    (
+        desc $obj $text
+    )
+
+# "the Cloakroom is west of the Foyer"  ->  exit Foyer west Cloakroom
+$ rule parse_exit
+    (
+        - sentence $( the )? $a is $dir of $( the )? $b
+    )
+    (
+        exit $b $dir $a
+    )
+
+$ rule parse_in
+    (
+        - sentence $( the )? $obj is in $( the )? $loc
+    )
+    (
+        located $obj $loc
+    )
+
+$ rule parse_supporter
+    (
+        - sentence $( the )? $obj is a supporter in $( the )? $loc
+    )
+    (
+        supporter $obj
+        located $obj $loc
+    )
+
+$ rule parse_scenery_in
+    (
+        - sentence $( the )? $obj is scenery in $( the )? $loc
+    )
+    (
+        scenery $obj
+        located $obj $loc
+    )
+
+$ rule parse_scenery
+    (
+        - sentence $( the )? $obj is scenery
+    )
+    (
+        scenery $obj
+    )
+
+$ rule parse_dark
+    (
+        - sentence $( the )? $room is dark
+    )
+    (
+        dark $room
+    )
+
+$ rule parse_worn
+    (
+        - sentence the player wears $( a )? $( an )? $obj
+    )
+    (
+        worn $obj
+    )
+
+$ rule parse_neatness
+    (
+        - sentence the neatness of $( the )? $obj is $value
+    )
+    (
+        prop $obj neatness $value
+    )
+
+$ rule parse_understand
+    (
+        - sentence understand $word as $( the )? $obj
+    )
+    (
+        noun $obj $word
+    )
+
+# ===========================================================================
+# Direction scaffolding
+# ===========================================================================
+
+$ word n means north
+$ word s means south
+$ word e means east
+$ word w means west
+$ word north means north
+$ word south means south
+$ word east means east
+$ word west means west
+
+$ opposite north south
+$ opposite south north
+$ opposite east west
+$ opposite west east
+
+# Make exits bidirectional.
+$ rule reverse_exit
+    (
+        exit $from $dir $to
+        opposite $dir $rev
+    )
+    (
+        exit $to $rev $from
+    )
+
+# Neatness progression for the scrawled message.
+$ neatness after neat scuffed
+$ neatness after scuffed trampled
+$ neatness after trampled trampled
+
+# Noun facts: player words -> model objects.
+$ noun cloak cloak
+$ noun cloak velvet
+$ noun cloak dark
+$ noun cloak black
+$ noun cloak satin
+$ noun hook hook
+$ noun hook peg
+$ noun hook brass
+$ noun hook small
+$ noun message message
+$ noun message floor
+$ noun message sawdust
+$ noun message scrawled
+$ noun Foyer foyer
+$ noun Cloakroom cloakroom
+$ noun Bar bar
+
+# ===========================================================================
+# Layer 2: the game (Inform-like English sentences)
+# ===========================================================================
+
+the Foyer is a room
+the description of the Foyer is (You are standing in a spacious hall, splendidly decorated in red and gold, with glittering chandeliers overhead. The entrance from the street is to the north, and there are doorways south and west.)
+
+the Cloakroom is west of the Foyer
+the description of the Cloakroom is (The walls of this small room were clearly once lined with hooks, though now only one remains. The exit is a door to the east.)
+
+the hook is a supporter in the Cloakroom
+the hook is scenery
+the description of the hook is (It's just a small brass hook, screwed to the wall.)
+understand peg as the hook
+
+the Bar is south of the Foyer
+the Bar is dark
+the description of the Bar is (The bar, much rougher than you'd have guessed after the opulence of the foyer to the north, is completely empty. There seems to be some sort of message scrawled in the sawdust on the floor.)
+
+the message is scenery in the Bar
+the neatness of the message is neat
+understand floor as the message
+understand sawdust as the message
+
+the player wears a cloak
+the description of the cloak is (A handsome cloak, of velvet trimmed with satin, and slightly splattered with raindrops. Its blackness is so deep that it almost seems to suck light from the room.)
+understand dark as the cloak
+understand black as the cloak
+understand satin as the cloak
+
+# ===========================================================================
+# Layer 3: initial state + game rules
+# ===========================================================================
+
+$ player at Foyer
+
+# --- Intro ---------------------------------------------------------------
+$ rule intro
+    (
+        ! intro done
+    )
+    (
+        $ println (Hurrying through the rainswept November night, you're glad to see the bright lights of the Opera House. It's surprising that there aren't more people about but, hey, what do you expect in a cheap demo game...?)
+        $ println
+        intro done
+        prompt look
+    )
+
+# --- Movement -----------------------------------------------------------
+
+# Going north from the Foyer is blocked.
+$ rule go_foyer_north
+    (
+        - prompt $w
+        word $w means north
+        player at Foyer
+    )
+    (
+        $ println (You've only just arrived, and besides, the weather outside seems to be getting worse.)
+    )
+
+# A valid move into a lit room: move, then auto-look.
+$ rule go_lit
+    (
+        - prompt $w
+        word $w means $dir
+        - player at $from
+        exit $from $dir $to
+        ! dark $to
+    )
+    (
+        player at $to
+        prompt look
+    )
+
+# A valid move into a dark room: move, then say it's pitch dark.
+$ rule go_dark
+    (
+        - prompt $w
+        word $w means $dir
+        - player at $from
+        exit $from $dir $to
+        dark $to
+        ! lit $to
+    )
+    (
+        player at $to
+        $ println (It is pitch dark, and you can't see anything.)
+    )
+
+# Blundering nowhere from the dark bar tramples the message.
+$ rule go_nowhere_dark_bar
+    (
+        - prompt $w
+        word $w means $dir
+        player at Bar
+        dark Bar
+        ! lit Bar
+        ! exit Bar $dir $to
+        - prop message neatness $old
+    )
+    (
+        prop message neatness trampled
+        $ println (Blundering around in the dark isn't a good idea!)
+    )
+
+# Generic "you can't go that way" (lit room, no exit, not the Foyer).
+$ rule go_nowhere
+    (
+        - prompt $w
+        word $w means $dir
+        player at $from
+        ! exit $from $dir $to
+        ! player at Foyer
+        ! dark $from
+    )
+    (
+        $ println (You can't go that way.)
+    )
+
+# --- Looking ------------------------------------------------------------
+
+$ rule look_lit
+    (
+        - prompt look
+        player at $room
+        ! dark $room
+        desc $room $text
+    )
+    (
+        $ println $room
+        $ println $text
+    )
+
+# --- Inventory ----------------------------------------------------------
+
+$ rule inventory
+    (
+        - prompt inventory
+        player at $room
+        ! dark $room
+        $( worn $w )*
+        $( held $h )*
+    )
+    (
+        $ println (You are wearing: $($w)*)
+        $ println (You are carrying: $($h)*)
+    )
+
+$ rule inventory_i
+    (
+        - prompt i
+        player at $room
+        ! dark $room
+        $( worn $w )*
+        $( held $h )*
+    )
+    (
+        $ println (You are wearing: $($w)*)
+        $ println (You are carrying: $($h)*)
+    )
+
+# --- Examining ----------------------------------------------------------
+
+$ rule examine
+    (
+        - prompt examine $objw
+        player at $room
+        ! dark $room
+        noun $obj $objw
+        desc $obj $text
+    )
+    (
+        $ println $text
+    )
+
+$ rule x
+    (
+        - prompt x $objw
+        player at $room
+        ! dark $room
+        noun $obj $objw
+        desc $obj $text
+    )
+    (
+        $ println $text
+    )
+
+# --- Disturbing the dark bar -------------------------------------------
+# Any non-going command in a dark room scuffs the message and warns.
+
+$ rule disturb_dark
+    (
+        - prompt $cmd $( $rest )*
+        player at $room
+        dark $room
+        ! lit $room
+        ! word $cmd means $dir
+        - prop message neatness $old
+        neatness after $old $new
+    )
+    (
+        prop message neatness $new
+        $ println (In the dark? You could easily disturb something.)
+    )
+
+# --- Hanging / putting the cloak on a supporter ------------------------
+
+$ rule hang_on
+    (
+        - prompt hang $objw on $supw
+        player at $room
+        ! dark $room
+        noun $obj $objw
+        noun $sup $supw
+        located $sup $room
+        - worn $obj
+    )
+    (
+        located $obj $sup
+        hung $obj
+        - dark Bar
+        lit Bar
+        score point
+        $ println (You hang the $obj on the $sup.)
+    )
+
+$ rule put_on
+    (
+        - prompt put $objw on $supw
+        player at $room
+        ! dark $room
+        noun $obj $objw
+        noun $sup $supw
+        located $sup $room
+        - worn $obj
+    )
+    (
+        located $obj $sup
+        hung $obj
+        - dark Bar
+        lit Bar
+        score point
+        $ println (You put the $obj on the $sup.)
+    )
+
+# Refuse to drop the cloak outside the Cloakroom.
+$ rule drop_cloak_wrong_room
+    (
+        - prompt drop $objw
+        noun cloak $objw
+        worn cloak
+        ! player at Cloakroom
+    )
+    (
+        $ println (This isn't the best place to leave a smart cloak lying around.)
+    )
+
+$ rule drop_cloak_cloakroom
+    (
+        - prompt drop $objw
+        noun cloak $objw
+        worn cloak
+        player at Cloakroom
+    )
+    (
+        - worn cloak
+        located cloak Cloakroom
+        - dark Bar
+        lit Bar
+        $ println (You drop the cloak.)
+    )
+
+# --- Reading the message (win / lose) ----------------------------------
+
+$ rule read_message_win
+    (
+        - prompt read $objw
+        noun message $objw
+        player at $room
+        ! dark $room
+        prop message neatness $n
+        ! prop message neatness trampled
+    )
+    (
+        $ println (The message, neatly marked in the sawdust, reads...)
+        $ println (You have won.)
+        score point
+        $ quit
+    )
+
+$ rule read_message_lose
+    (
+        - prompt read $objw
+        noun message $objw
+        player at $room
+        ! dark $room
+        prop message neatness trampled
+    )
+    (
+        $ println (The message has been carelessly trampled, making it difficult to read. You can just distinguish the words...)
+        $ println (You have lost.)
+        $ quit
+    )
+
+# Examining the message also reads it.
+$ rule examine_message_win
+    (
+        - prompt examine $objw
+        noun message $objw
+        player at $room
+        ! dark $room
+        prop message neatness $n
+        ! prop message neatness trampled
+    )
+    (
+        $ println (The message, neatly marked in the sawdust, reads...)
+        $ println (You have won.)
+        score point
+        $ quit
+    )
+
+$ rule examine_message_lose
+    (
+        - prompt examine $objw
+        noun message $objw
+        player at $room
+        ! dark $room
+        prop message neatness trampled
+    )
+    (
+        $ println (The message has been carelessly trampled, making it difficult to read. You can just distinguish the words...)
+        $ println (You have lost.)
+        $ quit
+    )

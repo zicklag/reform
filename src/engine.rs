@@ -26,6 +26,16 @@ impl Engine {
         &self.rules
     }
 
+    /// Whether a `quit` command has requested the engine stop.
+    pub fn quit(&self) -> bool {
+        self.quit
+    }
+
+    /// Reset the quit flag (so a long-lived engine can keep running).
+    pub fn clear_quit(&mut self) {
+        self.quit = false;
+    }
+
     /// Insert a fact, ignoring duplicates. Returns whether it was newly added.
     pub fn add_fact(&mut self, fact: Fact) -> bool {
         if self.facts.contains(&fact) {
@@ -95,16 +105,17 @@ impl Engine {
             ),
         };
         let is_command = stored.first().map(is_command_keyword).unwrap_or(false);
-        let is_remove = stored.first().map(|a| &**a == "-").unwrap_or(false);
-        // Register a rule, and keep the fact (removal directives aren't kept).
+        // Register a rule. Commands are ephemeral (not stored); only genuine
+        // data facts and rules are kept in the fact store.
         if stored.is_rule() {
             let strs: Vec<&str> = stored.iter().map(arg_str).collect();
             self.add_rule(Rule::parse(&strs)?);
         }
-        if !is_remove {
+        if !is_command {
             self.add_fact(stored.clone());
         }
-        // Let rules react to the new fact before running the command.
+        // Let rules react to the new fact, then run the command (so e.g.
+        // `assert` observes the state produced by the rules loaded so far).
         self.settle()?;
         if is_command {
             self.execute_command(&stored)?;
@@ -112,24 +123,31 @@ impl Engine {
         Ok(())
     }
 
-    /// Ingest a fact produced by a rule body during a turn. Stored verbatim
-    /// (no `sentence` prefix); inner `rule` facts get registered; commands fire
+    /// Ingest a fact produced by a rule body during a turn. A leading `$`
+    /// (the "not a sentence" marker) is stripped; the rest is stored verbatim
+    /// (no `sentence` prefix). Inner `rule` facts get registered; commands fire
     /// immediately. Does NOT settle (we are already inside a turn).
     pub fn ingest_body(&mut self, fact: Fact) -> Result<()> {
-        if fact.iter().count() == 0 {
+        let args: Vec<Arg> = fact.iter().cloned().collect();
+        if args.is_empty() {
             return Ok(());
         }
-        if fact.is_rule() {
-            let strs: Vec<&str> = fact.iter().map(arg_str).collect();
+        // A leading `$` marks a non-sentence fact; strip it.
+        let stripped = if &*args[0] == "$" {
+            Fact(args[1..].to_vec())
+        } else {
+            fact
+        };
+        if stripped.is_rule() {
+            let strs: Vec<&str> = stripped.iter().map(arg_str).collect();
             self.add_rule(Rule::parse(&strs)?);
         }
-        let is_command = fact.first().map(is_command_keyword).unwrap_or(false);
-        let is_remove = fact.first().map(|a| &**a == "-").unwrap_or(false);
-        if is_command && !self.contains(&fact) {
-            self.execute_command(&fact)?;
-        }
-        if !is_remove {
-            self.add_fact(fact);
+        let is_command = stripped.first().map(is_command_keyword).unwrap_or(false);
+        if is_command {
+            // Commands are ephemeral: execute immediately, don't store.
+            self.execute_command(&stripped)?;
+        } else {
+            self.add_fact(stripped);
         }
         Ok(())
     }
@@ -241,6 +259,12 @@ impl Engine {
                 }
                 Ok(())
             }
+            "facts" => {
+                for f in &self.facts {
+                    println!("{}", normal_form_fact(f));
+                }
+                Ok(())
+            }
             "load" => {
                 let path = args.get(1).copied().unwrap_or("");
                 let src = std::fs::read_to_string(path)
@@ -272,7 +296,7 @@ fn arg_str(a: &Arg) -> &str {
 fn is_command_keyword(a: &Arg) -> bool {
     matches!(
         &**a,
-        "-" | "println" | "print" | "quit" | "panic" | "assert" | "assert-not" | "find" | "load"
+        "-" | "println" | "print" | "quit" | "panic" | "assert" | "assert-not" | "find" | "facts" | "load"
     )
 }
 

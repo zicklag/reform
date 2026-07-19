@@ -210,8 +210,9 @@ peg::parser! {
             { PatternFactRepetition { kind, facts } }
 
         rule pattern_fact() -> PatternFact =
-            " "* "-" args:arg_templates() fact_end() { PatternFact { removed: true, args } } /
-            " "* args:arg_templates() fact_end() { PatternFact { removed: false, args } }
+            " "* "-" args:arg_templates() fact_end() { PatternFact { removed: true, negated: false, args } } /
+            " "* "!" args:arg_templates() fact_end() { PatternFact { removed: false, negated: true, args } } /
+            " "* args:arg_templates() fact_end() { PatternFact { removed: false, negated: false, args } }
 
         // Parse a rule body as a substitution template. The body is a flat
         // sequence of chunks: literal text, `$name` placeholders (substituted
@@ -275,10 +276,10 @@ peg::parser! {
             { RepeatedArgs { kind, args } }
 
         rule placeholder() -> String =
-            "$" name:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*") [_])+)
+            "$" name:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "." / "," / ";" / ":" / "'" / "!") [_])+)
             { name.to_string() }
         rule literal_word() -> Arg =
-            word:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*") [_])+)
+            word:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "." / "," / ";" / ":" / "'" / "!") [_])+)
             { word.into() }
 
         // End of a fact: a newline/EOF, or a closing `)` (lookahead, not consumed)
