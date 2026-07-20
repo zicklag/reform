@@ -106,6 +106,9 @@ impl Engine {
 
     pub fn add_rule(&mut self, rule: Rule) {
         self.rules.push(rule);
+        // Sort by specificity descending so more specific rules fire first.
+        // When specificity is equal, insertion order is preserved (stable sort).
+        self.rules.sort_by(|a, b| b.specificity.cmp(&a.specificity));
     }
 
     pub fn contains(&self, fact: &Fact) -> bool {
@@ -125,9 +128,7 @@ impl Engine {
         let src = std::fs::read_to_string(path)
             .map_err(|e| anyhow!("load {}: {e}", path.display()))?;
         let prev = self.base_dir.take();
-        if let Some(parent) = path.parent() {
-            self.base_dir = Some(parent.to_path_buf());
-        }
+        self.base_dir = path.parent().map(|p| p.to_path_buf());
         let result = self.load_str_inner(&src);
         self.base_dir = prev;
         result
@@ -330,9 +331,7 @@ impl Engine {
                 let src = std::fs::read_to_string(&path)
                     .map_err(|e| anyhow!("load {}: {e}", path.display()))?;
                 let prev = self.base_dir.take();
-                if let Some(parent) = path.parent() {
-                    self.base_dir = Some(parent.to_path_buf());
-                }
+                self.base_dir = path.parent().map(|p| p.to_path_buf());
                 let result = self.load_str_inner(&src);
                 self.base_dir = prev;
                 result

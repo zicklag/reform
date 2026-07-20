@@ -10,6 +10,9 @@ pub struct Rule {
     pub pattern: Pattern,
     /// The body to execute when the pattern matches.
     pub body: Body,
+    /// Specificity score: higher = more specific. Rules are sorted by this
+    /// so that more specific rules fire first.
+    pub specificity: u64,
 }
 
 impl Rule {
@@ -22,7 +25,8 @@ impl Rule {
         let pattern = crate::parser::pattern(fact[2])
             .with_context(|| format!("failed to parse rule pattern: {}", fact[2]))?;
         let body = crate::parser::body(fact[3]);
-        let rule = Rule { name, pattern, body };
+        let specificity = compute_specificity(&pattern);
+        let rule = Rule { name, pattern, body, specificity };
         rule.validate()?;
         Ok(rule)
     }
@@ -49,6 +53,65 @@ impl Rule {
         }
         Ok(())
     }
+}
+
+/// Compute a specificity score for a pattern. Higher = more specific.
+///
+/// The score counts:
+/// - Each non-negated pattern fact: 1 point
+/// - Each literal argument in those facts: 1 point
+/// - Optional fact repetitions contribute 0 (they may not match)
+/// - `+`/`*` repetitions contribute the sum of their inner facts
+///
+/// This ensures rules with more literal constraints and more required facts
+/// fire before more general rules.
+pub fn compute_specificity(pattern: &Pattern) -> u64 {
+    pattern.iter().map(pattern_item_specificity).sum()
+}
+
+fn pattern_item_specificity(item: &PatternItem) -> u64 {
+    match item {
+        PatternItem::Fact(pf) => {
+            if pf.negated {
+                return 0;
+            }
+            let mut s = 1; // the fact itself
+            for arg in &pf.args {
+                match arg {
+                    ArgTemplate::Literal(_) => s += 1,
+                    ArgTemplate::Placeholder(_) => {}
+                    ArgTemplate::RepeatedArgs(ra) => s += repeated_args_specificity(ra),
+                }
+            }
+            s
+        }
+        PatternItem::FactRepetition(fr) => match fr.kind {
+            RepetitionKind::Optional => 0,
+            RepetitionKind::OneOrMore | RepetitionKind::ZeroOrMore => {
+                fr.facts.iter().map(|pf| {
+                    if pf.negated { 0 } else {
+                        let mut s = 1;
+                        for arg in &pf.args {
+                            match arg {
+                                ArgTemplate::Literal(_) => s += 1,
+                                ArgTemplate::Placeholder(_) => {}
+                                ArgTemplate::RepeatedArgs(ra) => s += repeated_args_specificity(ra),
+                            }
+                        }
+                        s
+                    }
+                }).sum()
+            }
+        },
+    }
+}
+
+fn repeated_args_specificity(ra: &RepeatedArgs) -> u64 {
+    ra.args.iter().map(|arg| match arg {
+        ArgTemplate::Literal(_) => 1,
+        ArgTemplate::Placeholder(_) => 0,
+        ArgTemplate::RepeatedArgs(inner) => repeated_args_specificity(inner),
+    }).sum()
 }
 
 /// A rule pattern, matching one or more facts.

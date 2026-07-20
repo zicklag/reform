@@ -1,3 +1,11 @@
+$ rule default_sentence_rule
+    (
+        - sentence $( $arg )*
+    )
+    (
+        $ println (I didn't understand the sentence: ) $( $arg )*
+    )
+
 $ rule x_is_y
     (
         - sentence $( $a1 )? $x is $( $a2 )? $y
@@ -6,4 +14,15 @@ $ rule x_is_y
     )
     (
         $x is $y
+    )
+
+$ rule x_is_rel_of_y
+    (
+        - sentence $( $a1 )? $x is $rel $( $prep )? $( $a2 )? $y
+        $( $a1 is article )?
+        $( $a2 is article )?
+        $( $prep is preposition )?
+    )
+    (
+        $x is $rel $( $prep )? $y
     )

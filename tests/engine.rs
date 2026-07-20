@@ -855,3 +855,169 @@ fn load_command_file_not_found() {
     let err = format!("{}", res.unwrap_err());
     assert!(err.contains("load"), "error: {err}");
 }
+
+/// Rules are sorted by specificity descending: more specific rules fire first.
+#[test]
+fn specificity_more_literals_fire_first() {
+    // Two rules matching the same fact. The more specific one (with literal
+    // args instead of placeholders) should fire first and produce its output.
+    // The less specific one fires second and also produces its output.
+    let e = load(
+        r#"
+$ x is a thing
+$ rule specific
+    ( x is a thing )
+    ( specific-result )
+$ rule general
+    ( $x is a thing )
+    ( general-result )
+$ assert specific-result
+$ assert general-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("specific-result")));
+    assert!(e.contains(&fact("general-result")));
+}
+
+/// A rule with more required facts is more specific than one with fewer.
+#[test]
+fn specificity_more_facts_fire_first() {
+    let e = load(
+        r#"
+$ a is 1
+$ b is 2
+$ rule multi
+    ( a is 1
+      b is 2 )
+    ( multi-result )
+$ rule single
+    ( a is 1 )
+    ( single-result )
+$ assert multi-result
+$ assert single-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("multi-result")));
+    assert!(e.contains(&fact("single-result")));
+}
+
+/// A rule with a negated fact contributes 0 specificity for that fact.
+#[test]
+fn specificity_negated_fact_contributes_zero() {
+    let e = load(
+        r#"
+$ x is present
+$ rule with-negation
+    ( x is present
+      ! y is absent )
+    ( neg-result )
+$ rule simple
+    ( x is present )
+    ( simple-result )
+$ assert neg-result
+$ assert simple-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("neg-result")));
+    assert!(e.contains(&fact("simple-result")));
+}
+
+/// compute_specificity returns correct scores for various patterns.
+#[test]
+fn compute_specificity_scores() {
+    use reform::rule::{compute_specificity, Pattern};
+
+    // Single fact, 3 literal args: 1 fact + 3 literals = 4
+    let p: Pattern = reform::parser::pattern("a is b").unwrap();
+    assert_eq!(compute_specificity(&p), 4);
+
+    // Single fact with placeholders: 1 fact + 1 literal ("is") = 2
+    let p: Pattern = reform::parser::pattern("$x is $y").unwrap();
+    assert_eq!(compute_specificity(&p), 2);
+
+    // Two facts: 2 facts + 6 literals = 8
+    let p: Pattern = reform::parser::pattern("a is b\nc is d").unwrap();
+    assert_eq!(compute_specificity(&p), 8);
+
+    // Optional fact repetition contributes 0
+    let p: Pattern = reform::parser::pattern("a is b\n$( c is d )?").unwrap();
+    assert_eq!(compute_specificity(&p), 4); // only the required fact counts
+
+    // Negated fact contributes 0
+    let p: Pattern = reform::parser::pattern("a is b\n! c is d").unwrap();
+    assert_eq!(compute_specificity(&p), 4); // only the non-negated fact counts
+
+    // Arg-level repetition with literals: 1 fact + 1 literal + 2 literals in rep = 4
+    let p: Pattern = reform::parser::pattern("a $( b c )+").unwrap();
+    assert_eq!(compute_specificity(&p), 4);
+
+    // Arg-level repetition with placeholders only: 1 fact + 0 literals = 1
+    let p: Pattern = reform::parser::pattern("$( $x )*").unwrap();
+    assert_eq!(compute_specificity(&p), 1);
+
+    // Nested arg-level repetition: 1 fact + 1 literal + 1 literal in inner rep = 3
+    let p: Pattern = reform::parser::pattern("a $( $( b )* )+").unwrap();
+    assert_eq!(compute_specificity(&p), 3);
+
+    // Negated fact inside a `+` repetition contributes 0
+    let p: Pattern = reform::parser::pattern("a\n$(\n! b is c\n)+").unwrap();
+    assert_eq!(compute_specificity(&p), 2); // 1 fact + 1 literal "a", negated inner = 0
+}
+
+/// Rules with equal specificity preserve insertion order (stable sort).
+#[test]
+fn specificity_equal_preserves_insertion_order() {
+    let mut e = Engine::new();
+    let r1 = reform::rule::Rule::parse(&["rule", "first", "a is b", "( first-result )"]).unwrap();
+    let r2 = reform::rule::Rule::parse(&["rule", "second", "a is b", "( second-result )"]).unwrap();
+    e.add_rule(r1);
+    e.add_rule(r2);
+    assert_eq!(&*e.rules()[0].name, "first");
+    assert_eq!(&*e.rules()[1].name, "second");
+}
+
+// -- load_file method -------------------------------------------------------
+
+/// `load_file` loads facts from a file path.
+#[test]
+fn load_file_method() {
+    let dir = std::env::temp_dir().join("reform_test_load_file");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("test.rf");
+    std::fs::write(&path, "$ hello world\n$ quit\n").unwrap();
+    let mut e = Engine::new();
+    let res = e.load_file(&path);
+    assert!(res.is_ok(), "load_file should succeed: {:?}", res);
+    assert!(e.contains(&fact("hello world")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `$ load` inside a file loaded via `load_file` resolves relative to the
+/// file's directory (the `base_dir` branch of `Command::Load`).
+#[test]
+fn load_with_base_dir() {
+    let dir = std::env::temp_dir().join("reform_test_base_dir");
+    let _ = std::fs::create_dir_all(&dir);
+    let inner = dir.join("inner.rf");
+    std::fs::write(&inner, "$ inner_fact\n").unwrap();
+    let outer = dir.join("outer.rf");
+    std::fs::write(&outer, "$ load inner.rf\n$ quit\n").unwrap();
+    let mut e = Engine::new();
+    let res = e.load_file(&outer);
+    assert!(res.is_ok(), "load_file should succeed: {:?}", res);
+    assert!(e.contains(&fact("inner_fact")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `load_file` returns an error for a non-existent file (covers the
+/// `map_err` error path).
+#[test]
+fn load_file_error() {
+    let mut e = Engine::new();
+    let res = e.load_file(std::path::Path::new("/nonexistent/reform_test.rs"));
+    assert!(res.is_err(), "load_file should fail for non-existent file");
+}
+
