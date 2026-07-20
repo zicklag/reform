@@ -1,11 +1,28 @@
-# This rule will print a warning if any sentence went understood.
-$ rule default_sentence_rule
+$ rule split_sentences
     (
-        - sentence $( $arg )*
+        - sentence $( $words1 )+ . $( $words2 )+
     )
     (
-        $ println (Warning: I did not understand this sentence:) ($($arg )*)
+        s $( $words1 )+
+        s $( $words2 )+
     )
+    
+$ rule split_sentences
+    (
+        - sentence $( $words )+
+    )
+    (
+        s $( $words )+
+    )
+
+# # This rule will print a warning if any sentence went understood.
+# $ rule default_sentence_rule
+#     (
+#         - s $( $arg )*
+#     )
+#     (
+#         $ println (Warning: I did not understand this sentence:) ($($arg )*)
+#     )
     
 # And here's a similar rule for prompts
 $ rule default_prompt_rule
@@ -18,7 +35,7 @@ $ rule default_prompt_rule
 
 $ rule x_is_y
     (
-        - sentence $( $a1 )? $x is $( $a2 )? $y
+        - s $( $a1 )? $x is $( $a2 )? $y $( . )?
         $( $a1 is article )?
         $( $a2 is article )?
     )
@@ -28,7 +45,7 @@ $ rule x_is_y
 
 $ rule x_is_rel_of_y
     (
-        - sentence $( $a1 )? $x is $rel $( $prep )? $( $a2 )? $y
+        - s $( $a1 )? $x is $rel $( $prep )? $( $a2 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
         $( $prep is preposition )?
@@ -36,3 +53,15 @@ $ rule x_is_rel_of_y
     (
         $x is $rel $( $prep )? $y
     )
+
+# Define the articles and prepositions
+ 
+an is article
+a is an article
+the is an article
+An is an article
+A is an article
+The is an article
+
+of is a preposition
+to is a preposition

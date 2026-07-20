@@ -288,7 +288,7 @@ peg::parser! {
             "$" name:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "." / "," / ";" / ":" / "'" / "!") [_])+)
             { name.to_string() }
         rule literal_word() -> Arg =
-            word:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "." / "," / ";" / ":" / "'" / "!") [_])+)
+            word:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "!") [_])+)
             { word.into() }
 
         // End of a fact: a newline/EOF, or a closing `)` (lookahead, not consumed)

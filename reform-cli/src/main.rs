@@ -30,7 +30,7 @@ fn main() {
 
     for path in &cli.files {
         if let Err(e) = engine.load_file(path) {
-            eprintln!("reform: {}: {e}", path.display());
+            eprintln!("reform: {}: {e:?}", path.display());
             std::process::exit(1);
         }
         if engine.quit() {
@@ -67,7 +67,7 @@ fn main() {
                 // Blank line: submit the buffered `$` fact.
                 let src = std::mem::take(buf);
                 if let Err(e) = engine.load_str(&src) {
-                    eprintln!("{e}");
+                    eprintln!("{e:?}");
                 }
                 buffer = None;
             } else if is_indented {
@@ -79,7 +79,7 @@ fn main() {
                 // reprocess this line on the next iteration.
                 let src = std::mem::take(buf);
                 if let Err(e) = engine.load_str(&src) {
-                    eprintln!("{e}");
+                    eprintln!("{e:?}");
                 }
                 buffer = None;
                 pending = Some(line);
@@ -92,7 +92,7 @@ fn main() {
         } else {
             // A prompt: player input, processed immediately.
             if let Err(e) = engine.load_str(&format!("> {line}\n")) {
-                eprintln!("{e}");
+                eprintln!("{e:?}");
             }
         }
         if engine.quit() {

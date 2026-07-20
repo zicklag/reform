@@ -1,3 +1,5 @@
 $ load ./iflib/lib.rf
 
-The kitchen is north of the bedroom
+The kitchen is north of the bedroom. program is buggy.
+
+$ facts
