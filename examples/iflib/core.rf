@@ -1,9 +1,19 @@
+# This rule will print a warning if any sentence went understood.
 $ rule default_sentence_rule
     (
         - sentence $( $arg )*
     )
     (
-        $ println (I didn't understand the sentence:) ($($arg )*)
+        $ println (Warning: I did not understand this sentence:) ($($arg )*)
+    )
+    
+# And here's a similar rule for prompts
+$ rule default_prompt_rule
+    (
+        - prompt $( $arg )*
+    )
+    (
+        $ println (Sorry, I don't know what you mean.)
     )
 
 $ rule x_is_y

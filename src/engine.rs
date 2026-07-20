@@ -1,7 +1,7 @@
-use std::path::{Path, PathBuf};
 use crate::rule::Rule;
-use crate::{parser, Arg, Fact};
-use anyhow::{anyhow, bail, Result};
+use crate::{Arg, Fact, parser};
+use anyhow::{Result, anyhow, bail};
+use std::path::{Path, PathBuf};
 
 /// A parsed engine command extracted from a fact.
 #[derive(Debug)]
@@ -40,7 +40,7 @@ fn parse_command<'a>(args: &'a [&'a str]) -> Option<Command<'a>> {
 
 /// The Reform rule engine: a fact store plus the registered rules that fire
 /// against it each turn.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Engine {
     facts: Vec<Fact>,
     rules: Vec<Rule>,
@@ -49,18 +49,6 @@ pub struct Engine {
     /// Directory that `$ load` relative paths resolve against.
     /// `None` means resolve against the process current working directory.
     base_dir: Option<PathBuf>,
-}
-
-impl Default for Engine {
-    fn default() -> Self {
-        Self {
-            facts: Vec::new(),
-            rules: Vec::new(),
-            quit: false,
-            changed: false,
-            base_dir: None,
-        }
-    }
 }
 
 impl Engine {
@@ -108,7 +96,7 @@ impl Engine {
         self.rules.push(rule);
         // Sort by specificity descending so more specific rules fire first.
         // When specificity is equal, insertion order is preserved (stable sort).
-        self.rules.sort_by(|a, b| b.specificity.cmp(&a.specificity));
+        self.rules.sort_by_key(|b| std::cmp::Reverse(b.specificity));
     }
 
     pub fn contains(&self, fact: &Fact) -> bool {
@@ -125,8 +113,8 @@ impl Engine {
     /// directory so that `$ load` directives inside the file resolve
     /// relative to the file's location.
     pub fn load_file(&mut self, path: &Path) -> Result<()> {
-        let src = std::fs::read_to_string(path)
-            .map_err(|e| anyhow!("load {}: {e}", path.display()))?;
+        let src =
+            std::fs::read_to_string(path).map_err(|e| anyhow!("load {}: {e}", path.display()))?;
         let prev = self.base_dir.take();
         self.base_dir = path.parent().map(|p| p.to_path_buf());
         let result = self.load_str_inner(&src);
@@ -349,7 +337,8 @@ impl Engine {
         let Some(crate::rule::PatternItem::Fact(pf)) = pat.first() else {
             bail!("find only supports single-fact patterns");
         };
-        Ok(self.facts
+        Ok(self
+            .facts
             .iter()
             .filter(|f| pf.matches_fact(f).is_some())
             .cloned()
