@@ -1,11 +1,5 @@
 $ load ./iflib/lib.rf
 
-The kitchen is north of the bedroom. program is buggy.
-
-the program is fixed now.
-
-properties of monster:
-    description: (a horrifying beast)
-    initial-appearance: beast
+the kitchen is north of a bedroom. the program is buggy. glumplog flat.
 
 $ facts

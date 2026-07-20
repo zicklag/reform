@@ -586,8 +586,18 @@ fn match_fact_repetition(
     }
 
     let mut out = Vec::new();
+    // A `?` whose list-bound placeholder is an empty list is "disabled": the
+    // corresponding arg-level `$( $x )?` matched zero iterations, so there is
+    // nothing to verify. It must match zero facts rather than greedily
+    // grabbing any matching fact (which could steal a fact needed by a later
+    // required `?`). A non-empty list makes it required (see `must_match`);
+    // an unbound or literal-only `?` is a free optional that grabs if present.
+    let disabled = matches!(rep.kind, RepetitionKind::Optional)
+        && list_ph.iter().any(|name| {
+            b.get(name).is_some_and(|v| matches!(v, BindValue::Many(list) if list.is_empty()))
+        });
     let take: Vec<usize> = match rep.kind {
-        RepetitionKind::Optional if !matched_idx.is_empty() => vec![matched_idx[0]],
+        RepetitionKind::Optional if !matched_idx.is_empty() && !disabled => vec![matched_idx[0]],
         RepetitionKind::ZeroOrMore | RepetitionKind::OneOrMore => matched_idx.clone(),
         RepetitionKind::Optional => vec![],
     };

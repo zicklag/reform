@@ -1,0 +1,21 @@
+$ rule x_is_y
+    (
+        - sentence $( $a1 )? $x is $( $a2 )? $y
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $x is $y
+    )
+
+# Regression: `$( $a1 is article )?` must not greedily grab an article fact
+# when $a1 is empty (the arg-level `$( $a1 )?` matched zero), because that
+# would steal the fact from the required `$( $a2 is article )?` (where $a2
+# is the non-empty `an`). With a single `an is article` fact, `a is an
+# article` should still reduce to `a is article`.
+an is article
+
+a is an article
+
+$ assert an is article
+$ assert a is article
