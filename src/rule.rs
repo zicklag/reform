@@ -33,19 +33,23 @@ impl Rule {
 
     /// Check structural invariants the parser can't enforce on its own:
     ///
-    /// * Every placeholder name is used at exactly one nesting context — the
-    ///   same stack of repetition kinds (`?`/`+`/`*`) must enclose every use of
-    ///   a given name, both within the pattern and within the body.
-    /// * Every placeholder referenced in the body is declared by the pattern,
-    ///   at the same nesting context (so a list-bound placeholder is iterated,
-    ///   not dropped in as a scalar).
+/// * Every placeholder name is used at a consistent nesting context — the
+///   same stack of repetition kinds (`?`/`+`/`*`) must enclose every use of
+///   a given name within the pattern, and within the body. A placeholder
+///   bound at a given nesting in the pattern may be used at the same or
+///   deeper nesting in the body (e.g. a flat placeholder may be expanded
+///   inside a repetition), but a placeholder bound inside a repetition may
+///   not be used at a shallower nesting (outside that repetition).
+/// * Every placeholder referenced in the body is declared by the pattern,
+///   at the same or shallower nesting context (so a list-bound placeholder
+///   is iterated, not dropped in as a scalar).
     pub fn validate(&self) -> Result<()> {
         let pat_ctx = pattern_contexts(&self.pattern)?;
         let body_ctx = body_contexts(&self.body)?;
         for (name, bctx) in &body_ctx {
             match pat_ctx.get(name) {
                 None => bail!("body references placeholder `${name}` not declared in pattern"),
-                Some(pctx) if pctx != bctx => {
+                Some(pctx) if !is_prefix(pctx, bctx) => {
                     bail!("placeholder `${name}` has different nesting in body vs pattern");
                 }
                 Some(_) => {}
@@ -285,6 +289,15 @@ fn collect_body(chunks: &[BodyChunk], stack: &mut RepContext, out: &mut UseMap, 
         }
     }
     Ok(())
+}
+
+/// Check if `prefix` is a prefix of `ctx` — the pattern context must be a
+/// prefix of the body context (body may be at same or deeper nesting).
+fn is_prefix(prefix: &[RepetitionKind], ctx: &[RepetitionKind]) -> bool {
+    if prefix.len() > ctx.len() {
+        return false;
+    }
+    prefix == &ctx[..prefix.len()]
 }
 
 use crate::Fact;

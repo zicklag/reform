@@ -1,0 +1,17 @@
+# Using the same placeholder name multiple times in the pattern
+# will require all occurrences to match.
+$ rule triple
+    (
+        - $x $x $x
+    )
+    (
+        triple $x
+    )
+
+$ the the the
+$ hi hi hi
+$ one two three
+
+$ assert triple the
+$ assert triple hi
+$ assert one two three

@@ -60,6 +60,16 @@ $ rule x_is_rel_of_y
         $x is $rel $y
     )
 
+$ rule (properties of bulk)
+    (
+        - sentence properties of $x : $( $prop : $value )+
+    )
+    (
+        $(
+            $value is $prop of $x
+        )+
+    )
+
 # Define the articles and prepositions
  
 an is article
