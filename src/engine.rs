@@ -239,9 +239,11 @@ impl Engine {
     }
 
     pub fn turn(&mut self) -> Result<()> {
-        let snapshot = self.facts.clone();
         let rules = self.rules.clone();
         for rule in &rules {
+            // Snapshot facts per-rule so that removals by a more specific rule
+            // prevent less specific rules from matching the same facts.
+            let snapshot = self.facts.clone();
             for bindings in rule.find_matches(&snapshot) {
                 for rf in rule.removed_facts(&snapshot, &bindings) {
                     self.remove_fact(&rf);

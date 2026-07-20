@@ -3,7 +3,7 @@ $ rule default_sentence_rule
         - sentence $( $arg )*
     )
     (
-        $ println (I didn't understand the sentence: ) $( $arg )*
+        $ println (I didn't understand the sentence:) ($($arg )*)
     )
 
 $ rule x_is_y
