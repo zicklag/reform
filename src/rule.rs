@@ -64,8 +64,11 @@ impl Rule {
 /// The score counts:
 /// - Each non-negated pattern fact: 1 point
 /// - Each literal argument in those facts: 1 point
-/// - Optional fact repetitions contribute 0 (they may not match)
-/// - `+`/`*` repetitions contribute the sum of their inner facts
+/// - Optional (`?`) repetitions contribute 0 (they may not match)
+/// - `+`/`*` repetitions contribute 1 point for the block itself, plus the
+///   specificity of their inner facts/args — so a pattern with more repeating
+///   blocks is more specific than one with fewer, and blocks with more
+///   literals are more specific than blocks with only placeholders.
 ///
 /// This ensures rules with more literal constraints and more required facts
 /// fire before more general rules.
@@ -81,41 +84,46 @@ fn pattern_item_specificity(item: &PatternItem) -> u64 {
             }
             let mut s = 1; // the fact itself
             for arg in &pf.args {
-                match arg {
-                    ArgTemplate::Literal(_) => s += 1,
-                    ArgTemplate::Placeholder(_) => {}
-                    ArgTemplate::RepeatedArgs(ra) => s += repeated_args_specificity(ra),
-                }
+                s += arg_specificity(arg);
             }
             s
         }
         PatternItem::FactRepetition(fr) => match fr.kind {
             RepetitionKind::Optional => 0,
             RepetitionKind::OneOrMore | RepetitionKind::ZeroOrMore => {
-                fr.facts.iter().map(|pf| {
+                // 1 point for the repeating block itself, plus each inner
+                // fact's score (negated inner facts contribute 0).
+                1 + fr.facts.iter().map(|pf| {
                     if pf.negated { 0 } else {
                         let mut s = 1;
                         for arg in &pf.args {
-                            match arg {
-                                ArgTemplate::Literal(_) => s += 1,
-                                ArgTemplate::Placeholder(_) => {}
-                                ArgTemplate::RepeatedArgs(ra) => s += repeated_args_specificity(ra),
-                            }
+                            s += arg_specificity(arg);
                         }
                         s
                     }
-                }).sum()
+                }).sum::<u64>()
             }
         },
     }
 }
 
-fn repeated_args_specificity(ra: &RepeatedArgs) -> u64 {
-    ra.args.iter().map(|arg| match arg {
+/// Specificity contributed by a single arg template.
+fn arg_specificity(arg: &ArgTemplate) -> u64 {
+    match arg {
         ArgTemplate::Literal(_) => 1,
         ArgTemplate::Placeholder(_) => 0,
-        ArgTemplate::RepeatedArgs(inner) => repeated_args_specificity(inner),
-    }).sum()
+        ArgTemplate::RepeatedArgs(ra) => repeated_args_specificity(ra),
+    }
+}
+
+fn repeated_args_specificity(ra: &RepeatedArgs) -> u64 {
+    // 1 point for the repeating block itself (for `+`/`*`; `?` may not match
+    // so it adds 0), plus the specificity of the inner args.
+    let base = match ra.kind {
+        RepetitionKind::Optional => 0,
+        RepetitionKind::OneOrMore | RepetitionKind::ZeroOrMore => 1,
+    };
+    base + ra.args.iter().map(|a| arg_specificity(a)).sum::<u64>()
 }
 
 /// A rule pattern, matching one or more facts.
@@ -372,15 +380,23 @@ impl Bindings {
 }
 
 impl PatternFact {
-    /// All ways to match this pattern fact against `fact`, starting from
-    /// existing `bindings`. The fact matches fully (every arg consumed).
+    /// The first (laziest) full match of this pattern fact against `fact`,
+    /// starting from existing `bindings`. The fact matches fully (every arg
+    /// consumed). Repetitions (`+`/`*`) are lazy: they match as few iterations
+    /// as possible, so when a single fact admits several full matches, the
+    /// one with the fewest leading-repetition iterations wins. Returns at
+    /// most one binding; different facts each contribute their own binding.
     pub fn match_fact(&self, fact: &Fact, bindings: &Bindings) -> Vec<Bindings> {
         let args: &[Arg] = fact.as_slice();
         let n = args.len();
-        match_args(&self.args, args, 0, bindings)
-            .into_iter()
-            .filter_map(|(end, b)| if end == n { Some(b) } else { None })
-            .collect()
+        let mut out = Vec::new();
+        for (end, b) in match_args(&self.args, args, 0, bindings) {
+            if end == n {
+                out.push(b);
+                break;
+            }
+        }
+        out
     }
 
     /// Whether this pattern fact matches `fact` with no prior bindings.

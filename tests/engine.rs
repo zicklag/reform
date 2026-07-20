@@ -950,21 +950,23 @@ fn compute_specificity_scores() {
     let p: Pattern = reform::parser::pattern("a is b\n! c is d").unwrap();
     assert_eq!(compute_specificity(&p), 4); // only the non-negated fact counts
 
-    // Arg-level repetition with literals: 1 fact + 1 literal + 2 literals in rep = 4
+    // Arg-level repetition with literals: 1 fact + 1 literal + (1 block + 2 literals) = 5
     let p: Pattern = reform::parser::pattern("a $( b c )+").unwrap();
-    assert_eq!(compute_specificity(&p), 4);
+    assert_eq!(compute_specificity(&p), 5);
 
-    // Arg-level repetition with placeholders only: 1 fact + 0 literals = 1
+    // Arg-level repetition with placeholders only: 1 fact + (1 block + 0 literals) = 2
     let p: Pattern = reform::parser::pattern("$( $x )*").unwrap();
-    assert_eq!(compute_specificity(&p), 1);
+    assert_eq!(compute_specificity(&p), 2);
 
-    // Nested arg-level repetition: 1 fact + 1 literal + 1 literal in inner rep = 3
+    // Nested arg-level repetition: 1 fact + 1 literal + (1 outer block + (1
+    // inner block + 1 literal)) = 5
     let p: Pattern = reform::parser::pattern("a $( $( b )* )+").unwrap();
-    assert_eq!(compute_specificity(&p), 3);
+    assert_eq!(compute_specificity(&p), 5);
 
-    // Negated fact inside a `+` repetition contributes 0
+    // Negated fact inside a `+` repetition: 1 fact + 1 literal "a" + (1 block
+    // + 0 negated inner) = 3
     let p: Pattern = reform::parser::pattern("a\n$(\n! b is c\n)+").unwrap();
-    assert_eq!(compute_specificity(&p), 2); // 1 fact + 1 literal "a", negated inner = 0
+    assert_eq!(compute_specificity(&p), 3);
 }
 
 /// Rules with equal specificity preserve insertion order (stable sort).
@@ -1021,3 +1023,18 @@ fn load_file_error() {
     assert!(res.is_err(), "load_file should fail for non-existent file");
 }
 
+
+// -- trace logging ---------------------------------------------------------
+
+/// Enabling trace exercises the `set_trace` path and every `if self.trace`
+/// branch: rule registration, fact addition, fact removal (via a `-` pattern),
+/// and rule firing. Trace output goes to stderr (captured by the test
+/// harness for passing tests), so we only assert the engine behavior.
+#[test]
+fn trace_emits_events() {
+    let mut e = Engine::new();
+    e.set_trace(true);
+    e.load_str("$ rule r\n    ( - a )\n    ( b )\n$ a\n$ quit\n").unwrap();
+    assert!(e.contains(&fact("b")));
+    assert!(!e.contains(&fact("a")));
+}

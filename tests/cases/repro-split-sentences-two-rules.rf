@@ -1,0 +1,22 @@
+$ rule split_sentences
+    (
+        - sentence $( $sent )+ . $( $rest )+
+    )
+    (
+        statement $( $sent )+
+        sentence $( $rest )+
+    )
+$ rule split_sentences
+    (
+        - sentence $( $words )+ .
+    )
+    (
+        statement $( $words )+
+    )
+
+This line has two sentences. This is the second sentence. This is the third sentence.
+
+$ facts
+$ assert statement This line has two sentences
+$ assert statement This is the second sentence
+$ assert statement This is the third sentence

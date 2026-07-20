@@ -1,0 +1,17 @@
+# A `+` arg-repetition is lazy: it matches as few iterations as possible.
+# `data one | two | three` has two `|` separators, so the pattern could match
+# with `$a` peeling just `one` (lazy) or `one | two` (greedy). Only the lazy
+# binding should fire.
+$ rule split_first
+    (
+        - data $( $a )+ | $( $b )+
+    )
+    (
+        first $( $a )+ | rest $( $b )+
+    )
+
+$ data one | two | three
+
+$ assert first one | rest two | three
+$ assert-not first one | two | rest three
+$ quit

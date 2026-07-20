@@ -49,6 +49,11 @@ pub struct Engine {
     /// Directory that `$ load` relative paths resolve against.
     /// `None` means resolve against the process current working directory.
     base_dir: Option<PathBuf>,
+    /// When true, emit trace events to stderr: `+`/`-` for facts added or
+    /// removed, `rule` for rules registered, and `fire <name>` when a rule
+    /// matches and fires. Enabled via `set_trace(true)` (CLI `--trace` or
+    /// `REFORM_TRACE=1`).
+    trace: bool,
 }
 
 impl Engine {
@@ -67,6 +72,9 @@ impl Engine {
     pub fn quit(&self) -> bool {
         self.quit
     }
+    pub fn set_trace(&mut self, on: bool) {
+        self.trace = on;
+    }
 
     pub fn clear_quit(&mut self) {
         self.quit = false;
@@ -76,6 +84,9 @@ impl Engine {
         if self.facts.contains(&fact) {
             false
         } else {
+            if self.trace {
+                eprintln!("+ {}", normal_form_fact(&fact));
+            }
             self.facts.push(fact);
             self.changed = true;
             true
@@ -87,12 +98,18 @@ impl Engine {
         self.facts.retain(|f| f != fact);
         let removed = self.facts.len() != before;
         if removed {
+            if self.trace {
+                eprintln!("- {}", normal_form_fact(fact));
+            }
             self.changed = true;
         }
         removed
     }
 
     pub fn add_rule(&mut self, rule: Rule) {
+        if self.trace {
+            eprintln!("rule {} (specificity {})", rule.name, rule.specificity);
+        }
         self.rules.push(rule);
         // Sort by specificity descending so more specific rules fire first.
         // When specificity is equal, insertion order is preserved (stable sort).
@@ -212,29 +229,26 @@ impl Engine {
     }
 
     fn settle(&mut self) -> Result<()> {
-        const MAX_TURNS: usize = 100_000;
-        for _ in 0..MAX_TURNS {
-            if self.quit {
-                return Ok(());
-            }
-            self.changed = false;
-            self.turn()?;
-            if self.quit || !self.changed {
-                return Ok(());
-            }
+        // `turn()` loops internally until no rule changes the facts, so a
+        // single call reaches the fixpoint. Infinite recursion (a rule whose
+        // output re-matches itself forever) is bounded by `turn()`'s
+        // iteration cap.
+        if self.quit {
+            return Ok(());
         }
-        bail!("engine did not reach a fixpoint within {MAX_TURNS} turns");
+        self.turn()
     }
 
     pub fn turn(&mut self) -> Result<()> {
+        const MAX_ITERATIONS: usize = 100_000;
         let rules = self.rules.clone();
-        let mut fired = vec![false; rules.len()];
         let mut any_changed = false;
         let mut i = 0;
+        let mut iterations = 0;
         while i < rules.len() {
-            if fired[i] {
-                i += 1;
-                continue;
+            iterations += 1;
+            if iterations > MAX_ITERATIONS {
+                bail!("engine did not reach a fixpoint within {MAX_ITERATIONS} iterations");
             }
             let rule = &rules[i];
             // Snapshot facts per-rule so that removals by a more specific rule
@@ -249,6 +263,9 @@ impl Engine {
                 if text.trim().is_empty() {
                     continue;
                 }
+                if self.trace {
+                    eprintln!("fire {} -> {}", rule.name, text.trim_end());
+                }
                 for f in parser::facts(&text)? {
                     self.ingest_body(f)?;
                     if self.quit {
@@ -259,9 +276,11 @@ impl Engine {
             }
             if self.changed {
                 any_changed = true;
-                fired[i] = true;
-                // A rule added new facts; restart from the most-specific rule
-                // so higher-specificity rules get a chance to match them.
+                // Restart from the most-specific rule so higher-specificity
+                // rules get first dibs on the changed facts. A rule is NOT
+                // marked fired: it may fire again on its own output, which is
+                // what makes recursive rules (e.g. peeling one item per firing)
+                // work within a single turn.
                 i = 0;
             } else {
                 i += 1;

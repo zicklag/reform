@@ -20,6 +20,11 @@ struct Cli {
     #[arg(short = 'A')]
     allow_direct: bool,
 
+    /// Trace engine activity to stderr: facts added (`+`) / removed (`-`),
+    /// rules registered, and rule firings (`fire <name> -> <body>`).
+    #[arg(short = 'v', long = "trace")]
+    trace: bool,
+
     /// Reform files to load before starting the REPL.
     files: Vec<PathBuf>,
 }
@@ -27,6 +32,8 @@ struct Cli {
 fn main() {
     let cli = Cli::parse();
     let mut engine = Engine::new();
+    let trace = cli.trace || std::env::var("REFORM_TRACE").is_ok();
+    engine.set_trace(trace);
 
     for path in &cli.files {
         if let Err(e) = engine.load_file(path) {
