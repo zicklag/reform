@@ -443,7 +443,7 @@ fn normal_form_arg_edge_cases() {
     assert_eq!(normal_form_arg(&Arg::from("test;")), "(test;)");
     assert_eq!(normal_form_arg(&Arg::from("foo'")), "(foo')");
     // Nested parens
-    assert_eq!(normal_form_arg(&Arg::from("a(b)c")), "(a(b\\)c)");
+    assert_eq!(normal_form_arg(&Arg::from("a(b)c")), "(a\\(b\\)c)");
     // Whitespace
     assert_eq!(normal_form_arg(&Arg::from("hello world")), "(hello world)");
     // Already clean

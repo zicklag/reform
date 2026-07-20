@@ -275,6 +275,7 @@ peg::parser! {
         rule arg_template() -> ArgTemplate =
             repeated:arg_repetition() { ArgTemplate::RepeatedArgs(repeated) } /
             placeholder:placeholder() { ArgTemplate::Placeholder(placeholder) } /
+            literal:literal_arg() { ArgTemplate::Literal(literal) } /
             literal:literal_word() { ArgTemplate::Literal(literal) }
 
         rule arg_repetition() -> RepeatedArgs =

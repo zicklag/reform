@@ -34,6 +34,7 @@ pub fn normal_form_arg(a: &Arg) -> String {
     for c in s.chars() {
         match c {
             '\\' => out.push_str("\\\\"),
+            '(' => out.push_str("\\("),
             ')' => out.push_str("\\)"),
             _ => out.push(c),
         }
