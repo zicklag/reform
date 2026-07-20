@@ -62,7 +62,7 @@ $ rule x_is_rel_of_y
 
 $ rule (properties of bulk)
     (
-        - sentence properties of $x : $( $prop : $value )+
+        - sentence properties of $x : $( $prop : $value  )+
     )
     (
         $(

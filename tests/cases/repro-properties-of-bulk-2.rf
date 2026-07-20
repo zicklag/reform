@@ -1,0 +1,21 @@
+$ rule (properties of bulk)
+    (
+        - sentence properties of $x : $( $prop : $value )+
+    )
+    (
+        $( 
+            $value is $prop of $x
+        )+
+    )
+
+properties of apple:
+    color: red
+    description: (a bright, fresh apple)
+    (initial appearance): apple
+    article: an
+
+$ facts
+$ assert red is color of apple
+$ assert apple is (initial appearance) of apple
+$ assert an is article of apple
+$ assert (a bright, fresh apple) is description of apple

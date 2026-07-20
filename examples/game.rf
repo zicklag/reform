@@ -5,7 +5,7 @@ The kitchen is north of the bedroom. program is buggy.
 the program is fixed now.
 
 properties of monster:
-    description: a horrifying beast
+    description: (a horrifying beast)
     initial-appearance: beast
 
 $ facts

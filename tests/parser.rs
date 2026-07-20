@@ -291,3 +291,21 @@ fn normal_form_arg_backslash_escape() {
     // Backslash in an arg that doesn't need parens stays clean
     assert_eq!(normal_form_arg(&Arg::from("a\\b")), "a\\b");
 }
+
+
+// -- parenthesized literal arg in a pattern ----------------------------------
+
+/// A parenthesized `( ... )` arg in a pattern parses as an
+/// `ArgTemplate::Literal` (the `literal_arg` arm of `arg_template`), keeping
+/// its inner content as a single arg rather than splitting on spaces.
+#[test]
+fn pattern_parenthesized_literal_arg() {
+    use reform::parser::pattern;
+    use reform::rule::ArgTemplate;
+    let p = pattern("a (b c) d").unwrap();
+    let reform::rule::PatternItem::Fact(f) = &p.0[0] else { panic!("got {:?}", p) };
+    assert_eq!(f.args.len(), 3);
+    assert!(matches!(&f.args[0], ArgTemplate::Literal(a) if &**a == "a"), "got {:?}", f.args[0]);
+    assert!(matches!(&f.args[1], ArgTemplate::Literal(a) if &**a == "b c"), "got {:?}", f.args[1]);
+    assert!(matches!(&f.args[2], ArgTemplate::Literal(a) if &**a == "d"), "got {:?}", f.args[2]);
+}
