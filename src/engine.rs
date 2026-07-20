@@ -228,10 +228,19 @@ impl Engine {
 
     pub fn turn(&mut self) -> Result<()> {
         let rules = self.rules.clone();
-        for rule in &rules {
+        let mut fired = vec![false; rules.len()];
+        let mut any_changed = false;
+        let mut i = 0;
+        while i < rules.len() {
+            if fired[i] {
+                i += 1;
+                continue;
+            }
+            let rule = &rules[i];
             // Snapshot facts per-rule so that removals by a more specific rule
             // prevent less specific rules from matching the same facts.
             let snapshot = self.facts.clone();
+            self.changed = false;
             for bindings in rule.find_matches(&snapshot) {
                 for rf in rule.removed_facts(&snapshot, &bindings) {
                     self.remove_fact(&rf);
@@ -243,11 +252,22 @@ impl Engine {
                 for f in parser::facts(&text)? {
                     self.ingest_body(f)?;
                     if self.quit {
+                        self.changed = any_changed;
                         return Ok(());
                     }
                 }
             }
+            if self.changed {
+                any_changed = true;
+                fired[i] = true;
+                // A rule added new facts; restart from the most-specific rule
+                // so higher-specificity rules get a chance to match them.
+                i = 0;
+            } else {
+                i += 1;
+            }
         }
+        self.changed = any_changed;
         Ok(())
     }
 

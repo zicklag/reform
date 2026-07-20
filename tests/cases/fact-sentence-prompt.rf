@@ -1,0 +1,7 @@
+$ this is fact
+This is a sentence.
+> this is a prompt
+
+$ assert this is fact
+$ assert sentence This is a sentence .
+$ assert prompt this is a prompt

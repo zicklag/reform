@@ -1,0 +1,29 @@
+$ rule split_sentences
+    (
+        - sentence $( $words1 )+ . $( $words2 )+
+    )
+    (
+        s $( $words1 )+ .
+        s $( $words2 )+
+    )
+
+$ rule default_s
+    (
+        - s $( $words )+
+    )
+    (
+        $ println (I didn't understand this sentence: ) $($words )+
+    )
+
+$ rule the_x_is_y
+    (
+        - s The $x is $y .
+    )
+    (
+        $x is $y
+    )
+
+The hat is hard. This is the second sentence.
+
+$ facts
+$ assert hat is hard

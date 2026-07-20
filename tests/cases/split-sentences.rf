@@ -1,0 +1,14 @@
+$ rule split_sentences
+    (
+        - sentence $( $words1 )+ . $( $words2 )+
+    )
+    (
+        s $( $words1 )+ .
+        s $( $words2 )+
+    )
+
+This line has two sentences. This is the second sentence.
+
+$ facts
+$ assert s This line has two sentences .
+$ assert s This is the second sentence .
