@@ -9,6 +9,5 @@ $ rule split_sentences
 
 This line has two sentences. This is the second sentence.
 
-$ facts
 $ assert s This line has two sentences .
 $ assert s This is the second sentence .

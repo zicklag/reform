@@ -565,6 +565,13 @@ fn match_fact_repetition(
     let want_present = !take.is_empty();
     let want_absent = matches!(rep.kind, RepetitionKind::Optional | RepetitionKind::ZeroOrMore)
         && !want_present;
+    // For `?` repetitions, if any list-bound placeholder is already bound to
+    // a non-empty list (from an arg-level repetition), the fact-level `?`
+    // must match — it acts as a constraint, not a free optional.
+    let must_match = matches!(rep.kind, RepetitionKind::Optional)
+        && list_ph.iter().any(|name| {
+            b.get(name).is_some_and(|v| matches!(v, BindValue::Many(list) if !list.is_empty()))
+        });
     if want_present {
         let mut used2 = used.to_vec();
         for &i in &take {
@@ -586,7 +593,7 @@ fn match_fact_repetition(
             }
         }
         out.extend(match_items(rest, facts, &used2, &b3));
-    } else if want_absent {
+    } else if want_absent && !must_match {
         // No matching facts (or `?` with nothing to take): match zero facts.
         out.extend(match_items(rest, facts, used, b));
     }

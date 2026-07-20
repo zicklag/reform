@@ -1,0 +1,26 @@
+$ rule x_is_y
+    (
+        - sentence $( $a1 )? $x is $( $a2 )? $y
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $x is $y
+    )
+
+$ rule x_is_rel_of_y
+    (
+        - sentence $( $a1 )? $x is $rel $( $a2 )? $y
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $x is $rel $y
+    )
+
+the is article
+
+the computer is running program
+
+$ facts
+$ assert-not computer is program

@@ -2,4 +2,6 @@ $ load ./iflib/lib.rf
 
 The kitchen is north of the bedroom. program is buggy.
 
+the program is fixed now.
+
 $ facts

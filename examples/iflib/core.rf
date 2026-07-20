@@ -6,7 +6,6 @@ $ rule split_sentences
         s $( $words1 )+
         s $( $words2 )+
     )
-    
 $ rule split_sentences
     (
         - sentence $( $words )+
@@ -14,15 +13,22 @@ $ rule split_sentences
     (
         s $( $words )+
     )
+$ rule strip_trailing_periods
+    (
+        - s $( $words )+ .
+    )
+    (
+        s $( $words )+
+    )
 
-# # This rule will print a warning if any sentence went understood.
-# $ rule default_sentence_rule
-#     (
-#         - s $( $arg )*
-#     )
-#     (
-#         $ println (Warning: I did not understand this sentence:) ($($arg )*)
-#     )
+# This rule will print a warning if any sentence went understood.
+$ rule default_sentence_rule
+    (
+        - s $( $arg )*
+    )
+    (
+        $ println (Warning: I did not understand this sentence:) ($($arg )*)
+    )
     
 # And here's a similar rule for prompts
 $ rule default_prompt_rule
@@ -35,7 +41,7 @@ $ rule default_prompt_rule
 
 $ rule x_is_y
     (
-        - s $( $a1 )? $x is $( $a2 )? $y $( . )?
+        - s $( $a1 )? $x is $( $a2 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
     )
@@ -45,13 +51,13 @@ $ rule x_is_y
 
 $ rule x_is_rel_of_y
     (
-        - s $( $a1 )? $x is $rel $( $prep )? $( $a2 )? $y
+        - s $( $a1 )? $x is $rel $( $a2 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
         $( $prep is preposition )?
     )
     (
-        $x is $rel $( $prep )? $y
+        $x is $rel $y
     )
 
 # Define the articles and prepositions
@@ -65,3 +71,7 @@ The is an article
 
 of is a preposition
 to is a preposition
+
+the program is fixed now.
+
+$ facts
