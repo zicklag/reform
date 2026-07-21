@@ -72,11 +72,13 @@ impl Rule {
 /// The score counts:
 /// - Each non-negated pattern fact: 1 point
 /// - Each literal argument in those facts: 1 point
-/// - Optional (`?`) repetitions contribute 0 (they may not match)
-/// - `+`/`*` repetitions contribute 1 point for the block itself, plus the
-///   specificity of their inner facts/args — so a pattern with more repeating
-///   blocks is more specific than one with fewer, and blocks with more
-///   literals are more specific than blocks with only placeholders.
+/// - `?` (optional) and `*` (zero-or-more) repetitions contribute 0 for the
+///   block itself (they may match zero), plus their inner args/facts
+/// - `+` (one-or-more) repetitions contribute 1 point for the block itself,
+///   plus their inner args/facts — so a pattern with more required
+///   repeating blocks is more specific than one with fewer, while a
+///   catch-all `sentence $( $arg )*` stays less specific than a structured
+///   rule with literal constraints.
 ///
 /// This ensures rules with more literal constraints and more required facts
 /// fire before more general rules.
@@ -86,39 +88,29 @@ pub fn compute_specificity(pattern: &Pattern) -> u64 {
 
 fn pattern_item_specificity(item: &PatternItem) -> u64 {
     match item {
-        PatternItem::Fact(pf) => {
-            if pf.negated {
-                return 0;
-            }
-            let mut s = 1; // the fact itself
-            for arg in &pf.args {
-                s += arg_specificity(arg);
-            }
-            s
-        }
+        PatternItem::Fact(pf) => fact_score(pf),
         PatternItem::FactRepetition(fr) => match fr.kind {
+            // `+` requires at least one match (1 point for the block); `*`
+            // may match zero (0 for the block, but inner facts still count);
+            // `?` may match zero and contributes 0. Negated inner facts add 0.
             RepetitionKind::Optional => 0,
-            RepetitionKind::OneOrMore | RepetitionKind::ZeroOrMore => {
-                // 1 point for the repeating block itself, plus each inner
-                // fact's score (negated inner facts contribute 0).
-                1 + fr
-                    .facts
-                    .iter()
-                    .map(|pf| {
-                        if pf.negated {
-                            0
-                        } else {
-                            let mut s = 1;
-                            for arg in &pf.args {
-                                s += arg_specificity(arg);
-                            }
-                            s
-                        }
-                    })
-                    .sum::<u64>()
-            }
+            RepetitionKind::ZeroOrMore => fr.facts.iter().map(fact_score).sum::<u64>(),
+            RepetitionKind::OneOrMore => 1 + fr.facts.iter().map(fact_score).sum::<u64>(),
         },
     }
+}
+
+/// Specificity of a single (non-repetition) pattern fact: 1 point for the
+/// fact itself plus each arg's specificity. Negated facts contribute 0.
+fn fact_score(pf: &PatternFact) -> u64 {
+    if pf.negated {
+        return 0;
+    }
+    let mut s = 1; // the fact itself
+    for arg in &pf.args {
+        s += arg_specificity(arg);
+    }
+    s
 }
 
 /// Specificity contributed by a single arg template.
@@ -131,11 +123,15 @@ fn arg_specificity(arg: &ArgTemplate) -> u64 {
 }
 
 fn repeated_args_specificity(ra: &RepeatedArgs) -> u64 {
-    // 1 point for the repeating block itself (for `+`/`*`; `?` may not match
-    // so it adds 0), plus the specificity of the inner args.
+    // A `+` block requires at least one match, so it adds 1 point for the
+    // block itself; `*` and `?` may match zero, so they add 0 (only their
+    // inner args' specificity counts). This keeps a catch-all
+    // `sentence $( $arg )*` less specific than a structured rule with
+    // literal constraints, while still ranking `a $( b )+ . $( c )+` above
+    // `a $( b )+ .`.
     let base = match ra.kind {
-        RepetitionKind::Optional => 0,
-        RepetitionKind::OneOrMore | RepetitionKind::ZeroOrMore => 1,
+        RepetitionKind::Optional | RepetitionKind::ZeroOrMore => 0,
+        RepetitionKind::OneOrMore => 1,
     };
     base + ra.args.iter().map(|a| arg_specificity(a)).sum::<u64>()
 }

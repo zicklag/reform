@@ -1,0 +1,26 @@
+$ rule (default statment rule)
+    (
+        - sentence $( $arg )*
+    )
+    (
+        $ println (Warning: I did not understand this sentence:) ($($arg )*)
+    )
+    
+$ rule x_is_y
+    (
+        - sentence $( $a1 )? $x is $( $a2 )? $y
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $x is $y
+    )
+
+an is article
+a is an article
+
+# This was failing at the time of writing because the default rule
+# was calculated with a specificity equal to the x_is_y rule
+$ facts
+$ assert an is article
+$ assert a is article

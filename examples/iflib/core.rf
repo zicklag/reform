@@ -1,51 +1,42 @@
-# These three rules split sentences into "statements" which are split
-# up by periods and had trailing periods removed. This lets the rest
-# of the parser operate on "statements" and automatically support
-# having multiple statements on one line.
-$ rule (split sentences by periods)
-    (
-        - sentence $( $words1 )+ . $( $words2 )+
-    )
-    (
-        statement $( $words1 )+
-        statement $( $words2 )+
-    )
-$ rule (split sentences by periods)
-    (
-        - sentence $( $words )+
-    )
-    (
-        statement $( $words )+
-    )
-$ rule (strip trailing periods)
-    (
-        - statement $( $words )+ .
-    )
-    (
-        statement $( $words )+
-    )
+# # These three rules split sentences into "statements" which are split
+# # up by periods and had trailing periods removed. This lets the rest
+# # of the parser operate on "statements" and automatically support
+# # having multiple statements on one line.
+# $ rule (split sentences by periods)
+#     (
+#         - sentence $( $words1 )+ . $( $words2 )+
+#     )
+#     (
+#         statement $( $words1 )+
+#         statement $( $words2 )+
+#     )
+# $ rule (split sentences by periods)
+#     (
+#         - sentence $( $words )+
+#     )
+#     (
+#         statement $( $words )+
+#     )
+# $ rule (strip trailing periods)
+#     (
+#         - statement $( $words )+ .
+#     )
+#     (
+#         statement $( $words )+
+#     )
 
 # This rule will print a warning if any statement went understood.
 $ rule (default statment rule)
     (
-        - statement $( $arg )*
+        - sentence $( $arg )*
     )
     (
         $ println (Warning: I did not understand this sentence:) ($($arg )*)
     )
-    
-# And here's a similar rule for prompts
-$ rule default_prompt_rule
-    (
-        - prompt $( $arg )*
-    )
-    (
-        $ println (Sorry, I don't know what you mean.)
-    )
 
 $ rule x_is_y
     (
-        - statement $( $a1 )? $x is $( $a2 )? $y
+        - sentence $( $a1 )? $x is $( $a2 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
     )
@@ -55,7 +46,7 @@ $ rule x_is_y
 
 $ rule x_is_rel_of_y
     (
-        - statement $( $a1 )? $x is $rel $( $prep )? $( $a2 )? $y
+        - sentence $( $a1 )? $x is $rel $( $prep )? $( $a2 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
         $( $prep is preposition )?
@@ -77,3 +68,5 @@ The is an article
 
 of is a preposition
 to is a preposition
+
+$ facts

@@ -955,19 +955,31 @@ fn compute_specificity_scores() {
     let p: Pattern = reform::parser::pattern("a $( b c )+").unwrap();
     assert_eq!(compute_specificity(&p), 5);
 
-    // Arg-level repetition with placeholders only: 1 fact + (1 block + 0 literals) = 2
+    // Arg-level `*` with placeholders only: 1 fact + (0 block + 0 literals) = 1
+    // (`*` may match zero, so the block adds nothing).
     let p: Pattern = reform::parser::pattern("$( $x )*").unwrap();
-    assert_eq!(compute_specificity(&p), 2);
+    assert_eq!(compute_specificity(&p), 1);
 
-    // Nested arg-level repetition: 1 fact + 1 literal + (1 outer block + (1
-    // inner block + 1 literal)) = 5
+    // Nested arg-level repetition: 1 fact + 1 literal + (1 outer `+` block +
+    // (0 inner `*` block + 1 literal)) = 4
     let p: Pattern = reform::parser::pattern("a $( $( b )* )+").unwrap();
-    assert_eq!(compute_specificity(&p), 5);
+    assert_eq!(compute_specificity(&p), 4);
 
     // Negated fact inside a `+` repetition: 1 fact + 1 literal "a" + (1 block
     // + 0 negated inner) = 3
     let p: Pattern = reform::parser::pattern("a\n$(\n! b is c\n)+").unwrap();
     assert_eq!(compute_specificity(&p), 3);
+
+    // A catch-all `sentence $( $arg )*` must be LESS specific than a structured
+    // rule with a literal constraint, so the structured rule fires first:
+    //   `sentence $( $arg )*`              = 1 + 1(sentence) + 0(*)      = 2
+    //   `sentence $( $a1 )? $x is $( $a2 )? $y` = 1 + 1 + 0 + 0 + 1(is) + 0 + 0 = 3
+    let default = reform::parser::pattern("sentence $( $arg )*").unwrap();
+    let structured = reform::parser::pattern("sentence $( $a1 )? $x is $( $a2 )? $y").unwrap();
+    assert!(
+        compute_specificity(&structured) > compute_specificity(&default),
+        "structured rule must out-rank the catch-all default"
+    );
 }
 
 /// Rules with equal specificity preserve insertion order (stable sort).
