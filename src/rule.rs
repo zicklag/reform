@@ -405,12 +405,15 @@ impl Bindings {
 }
 
 impl PatternFact {
-    /// The first (laziest) full match of this pattern fact against `fact`,
-    /// starting from existing `bindings`. The fact matches fully (every arg
-    /// consumed). Repetitions (`+`/`*`) are lazy: they match as few iterations
-    /// as possible, so when a single fact admits several full matches, the
-    /// one with the fewest leading-repetition iterations wins. Returns at
-    /// most one binding; different facts each contribute their own binding.
+    /// Every full match of this pattern fact against `fact`, starting from
+    /// existing `bindings`, in lazy-first order: `match_args` yields greedier
+    /// parses (optional `?` preferring one iteration, `+`/`*` matching as few
+    /// iterations as possible) before less-greedy ones, so the laziest full
+    /// match comes first. A single fact may admit several full matches with
+    /// different placeholder bindings; returning all of them lets the caller
+    /// (`match_items`) backtrack across pattern items when the laziest binding
+    /// fails a later constraint (e.g. an `$( $a is article )?` whose `$a` was
+    /// bound by an arg-level `$( $a )?` to a value with no matching fact).
     pub fn match_fact(&self, fact: &Fact, bindings: &Bindings) -> Vec<Bindings> {
         let args: &[Arg] = fact.as_slice();
         let n = args.len();
@@ -418,7 +421,6 @@ impl PatternFact {
         for (end, b) in match_args(&self.args, args, 0, bindings) {
             if end == n {
                 out.push(b);
-                break;
             }
         }
         out
@@ -475,17 +477,20 @@ fn match_args(
             }
             match r.kind {
                 RepetitionKind::Optional => {
-                    // Greedy: prefer consuming one iteration; only fall back to
-                    // zero when no one-iteration parse lets the rest match.
-                    let mut one = Vec::new();
+                    // Greedy `?`: yield one-iteration results first, then the
+                    // zero-iteration result — always both, not just one when
+                    // one-iteration succeeds. Producing both lets callers
+                    // backtrack across pattern items when the greedier parse
+                    // fails a later constraint (e.g. an `$( $a is article )?`
+                    // whose `$a` was bound by the one-iteration parse to a
+                    // value with no matching fact): `match_items` tries
+                    // bindings in this order and short-circuits at the first
+                    // that satisfies the entire pattern, preserving "prefer
+                    // one, fall back to zero".
                     for (mid, b2) in match_args(&r.args, args, start, &b0) {
-                        one.extend(match_args(rest, args, mid, &b2));
+                        out.extend(match_args(rest, args, mid, &b2));
                     }
-                    if !one.is_empty() {
-                        out.extend(one);
-                    } else {
-                        out.extend(match_args(rest, args, start, &b0));
-                    }
+                    out.extend(match_args(rest, args, start, &b0));
                 }
                 RepetitionKind::ZeroOrMore => {
                     out.extend(match_reps(&r.args, args, start, &b0, false, rest));
@@ -569,8 +574,24 @@ fn match_items(
                     }
                     let mut used2 = used.to_vec();
                     used2[i] = true;
+                    // `match_fact` yields full matches lazy-first (leftmost
+                    // repetition peels fewest args first). Per the design's
+                    // lazy-repetition rule, only the laziest binding that
+                    // satisfies the *entire* pattern fires for this fact: try
+                    // bindings in order and stop at the first whose remaining
+                    // pattern items match. This backtracks past a greedier
+                    // parse that fails a later constraint (e.g. an
+                    // `$( $a is article )?` whose `$a` has no matching fact)
+                    // to a less-greedy parse that does, while still firing
+                    // only the laziest parse when it already satisfies
+                    // everything (so `data one | two | three` splits as
+                    // `first one | rest ...`, not `first one | two | ...`).
                     for b2 in pf.match_fact(&facts[i], b) {
-                        out.extend(match_items(rest, facts, &used2, &b2));
+                        let rest_matches = match_items(rest, facts, &used2, &b2);
+                        if !rest_matches.is_empty() {
+                            out.extend(rest_matches);
+                            break;
+                        }
                     }
                 }
             }
@@ -656,7 +677,11 @@ fn match_fact_repetition(
         if used[i] {
             continue;
         }
-        for b2 in pf.match_fact(&facts[i], &match_b) {
+        // A fact may now admit several full matches (match_fact returns all
+        // of them, lazy-first); for fact-level repetitions we collect one
+        // binding per fact — the laziest — so `*`/`+` gathering doesn't pull
+        // multiple values for the same placeholder out of a single fact.
+        if let Some(b2) = pf.match_fact(&facts[i], &match_b).into_iter().next() {
             matched.push(b2);
             matched_idx.push(i);
         }
