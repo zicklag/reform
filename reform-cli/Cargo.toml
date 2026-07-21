@@ -9,7 +9,7 @@ path = "./src/main.rs"
 
 [dependencies]
 reform = { path = ".." }
-argh = { version = "0.1", default-features = false }
+argh = { version = "0.1", default-features = false, features = ["help"] }
 
 [dev-dependencies]
 tempfile = "3"

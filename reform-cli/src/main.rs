@@ -15,7 +15,7 @@ struct Cli {
     /// Trace engine activity to stderr (each line prefixed `[trace]`): facts
     /// added (`+`) / removed (`-`), rules registered, and rule firings
     /// (`fire <name> -> <body>`).
-    #[argh(switch, short = 'v', long = "trace", description = "trace engine activity")]
+    #[argh(switch, short = 't', long = "trace", description = "trace engine activity")]
     trace: bool,
 
     /// Print version and exit.
