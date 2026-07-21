@@ -1,5 +1,5 @@
 use crate::Arg;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 /// A parsed rule with its name, pattern, and body.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
@@ -19,30 +19,38 @@ impl Rule {
     /// Parse a `rule` fact (4 arguments: `rule`, name, pattern, body) into a [`Rule`].
     pub fn parse(fact: &[&str]) -> Result<Self> {
         if fact.len() != 4 {
-            bail!("rule fact must have exactly 4 arguments, got {}", fact.len());
+            bail!(
+                "rule fact must have exactly 4 arguments, got {}",
+                fact.len()
+            );
         }
         let name = Arg::from(fact[1]);
         let pattern = crate::parser::pattern(fact[2])
             .with_context(|| format!("failed to parse rule pattern: {}", fact[2]))?;
         let body = crate::parser::body(fact[3]);
         let specificity = compute_specificity(&pattern);
-        let rule = Rule { name, pattern, body, specificity };
+        let rule = Rule {
+            name,
+            pattern,
+            body,
+            specificity,
+        };
         rule.validate()?;
         Ok(rule)
     }
 
     /// Check structural invariants the parser can't enforce on its own:
     ///
-/// * Every placeholder name is used at a consistent nesting context — the
-///   same stack of repetition kinds (`?`/`+`/`*`) must enclose every use of
-///   a given name within the pattern, and within the body. A placeholder
-///   bound at a given nesting in the pattern may be used at the same or
-///   deeper nesting in the body (e.g. a flat placeholder may be expanded
-///   inside a repetition), but a placeholder bound inside a repetition may
-///   not be used at a shallower nesting (outside that repetition).
-/// * Every placeholder referenced in the body is declared by the pattern,
-///   at the same or shallower nesting context (so a list-bound placeholder
-///   is iterated, not dropped in as a scalar).
+    /// * Every placeholder name is used at a consistent nesting context — the
+    ///   same stack of repetition kinds (`?`/`+`/`*`) must enclose every use of
+    ///   a given name within the pattern, and within the body. A placeholder
+    ///   bound at a given nesting in the pattern may be used at the same or
+    ///   deeper nesting in the body (e.g. a flat placeholder may be expanded
+    ///   inside a repetition), but a placeholder bound inside a repetition may
+    ///   not be used at a shallower nesting (outside that repetition).
+    /// * Every placeholder referenced in the body is declared by the pattern,
+    ///   at the same or shallower nesting context (so a list-bound placeholder
+    ///   is iterated, not dropped in as a scalar).
     pub fn validate(&self) -> Result<()> {
         let pat_ctx = pattern_contexts(&self.pattern)?;
         let body_ctx = body_contexts(&self.body)?;
@@ -93,15 +101,21 @@ fn pattern_item_specificity(item: &PatternItem) -> u64 {
             RepetitionKind::OneOrMore | RepetitionKind::ZeroOrMore => {
                 // 1 point for the repeating block itself, plus each inner
                 // fact's score (negated inner facts contribute 0).
-                1 + fr.facts.iter().map(|pf| {
-                    if pf.negated { 0 } else {
-                        let mut s = 1;
-                        for arg in &pf.args {
-                            s += arg_specificity(arg);
+                1 + fr
+                    .facts
+                    .iter()
+                    .map(|pf| {
+                        if pf.negated {
+                            0
+                        } else {
+                            let mut s = 1;
+                            for arg in &pf.args {
+                                s += arg_specificity(arg);
+                            }
+                            s
                         }
-                        s
-                    }
-                }).sum::<u64>()
+                    })
+                    .sum::<u64>()
             }
         },
     }
@@ -247,7 +261,12 @@ fn record(out: &mut UseMap, name: &str, ctx: &RepContext, where_: &str) -> Resul
     }
 }
 
-fn collect_pattern(items: &[PatternItem], stack: &mut RepContext, out: &mut UseMap, where_: &str) -> Result<()> {
+fn collect_pattern(
+    items: &[PatternItem],
+    stack: &mut RepContext,
+    out: &mut UseMap,
+    where_: &str,
+) -> Result<()> {
     for item in items {
         match item {
             PatternItem::Fact(f) => {
@@ -269,7 +288,12 @@ fn collect_pattern(items: &[PatternItem], stack: &mut RepContext, out: &mut UseM
     Ok(())
 }
 
-fn collect_arg(a: &ArgTemplate, stack: &mut RepContext, out: &mut UseMap, where_: &str) -> Result<()> {
+fn collect_arg(
+    a: &ArgTemplate,
+    stack: &mut RepContext,
+    out: &mut UseMap,
+    where_: &str,
+) -> Result<()> {
     match a {
         ArgTemplate::Placeholder(name) => record(out, name, stack, where_),
         ArgTemplate::RepeatedArgs(r) => {
@@ -284,7 +308,12 @@ fn collect_arg(a: &ArgTemplate, stack: &mut RepContext, out: &mut UseMap, where_
     }
 }
 
-fn collect_body(chunks: &[BodyChunk], stack: &mut RepContext, out: &mut UseMap, where_: &str) -> Result<()> {
+fn collect_body(
+    chunks: &[BodyChunk],
+    stack: &mut RepContext,
+    out: &mut UseMap,
+    where_: &str,
+) -> Result<()> {
     for chunk in chunks {
         match chunk {
             BodyChunk::Placeholder(name) => record(out, name, stack, where_)?,
@@ -416,7 +445,12 @@ fn top_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
         .collect()
 }
 
-fn match_args(pats: &[ArgTemplate], args: &[Arg], start: usize, b: &Bindings) -> Vec<(usize, Bindings)> {
+fn match_args(
+    pats: &[ArgTemplate],
+    args: &[Arg],
+    start: usize,
+    b: &Bindings,
+) -> Vec<(usize, Bindings)> {
     if pats.is_empty() {
         return vec![(start, b.clone())];
     }
@@ -512,7 +546,12 @@ impl Pattern {
 
 /// Match a sequence of pattern items against the fact set, where `used`
 /// marks facts already consumed by a single-fact item.
-fn match_items(items: &[PatternItem], facts: &[Fact], used: &[bool], b: &Bindings) -> Vec<Bindings> {
+fn match_items(
+    items: &[PatternItem],
+    facts: &[Fact],
+    used: &[bool],
+    b: &Bindings,
+) -> Vec<Bindings> {
     if items.is_empty() {
         return vec![b.clone()];
     }
@@ -594,7 +633,8 @@ fn match_fact_repetition(
     // an unbound or literal-only `?` is a free optional that grabs if present.
     let disabled = matches!(rep.kind, RepetitionKind::Optional)
         && list_ph.iter().any(|name| {
-            b.get(name).is_some_and(|v| matches!(v, BindValue::Many(list) if list.is_empty()))
+            b.get(name)
+                .is_some_and(|v| matches!(v, BindValue::Many(list) if list.is_empty()))
         });
     let take: Vec<usize> = match rep.kind {
         RepetitionKind::Optional if !matched_idx.is_empty() && !disabled => vec![matched_idx[0]],
@@ -602,14 +642,17 @@ fn match_fact_repetition(
         RepetitionKind::Optional => vec![],
     };
     let want_present = !take.is_empty();
-    let want_absent = matches!(rep.kind, RepetitionKind::Optional | RepetitionKind::ZeroOrMore)
-        && !want_present;
+    let want_absent = matches!(
+        rep.kind,
+        RepetitionKind::Optional | RepetitionKind::ZeroOrMore
+    ) && !want_present;
     // For `?` repetitions, if any list-bound placeholder is already bound to
     // a non-empty list (from an arg-level repetition), the fact-level `?`
     // must match — it acts as a constraint, not a free optional.
     let must_match = matches!(rep.kind, RepetitionKind::Optional)
         && list_ph.iter().any(|name| {
-            b.get(name).is_some_and(|v| matches!(v, BindValue::Many(list) if !list.is_empty()))
+            b.get(name)
+                .is_some_and(|v| matches!(v, BindValue::Many(list) if !list.is_empty()))
         });
     if want_present {
         let mut used2 = used.to_vec();
@@ -651,13 +694,14 @@ impl Rule {
         let mut out = Vec::new();
         for item in &self.pattern.0 {
             if let PatternItem::Fact(pf) = item
-                && pf.removed {
-                    for f in facts {
-                        if !pf.match_fact(f, b).is_empty() {
-                            out.push(f.clone());
-                        }
+                && pf.removed
+            {
+                for f in facts {
+                    if !pf.match_fact(f, b).is_empty() {
+                        out.push(f.clone());
                     }
                 }
+            }
         }
         out
     }

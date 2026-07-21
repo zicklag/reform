@@ -433,8 +433,8 @@ fn add_fact_duplicate() {
 /// `normal_form_arg` escaping edge cases.
 #[test]
 fn normal_form_arg_edge_cases() {
-    use reform::normal_form_arg;
     use reform::Arg;
+    use reform::normal_form_arg;
     // Empty string
     assert_eq!(normal_form_arg(&Arg::from("")), "()");
     // Trailing punctuation
@@ -476,7 +476,11 @@ fn find_multi_fact_pattern_errors() {
     let pat = reform::parser::pattern("a\nb").unwrap();
     assert_eq!(pat.len(), 2, "pattern should have 2 items");
     let result = e.find_matching_facts(&pat);
-    assert!(result.is_err(), "multi-fact find should error: {:?}", result);
+    assert!(
+        result.is_err(),
+        "multi-fact find should error: {:?}",
+        result
+    );
     let err = format!("{}", result.unwrap_err());
     assert!(err.contains("single-fact"), "error: {err}");
 }
@@ -489,7 +493,8 @@ fn engine_getters() {
     let mut e = Engine::new();
     assert!(e.facts().is_empty());
     assert!(e.rules().is_empty());
-    e.load_str("$ a\n$ rule r\n    ( $x )\n    ( $x )\n").unwrap();
+    e.load_str("$ a\n$ rule r\n    ( $x )\n    ( $x )\n")
+        .unwrap();
     assert_eq!(e.facts().len(), 2);
     assert_eq!(e.rules().len(), 1);
 }
@@ -563,10 +568,10 @@ fn find_multi_arg_pattern() {
 #[test]
 fn settle_quit_mid_turn() {
     let mut e = Engine::new();
-    e.load_str("$ trigger\n$ rule q\n    ( trigger )\n    ( $ quit )\n").unwrap();
+    e.load_str("$ trigger\n$ rule q\n    ( trigger )\n    ( $ quit )\n")
+        .unwrap();
     assert!(e.quit());
 }
-
 
 // -- find with multi-arg pattern (spaces in pattern) -------------------------
 
@@ -618,7 +623,8 @@ fn execute_command_empty_args() {
     // ingest_body with a fact that has only "$" - after stripping it's empty.
     // The empty fact gets stored (it's not a command), but execute_command
     // is never called because is_command is false for an empty fact.
-    e.ingest_body(reform::Fact(vec![reform::Arg::from("$")])).unwrap();
+    e.ingest_body(reform::Fact(vec![reform::Arg::from("$")]))
+        .unwrap();
     // The empty fact is stored (not a command, not a rule).
     assert_eq!(e.facts().len(), 1);
     assert!(e.facts()[0].is_empty());
@@ -745,12 +751,7 @@ fn ingest_file_rule_parse_error() {
 #[test]
 fn ingest_body_rule_parse_error() {
     let mut e = Engine::new();
-    let fact = reform::Fact(vec![
-        "rule".into(),
-        "bad".into(),
-        "?".into(),
-        "body".into(),
-    ]);
+    let fact = reform::Fact(vec!["rule".into(), "bad".into(), "?".into(), "body".into()]);
     let res = e.ingest_body(fact);
     assert!(res.is_err());
     let err = format!("{}", res.unwrap_err());
@@ -928,7 +929,7 @@ $ quit
 /// compute_specificity returns correct scores for various patterns.
 #[test]
 fn compute_specificity_scores() {
-    use reform::rule::{compute_specificity, Pattern};
+    use reform::rule::{Pattern, compute_specificity};
 
     // Single fact, 3 literal args: 1 fact + 3 literals = 4
     let p: Pattern = reform::parser::pattern("a is b").unwrap();
@@ -1023,7 +1024,6 @@ fn load_file_error() {
     assert!(res.is_err(), "load_file should fail for non-existent file");
 }
 
-
 // -- trace logging ---------------------------------------------------------
 
 /// Enabling trace exercises the `set_trace` path and every `if self.trace`
@@ -1034,7 +1034,8 @@ fn load_file_error() {
 fn trace_emits_events() {
     let mut e = Engine::new();
     e.set_trace(true);
-    e.load_str("$ rule r\n    ( - a )\n    ( b )\n$ a\n$ quit\n").unwrap();
+    e.load_str("$ rule r\n    ( - a )\n    ( b )\n$ a\n$ quit\n")
+        .unwrap();
     assert!(e.contains(&fact("b")));
     assert!(!e.contains(&fact("a")));
 }

@@ -164,7 +164,11 @@ fn domain_name_keeps_dot() {
 fn body_double_dollar_is_literal_dollar() {
     let b = body("$$");
     assert_eq!(b.len(), 1);
-    assert!(matches!(&b.0[..], [BodyChunk::Text(t)] if t == "$"), "got {:?}", b);
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Text(t)] if t == "$"),
+        "got {:?}",
+        b
+    );
 }
 
 /// A bare `$` in a body (not followed by a valid placeholder name) is
@@ -173,7 +177,11 @@ fn body_double_dollar_is_literal_dollar() {
 fn body_bare_dollar_is_literal() {
     let b = body("$");
     assert_eq!(b.len(), 1);
-    assert!(matches!(&b.0[..], [BodyChunk::Text(t)] if t == "$"), "got {:?}", b);
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Text(t)] if t == "$"),
+        "got {:?}",
+        b
+    );
 }
 
 /// An empty body produces no chunks.
@@ -182,7 +190,6 @@ fn body_empty() {
     let b = body("");
     assert_eq!(b.len(), 0);
 }
-
 
 // ---------------------------------------------------------------------------
 // Edge cases
@@ -262,7 +269,8 @@ fn body_double_dollar_in_repeat() {
     assert!(
         matches!(&b.0[..], [BodyChunk::Repeat(r)] if r.kind == RepetitionKind::ZeroOrMore
             && matches!(&r.chunks[..], [BodyChunk::Text(t)] if t == " $x ")),
-        "got {:?}", b
+        "got {:?}",
+        b
     );
 }
 
@@ -275,7 +283,8 @@ fn body_bare_dollar_in_repeat() {
     assert!(
         matches!(&b.0[..], [BodyChunk::Repeat(r)] if r.kind == RepetitionKind::ZeroOrMore
             && matches!(&r.chunks[..], [BodyChunk::Text(t)] if t == " $ ")),
-        "got {:?}", b
+        "got {:?}",
+        b
     );
 }
 
@@ -284,14 +293,13 @@ fn body_bare_dollar_in_repeat() {
 /// `normal_form_arg` escapes backslashes in arguments that need wrapping.
 #[test]
 fn normal_form_arg_backslash_escape() {
-    use reform::normal_form_arg;
     use reform::Arg;
+    use reform::normal_form_arg;
     // Backslash in an arg that needs parens (has trailing period)
     assert_eq!(normal_form_arg(&Arg::from("a\\b.")), "(a\\\\b.)");
     // Backslash in an arg that doesn't need parens stays clean
     assert_eq!(normal_form_arg(&Arg::from("a\\b")), "a\\b");
 }
-
 
 // -- parenthesized literal arg in a pattern ----------------------------------
 
@@ -303,9 +311,23 @@ fn pattern_parenthesized_literal_arg() {
     use reform::parser::pattern;
     use reform::rule::ArgTemplate;
     let p = pattern("a (b c) d").unwrap();
-    let reform::rule::PatternItem::Fact(f) = &p.0[0] else { panic!("got {:?}", p) };
+    let reform::rule::PatternItem::Fact(f) = &p.0[0] else {
+        panic!("got {:?}", p)
+    };
     assert_eq!(f.args.len(), 3);
-    assert!(matches!(&f.args[0], ArgTemplate::Literal(a) if &**a == "a"), "got {:?}", f.args[0]);
-    assert!(matches!(&f.args[1], ArgTemplate::Literal(a) if &**a == "b c"), "got {:?}", f.args[1]);
-    assert!(matches!(&f.args[2], ArgTemplate::Literal(a) if &**a == "d"), "got {:?}", f.args[2]);
+    assert!(
+        matches!(&f.args[0], ArgTemplate::Literal(a) if &**a == "a"),
+        "got {:?}",
+        f.args[0]
+    );
+    assert!(
+        matches!(&f.args[1], ArgTemplate::Literal(a) if &**a == "b c"),
+        "got {:?}",
+        f.args[1]
+    );
+    assert!(
+        matches!(&f.args[2], ArgTemplate::Literal(a) if &**a == "d"),
+        "got {:?}",
+        f.args[2]
+    );
 }

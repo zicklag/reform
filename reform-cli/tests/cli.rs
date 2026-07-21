@@ -90,7 +90,10 @@ mod cli_tests {
         );
         assert!(out.contains("You have won."), "stdout was: {out}");
         // The bar should be lit (described) on the second visit, and the cloak hung.
-        assert!(out.contains("You hang the cloak on the hook."), "stdout was: {out}");
+        assert!(
+            out.contains("You hang the cloak on the hook."),
+            "stdout was: {out}"
+        );
     }
 
     /// Disturbing the message twice (then hanging the cloak) loses.

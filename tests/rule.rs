@@ -31,10 +31,15 @@ fn pattern_duplicate_placeholder_conflict() {
     // `$x` tries to bind to `b` but bind_scalar returns false (conflict).
     use reform::rule::PatternItem;
     let pf = reform::parser::pattern("$x $x").unwrap();
-    let PatternItem::Fact(pf) = &pf[0] else { panic!("expected Fact pattern") };
+    let PatternItem::Fact(pf) = &pf[0] else {
+        panic!("expected Fact pattern")
+    };
     let f = fact(&["a", "b"]);
     let matches = pf.matches_fact(&f);
-    assert!(matches.is_none(), "conflicting placeholders should not match");
+    assert!(
+        matches.is_none(),
+        "conflicting placeholders should not match"
+    );
 }
 
 #[test]
@@ -42,10 +47,15 @@ fn pattern_duplicate_placeholder_matches() {
     // Pattern `$x $x` matching fact `a a`: both bind to the same value.
     use reform::rule::PatternItem;
     let pf = reform::parser::pattern("$x $x").unwrap();
-    let PatternItem::Fact(pf) = &pf[0] else { panic!("expected Fact pattern") };
+    let PatternItem::Fact(pf) = &pf[0] else {
+        panic!("expected Fact pattern")
+    };
     let f = fact(&["a", "a"]);
     let matches = pf.matches_fact(&f);
-    assert!(matches.is_some(), "same placeholder with same value should match");
+    assert!(
+        matches.is_some(),
+        "same placeholder with same value should match"
+    );
 }
 
 #[test]
@@ -421,7 +431,11 @@ fn match_reps_plus_with_zero_width_inner() {
     let p = reform::parser::pattern("prefix $( $( $x )* )+").unwrap();
     let facts = vec![fact(&["prefix"])];
     let matches = p.find_matches(&facts);
-    assert_eq!(matches.len(), 1, "+ with zero-width inner should match once");
+    assert_eq!(
+        matches.len(),
+        1,
+        "+ with zero-width inner should match once"
+    );
 }
 
 /// Two fact-level repetitions sharing a placeholder `$x` (both at the `*`
@@ -447,7 +461,11 @@ fn match_reps_star_with_zero_width_inner() {
     let p = reform::parser::pattern("prefix $( $( $x )* )*").unwrap();
     let facts = vec![fact(&["prefix"])];
     let matches = p.find_matches(&facts);
-    assert_eq!(matches.len(), 1, "* with zero-width inner should match once");
+    assert_eq!(
+        matches.len(),
+        1,
+        "* with zero-width inner should match once"
+    );
 }
 
 /// A fact-level `+` repetition with no matching facts takes nothing and is
@@ -459,5 +477,8 @@ fn fact_rep_plus_with_no_match_skips_both_branches() {
     let p = reform::parser::pattern("$( a )+\nb").unwrap();
     let facts = vec![fact(&["b"])];
     let matches = p.find_matches(&facts);
-    assert!(matches.is_empty(), "+ with no matching fact should not match");
+    assert!(
+        matches.is_empty(),
+        "+ with no matching fact should not match"
+    );
 }

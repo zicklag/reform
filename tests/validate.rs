@@ -5,7 +5,11 @@ fn parse_rule(src: &str) -> Result<Rule, String> {
     let f = &facts[0];
     let args: Vec<&str> = f.iter().map(|a| &**a).collect();
     // strip a leading `$`
-    let rule_args = if args[0] == "$" { &args[1..] } else { &args[..] };
+    let rule_args = if args[0] == "$" {
+        &args[1..]
+    } else {
+        &args[..]
+    };
     Rule::parse(rule_args).map_err(|e| format!("{e}"))
 }
 
@@ -22,10 +26,7 @@ $ rule r
     ( d )
 "#;
     let err = parse_rule(src).expect_err("should reject");
-    assert!(
-        err.contains("inconsistent nesting"),
-        "got: {err}"
-    );
+    assert!(err.contains("inconsistent nesting"), "got: {err}");
 }
 
 /// A placeholder used in the body at a different nesting than in the pattern
@@ -94,10 +95,7 @@ $ rule
     ( b )
 "#;
     let err = parse_rule(src).expect_err("should reject");
-    assert!(
-        err.contains("exactly 4 arguments"),
-        "got: {err}"
-    );
+    assert!(err.contains("exactly 4 arguments"), "got: {err}");
 }
 
 /// A rule with extra arguments beyond the required 4 is rejected.
@@ -109,10 +107,7 @@ $ rule r extra
     ( b )
 "#;
     let err = parse_rule(src).expect_err("should reject");
-    assert!(
-        err.contains("exactly 4 arguments"),
-        "got: {err}"
-    );
+    assert!(err.contains("exactly 4 arguments"), "got: {err}");
 }
 
 /// An empty pattern (no pattern items) is valid.
@@ -149,10 +144,7 @@ $ rule r
     ( b )
 "#;
     let err = parse_rule(src).expect_err("should reject");
-    assert!(
-        err.contains("failed to parse rule pattern"),
-        "got: {err}"
-    );
+    assert!(err.contains("failed to parse rule pattern"), "got: {err}");
 
     let src = r#"
 $ rule r
@@ -227,10 +219,7 @@ $ rule r
     ( $( $x )* )
 "#;
     let err = parse_rule(src).expect_err("should reject");
-    assert!(
-        err.contains("different nesting"),
-        "got: {err}"
-    );
+    assert!(err.contains("different nesting"), "got: {err}");
 }
 
 /// A placeholder used at two different nesting depths *within the body* is

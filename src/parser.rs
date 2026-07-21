@@ -1,5 +1,8 @@
-use crate::rule::{ArgTemplate, Body, BodyChunk, Pattern, PatternFact, PatternFactRepetition, PatternItem, RepeatedArgs, RepeatBlock, RepetitionKind};
 use crate::Arg;
+use crate::rule::{
+    ArgTemplate, Body, BodyChunk, Pattern, PatternFact, PatternFactRepetition, PatternItem,
+    RepeatBlock, RepeatedArgs, RepetitionKind,
+};
 
 pub use reform_parser::{facts, pattern};
 
@@ -308,10 +311,11 @@ fn merge_text(chunks: Vec<BodyChunk>) -> Vec<BodyChunk> {
     let mut merged: Vec<BodyChunk> = Vec::new();
     for chunk in chunks {
         if let BodyChunk::Text(t) = &chunk
-            && let Some(BodyChunk::Text(prev)) = merged.last_mut() {
-                prev.push_str(t);
-                continue;
-            }
+            && let Some(BodyChunk::Text(prev)) = merged.last_mut()
+        {
+            prev.push_str(t);
+            continue;
+        }
         merged.push(chunk);
     }
     merged
