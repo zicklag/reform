@@ -133,7 +133,7 @@ fn repeated_args_specificity(ra: &RepeatedArgs) -> u64 {
         RepetitionKind::Optional | RepetitionKind::ZeroOrMore => 0,
         RepetitionKind::OneOrMore => 1,
     };
-    base + ra.args.iter().map(|a| arg_specificity(a)).sum::<u64>()
+    base + ra.args.iter().map(arg_specificity).sum::<u64>()
 }
 
 /// A rule pattern, matching one or more facts.
@@ -638,10 +638,10 @@ fn match_fact_repetition(
     let match_b: Bindings = if must_match {
         let mut mb = b.clone();
         for name in &list_ph {
-            if let Some(BindValue::Many(list)) = b.get(name) {
-                if let Some(v) = list.first() {
-                    mb.map.insert(name.clone(), BindValue::One(v.clone()));
-                }
+            if let Some(BindValue::Many(list)) = b.get(name)
+                && let Some(v) = list.first()
+            {
+                mb.map.insert(name.clone(), BindValue::One(v.clone()));
             }
         }
         mb
