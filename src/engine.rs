@@ -85,7 +85,7 @@ impl Engine {
             false
         } else {
             if self.trace {
-                eprintln!("+ {}", normal_form_fact(&fact));
+                eprintln!("[trace] + {}", normal_form_fact(&fact));
             }
             self.facts.push(fact);
             self.changed = true;
@@ -99,7 +99,7 @@ impl Engine {
         let removed = self.facts.len() != before;
         if removed {
             if self.trace {
-                eprintln!("- {}", normal_form_fact(fact));
+                eprintln!("[trace] - {}", normal_form_fact(fact));
             }
             self.changed = true;
         }
@@ -108,7 +108,7 @@ impl Engine {
 
     pub fn add_rule(&mut self, rule: Rule) {
         if self.trace {
-            eprintln!("rule {} (specificity {})", rule.name, rule.specificity);
+            eprintln!("[trace] rule {} (specificity {})", rule.name, rule.specificity);
         }
         self.rules.push(rule);
         // Sort by specificity descending so more specific rules fire first.
@@ -264,7 +264,7 @@ impl Engine {
                     continue;
                 }
                 if self.trace {
-                    eprintln!("fire {} -> {}", rule.name, text.trim_end());
+                    eprintln!("[trace] fire {} -> {}", rule.name, text.trim_end());
                 }
                 for f in parser::facts(&text)? {
                     self.ingest_body(f)?;

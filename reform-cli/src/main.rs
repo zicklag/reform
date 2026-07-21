@@ -20,8 +20,9 @@ struct Cli {
     #[arg(short = 'A')]
     allow_direct: bool,
 
-    /// Trace engine activity to stderr: facts added (`+`) / removed (`-`),
-    /// rules registered, and rule firings (`fire <name> -> <body>`).
+    /// Trace engine activity to stderr (each line prefixed `[trace]`): facts
+    /// added (`+`) / removed (`-`), rules registered, and rule firings
+    /// (`fire <name> -> <body>`).
     #[arg(short = 'v', long = "trace")]
     trace: bool,
 
