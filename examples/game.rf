@@ -1,3 +1,5 @@
 $ load ./iflib/lib.rf
 
-The house is broken
+John is parent of Billy
+
+$ facts

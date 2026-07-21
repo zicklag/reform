@@ -927,58 +927,81 @@ $ quit
 }
 
 /// compute_specificity returns correct scores for various patterns.
+///
+/// Word scores: literal = 5, placeholder = 4, plus 1 per required fact.
+/// Repetition blocks add 0 for the block and penalize enclosed words by
+/// 1 (`?`), 2 (`+`), 3 (`*`), stacking across nested blocks and saturating
+/// at zero.
 #[test]
 fn compute_specificity_scores() {
     use reform::rule::{Pattern, compute_specificity};
 
-    // Single fact, 3 literal args: 1 fact + 3 literals = 4
+    // Single fact, 3 literal args: 1 fact + 3*5 = 16
     let p: Pattern = reform::parser::pattern("a is b").unwrap();
-    assert_eq!(compute_specificity(&p), 4);
+    assert_eq!(compute_specificity(&p), 16);
 
-    // Single fact with placeholders: 1 fact + 1 literal ("is") = 2
+    // Single fact with placeholders: 1 fact + 4 + 5(is) + 4 = 14
     let p: Pattern = reform::parser::pattern("$x is $y").unwrap();
-    assert_eq!(compute_specificity(&p), 2);
+    assert_eq!(compute_specificity(&p), 14);
 
-    // Two facts: 2 facts + 6 literals = 8
+    // Two facts: (1 + 3*5) * 2 = 32
     let p: Pattern = reform::parser::pattern("a is b\nc is d").unwrap();
-    assert_eq!(compute_specificity(&p), 8);
+    assert_eq!(compute_specificity(&p), 32);
 
-    // Optional fact repetition contributes 0
+    // Optional fact repetition: required fact 16 + inner fact penalized by 1
+    // (the `?`): 1 + (5-1)*3 = 13 -> 29
     let p: Pattern = reform::parser::pattern("a is b\n$( c is d )?").unwrap();
-    assert_eq!(compute_specificity(&p), 4); // only the required fact counts
+    assert_eq!(compute_specificity(&p), 29);
 
     // Negated fact contributes 0
     let p: Pattern = reform::parser::pattern("a is b\n! c is d").unwrap();
-    assert_eq!(compute_specificity(&p), 4); // only the non-negated fact counts
+    assert_eq!(compute_specificity(&p), 16); // only the non-negated fact counts
 
-    // Arg-level repetition with literals: 1 fact + 1 literal + (1 block + 2 literals) = 5
+    // Arg-level `+` with literals: 1 + 5(a) + ((5-2) + (5-2)) = 12
     let p: Pattern = reform::parser::pattern("a $( b c )+").unwrap();
-    assert_eq!(compute_specificity(&p), 5);
+    assert_eq!(compute_specificity(&p), 12);
 
-    // Arg-level `*` with placeholders only: 1 fact + (0 block + 0 literals) = 1
-    // (`*` may match zero, so the block adds nothing).
+    // Arg-level `*` with a placeholder: 1 + (4-3) = 2
     let p: Pattern = reform::parser::pattern("$( $x )*").unwrap();
-    assert_eq!(compute_specificity(&p), 1);
+    assert_eq!(compute_specificity(&p), 2);
 
-    // Nested arg-level repetition: 1 fact + 1 literal + (1 outer `+` block +
-    // (0 inner `*` block + 1 literal)) = 4
+    // Nested arg-level repetition: outer `+` (penalty 2) around inner `*`
+    // (penalty 3); the literal `b` is at stacked penalty 5 -> 5-5 = 0.
+    // Total: 1 + 5(a) + 0 = 6
     let p: Pattern = reform::parser::pattern("a $( $( b )* )+").unwrap();
-    assert_eq!(compute_specificity(&p), 4);
+    assert_eq!(compute_specificity(&p), 6);
 
-    // Negated fact inside a `+` repetition: 1 fact + 1 literal "a" + (1 block
-    // + 0 negated inner) = 3
+    // Negated fact inside a `+` repetition: 1 + 5(a) + 0 (negated inner) = 6
     let p: Pattern = reform::parser::pattern("a\n$(\n! b is c\n)+").unwrap();
-    assert_eq!(compute_specificity(&p), 3);
+    assert_eq!(compute_specificity(&p), 6);
 
-    // A catch-all `sentence $( $arg )*` must be LESS specific than a structured
-    // rule with a literal constraint, so the structured rule fires first:
-    //   `sentence $( $arg )*`              = 1 + 1(sentence) + 0(*)      = 2
-    //   `sentence $( $a1 )? $x is $( $a2 )? $y` = 1 + 1 + 0 + 0 + 1(is) + 0 + 0 = 3
+    // A catch-all must be LESS specific than a structured rule with a literal
+    // constraint, so the structured rule fires first:
+    //   `sentence $( $arg )*`                    = 1 + 5 + (4-3)        = 7
+    //   `sentence $( $a1 )? $x is $( $a2 )? $y`  = 1 + 5 + (4-1) + 4 + 5(is) + (4-1) + 4 = 25
     let default = reform::parser::pattern("sentence $( $arg )*").unwrap();
     let structured = reform::parser::pattern("sentence $( $a1 )? $x is $( $a2 )? $y").unwrap();
     assert!(
         compute_specificity(&structured) > compute_specificity(&default),
         "structured rule must out-rank the catch-all default"
+    );
+
+    // A `+` catch-all (`sentence $( $word )+`) must also be less specific than
+    // the same structured rule: 1 + 5 + (4-2) = 8 < 25.
+    let default_plus = reform::parser::pattern("sentence $( $word )+").unwrap();
+    assert!(
+        compute_specificity(&structured) > compute_specificity(&default_plus),
+        "structured rule must out-rank a `+` catch-all default"
+    );
+
+    // More required `+` repetitions are more specific than fewer:
+    //   `a $( $b )+ . $( $c )+` = 1 + 5 + (4-2) + 5 + (4-2) = 15
+    //   `a $( $b )+ .`          = 1 + 5 + (4-2) + 5         = 13
+    let more_reps = reform::parser::pattern("a $( $b )+ . $( $c )+").unwrap();
+    let fewer_reps = reform::parser::pattern("a $( $b )+ .").unwrap();
+    assert!(
+        compute_specificity(&more_reps) > compute_specificity(&fewer_reps),
+        "more required repetitions must out-rank fewer"
     );
 }
 

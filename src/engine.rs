@@ -108,7 +108,10 @@ impl Engine {
 
     pub fn add_rule(&mut self, rule: Rule) {
         if self.trace {
-            eprintln!("[trace] rule {} (specificity {})", rule.name, rule.specificity);
+            eprintln!(
+                "[trace] rule {} (specificity {})",
+                rule.name, rule.specificity
+            );
         }
         self.rules.push(rule);
         // Sort by specificity descending so more specific rules fire first.

@@ -1,0 +1,51 @@
+$ rule default-sentence-rule
+    (
+        - sentence $( $word )+
+    )
+    (
+        $ println (Did not understand sentence: ) $($word )+
+    )
+ 
+# $x is $y
+$ rule x_is_y
+    (
+        - sentence $( $a1 )? $x is $( $a2 )? $y
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $x is $y
+    )
+    
+# $x is $relation $of $y
+$ rule x_is_rel_of_y
+    (
+        - sentence $( $a1 )? $x is $( $a2 )? $rel $( $prep )? $( $a3 )? $y
+        $( $a1 is article )?
+        $( $a2 is article )?
+        $( $a3 is article )?
+        $( $prep is preposition )?
+    )
+    (
+        $x is $rel $( $prep )? $y
+    )
+
+a is article    
+an is article
+the is article
+of is preposition
+
+# Regression, this wasn't working. The issue was the specificity of the rules
+# all ending up the same. Implemented a newspecificity calculation:
+# - A literal word is worth 5 specificity points
+# - A placeholder is worth 4 specificity points
+# - When inside a $()* block the specificity of each word is 3
+#   less than normal and the block doesn't add any specificity.
+# - When inside a $()+ block the specificity of each word is 2
+#   less than normal and the block doesn't add any specificity.
+# - When inside a $()? block the specificity of each word is 1
+#   less than normal and the block doesn't add any specificity
+# - When outside of a block, tthe normal specificity applies.
+John is parent of Billy
+
+$ assert John is parent of Billy

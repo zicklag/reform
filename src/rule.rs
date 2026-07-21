@@ -69,71 +69,86 @@ impl Rule {
 
 /// Compute a specificity score for a pattern. Higher = more specific.
 ///
-/// The score counts:
-/// - Each non-negated pattern fact: 1 point
-/// - Each literal argument in those facts: 1 point
-/// - `?` (optional) and `*` (zero-or-more) repetitions contribute 0 for the
-///   block itself (they may match zero), plus their inner args/facts
-/// - `+` (one-or-more) repetitions contribute 1 point for the block itself,
-///   plus their inner args/facts — so a pattern with more required
-///   repeating blocks is more specific than one with fewer, while a
-///   catch-all `sentence $( $arg )*` stays less specific than a structured
-///   rule with literal constraints.
+/// Specificity is word-based. Each word contributes:
+/// - a literal argument: 5 points
+/// - a placeholder (`$x`): 4 points — it still fixes a position in the
+///   pattern's shape even though it matches any value
 ///
-/// This ensures rules with more literal constraints and more required facts
-/// fire before more general rules.
+/// A required (non-negated) fact also adds 1 point for the fact itself.
+///
+/// Repetition blocks (`$( ... )?`, `$( ... )+`, `$( ... )*`) add nothing for
+/// the block itself, but the words inside them are worth less the looser the
+/// repetition is, because a looser block constrains the match less. The
+/// per-block penalty, subtracted from each enclosed word's base score, is:
+/// - `?` (optional):     1 (may match zero, but constrains when present)
+/// - `+` (one-or-more):  2 (requires something, but matches anything)
+/// - `*` (zero-or-more): 3 (loosest)
+///
+/// Penalties stack across nested blocks, and a word's contribution saturates
+/// at zero. Negated facts contribute 0.
+///
+/// This ranks a structured rule with literal constraints above a wildcard
+/// catch-all: `sentence $( $word )+` scores 1 + 5 + (4-2) = 8, while
+/// `sentence $( $a1 )? $x is $( $a2 )? $y` scores
+/// 1 + 5 + (4-1) + 4 + 5 + (4-1) + 4 = 25. It also keeps a pattern with more
+/// required repetitions more specific than one with fewer:
+/// `a $( $b )+ . $( $c )+` (15) > `a $( $b )+ .` (13).
 pub fn compute_specificity(pattern: &Pattern) -> u64 {
     pattern.iter().map(pattern_item_specificity).sum()
 }
 
 fn pattern_item_specificity(item: &PatternItem) -> u64 {
     match item {
-        PatternItem::Fact(pf) => fact_score(pf),
-        PatternItem::FactRepetition(fr) => match fr.kind {
-            // `+` requires at least one match (1 point for the block); `*`
-            // may match zero (0 for the block, but inner facts still count);
-            // `?` may match zero and contributes 0. Negated inner facts add 0.
-            RepetitionKind::Optional => 0,
-            RepetitionKind::ZeroOrMore => fr.facts.iter().map(fact_score).sum::<u64>(),
-            RepetitionKind::OneOrMore => 1 + fr.facts.iter().map(fact_score).sum::<u64>(),
-        },
+        PatternItem::Fact(pf) => fact_score(pf, 0),
+        PatternItem::FactRepetition(fr) => {
+            // The block itself adds nothing; its inner facts' words are
+            // penalized by the block's looseness. Negated inner facts add 0.
+            let penalty = rep_penalty(fr.kind);
+            fr.facts.iter().map(|pf| fact_score(pf, penalty)).sum()
+        }
     }
 }
 
 /// Specificity of a single (non-repetition) pattern fact: 1 point for the
-/// fact itself plus each arg's specificity. Negated facts contribute 0.
-fn fact_score(pf: &PatternFact) -> u64 {
+/// fact itself plus each arg's (penalty-adjusted) specificity. Negated facts
+/// contribute 0. `penalty` is the stacked penalty from enclosing blocks.
+fn fact_score(pf: &PatternFact, penalty: u64) -> u64 {
     if pf.negated {
         return 0;
     }
-    let mut s = 1; // the fact itself
+    let mut s = 1; // the fact itself (not a word; not penalized)
     for arg in &pf.args {
-        s += arg_specificity(arg);
+        s += arg_specificity(arg, penalty);
     }
     s
 }
 
-/// Specificity contributed by a single arg template.
-fn arg_specificity(arg: &ArgTemplate) -> u64 {
+/// Specificity contributed by a single arg template at the given nesting
+/// penalty.
+fn arg_specificity(arg: &ArgTemplate, penalty: u64) -> u64 {
     match arg {
-        ArgTemplate::Literal(_) => 1,
-        ArgTemplate::Placeholder(_) => 0,
-        ArgTemplate::RepeatedArgs(ra) => repeated_args_specificity(ra),
+        ArgTemplate::Literal(_) => 5u64.saturating_sub(penalty),
+        ArgTemplate::Placeholder(_) => 4u64.saturating_sub(penalty),
+        ArgTemplate::RepeatedArgs(ra) => repeated_args_specificity(ra, penalty),
     }
 }
 
-fn repeated_args_specificity(ra: &RepeatedArgs) -> u64 {
-    // A `+` block requires at least one match, so it adds 1 point for the
-    // block itself; `*` and `?` may match zero, so they add 0 (only their
-    // inner args' specificity counts). This keeps a catch-all
-    // `sentence $( $arg )*` less specific than a structured rule with
-    // literal constraints, while still ranking `a $( b )+ . $( c )+` above
-    // `a $( b )+ .`.
-    let base = match ra.kind {
-        RepetitionKind::Optional | RepetitionKind::ZeroOrMore => 0,
-        RepetitionKind::OneOrMore => 1,
-    };
-    base + ra.args.iter().map(arg_specificity).sum::<u64>()
+fn repeated_args_specificity(ra: &RepeatedArgs, parent_penalty: u64) -> u64 {
+    // The block itself adds nothing; its inner words are penalized by the
+    // block's looseness stacked with the enclosing blocks' penalties.
+    let penalty = parent_penalty + rep_penalty(ra.kind);
+    ra.args.iter().map(|a| arg_specificity(a, penalty)).sum()
+}
+
+/// Penalty subtracted from a word's base score for being inside a repetition
+/// block of this kind. Looser blocks constrain the match less, so they
+/// subtract more. Penalties stack across nested blocks.
+fn rep_penalty(kind: RepetitionKind) -> u64 {
+    match kind {
+        RepetitionKind::Optional => 1,
+        RepetitionKind::OneOrMore => 2,
+        RepetitionKind::ZeroOrMore => 3,
+    }
 }
 
 /// A rule pattern, matching one or more facts.
@@ -194,7 +209,7 @@ pub struct PatternFactRepetition {
 }
 
 /// How many times a block repeats.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
 pub enum RepetitionKind {
     Optional,
     OneOrMore,
@@ -271,7 +286,7 @@ fn collect_pattern(
                 }
             }
             PatternItem::FactRepetition(r) => {
-                stack.push(r.kind.clone());
+                stack.push(r.kind);
                 for f in &r.facts {
                     for a in &f.args {
                         collect_arg(a, stack, out, where_)?;
@@ -293,7 +308,7 @@ fn collect_arg(
     match a {
         ArgTemplate::Placeholder(name) => record(out, name, stack, where_),
         ArgTemplate::RepeatedArgs(r) => {
-            stack.push(r.kind.clone());
+            stack.push(r.kind);
             for a in &r.args {
                 collect_arg(a, stack, out, where_)?;
             }
@@ -314,7 +329,7 @@ fn collect_body(
         match chunk {
             BodyChunk::Placeholder(name) => record(out, name, stack, where_)?,
             BodyChunk::Repeat(r) => {
-                stack.push(r.kind.clone());
+                stack.push(r.kind);
                 collect_body(&r.chunks, stack, out, where_)?;
                 stack.pop();
             }

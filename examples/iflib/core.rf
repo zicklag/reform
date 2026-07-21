@@ -45,28 +45,16 @@ $ rule x_is_y
         $x is $y
     )
 
-# $x is relation of $y
+# $x is $relation $of $y
 $ rule x_is_rel_of_y
     (
-        - statement $( $a1 )? $x is $rel $( $prep )? $( $a2 )? $y
+        - statement $( $a1 )? $x is $( $a2 )? $rel $( $prep )? $( $a3 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
+        $( $a3 is article )?
         $( $prep is preposition )?
-        ! $rel is article
-        ! $rel is preposition
     )
     (
         $x is $rel $( $prep )? $y
     )
 
-# Define the articles and prepositions
-
-an is article
-a is article
-the is an article
-A is an article
-An is an article
-The is an article
-
-of is a preposition
-to is a preposition

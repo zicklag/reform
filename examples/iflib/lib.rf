@@ -1,1 +1,13 @@
 $ load ./core.rf
+
+# Define the articles and prepositions
+
+an is article
+a is article
+the is an article
+A is an article
+An is an article
+The is an article
+
+of is a preposition
+to is a preposition
