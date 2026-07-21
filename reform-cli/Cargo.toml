@@ -9,8 +9,7 @@ path = "./src/main.rs"
 
 [dependencies]
 reform = { path = ".." }
-anyhow = "1.0.103"
-clap = { version = "4", features = ["derive"] }
+argh = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,37 +1,38 @@
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
-use clap::Parser;
+use argh::FromArgs;
 use reform::engine::Engine;
 
 /// A Reform rule-engine REPL.
-///
-/// Each line you type is fed to the engine. By default every line becomes a
-/// `prompt` fact (as if it had been written with a `>` prefix in a file). With
-/// `-A`, a line that starts with `$` is inserted directly — as a `$`-prefixed
-/// rule/command/fact — instead of being turned into a prompt. Direct `$` facts
-/// may span multiple lines: after the first `$` line, indented continuation
-/// lines are appended, and a blank line (or the next non-indented line)
-/// submits the fact. This lets you enter multi-line rules interactively.
-#[derive(Parser)]
-#[command(name = "reform", version, about)]
+#[derive(FromArgs)]
+#[argh(name = "reform")]
 struct Cli {
     /// Allow `$`-prefixed lines to be inserted directly instead of as prompts.
-    #[arg(short = 'A')]
+    #[argh(switch, short = 'A', description = "allow $ lines as direct facts")]
     allow_direct: bool,
 
     /// Trace engine activity to stderr (each line prefixed `[trace]`): facts
     /// added (`+`) / removed (`-`), rules registered, and rule firings
     /// (`fire <name> -> <body>`).
-    #[arg(short = 'v', long = "trace")]
+    #[argh(switch, short = 'v', long = "trace", description = "trace engine activity")]
     trace: bool,
 
+    /// Print version and exit.
+    #[argh(switch, long = "version", description = "print version and exit")]
+    version: bool,
+
     /// Reform files to load before starting the REPL.
+    #[argh(positional, description = "reform files to load")]
     files: Vec<PathBuf>,
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let cli: Cli = argh::from_env();
+    if cli.version {
+        println!("reform {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     let mut engine = Engine::new();
     let trace = cli.trace || std::env::var("REFORM_TRACE").is_ok();
     engine.set_trace(trace);

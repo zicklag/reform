@@ -34,6 +34,7 @@ $ rule (default statment rule)
         $ println (Warning: I did not understand this sentence:) ($($arg )*)
     )
 
+# $x is $y
 $ rule x_is_y
     (
         - statement $( $a1 )? $x is $( $a2 )? $y
@@ -44,6 +45,7 @@ $ rule x_is_y
         $x is $y
     )
 
+# $x is relation of $y
 $ rule x_is_rel_of_y
     (
         - statement $( $a1 )? $x is $rel $( $prep )? $( $a2 )? $y
