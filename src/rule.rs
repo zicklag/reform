@@ -607,6 +607,48 @@ fn match_fact_repetition(
         })
         .collect();
 
+    // A `?` whose list-bound placeholder is an empty list is "disabled": the
+    // corresponding arg-level `$( $x )?` matched zero iterations, so there is
+    // nothing to verify. A non-empty list makes it a constraint (must_match):
+    // the fact-level `?` only verifies a matching fact exists, and must NOT
+    // consume it (so the same fact stays available for a later `?`
+    // constraint, e.g. `$a1` and `$a2` both bound to `an` against a single
+    // `an is article` fact). An unbound or literal-only `?` is a free optional
+    // that grabs a fact if present.
+    let is_optional = matches!(rep.kind, RepetitionKind::Optional);
+    let disabled = is_optional
+        && list_ph.iter().any(|name| {
+            b.get(name)
+                .is_some_and(|v| matches!(v, BindValue::Many(list) if list.is_empty()))
+        });
+    let must_match = is_optional
+        && list_ph.iter().any(|name| {
+            b.get(name)
+                .is_some_and(|v| matches!(v, BindValue::Many(list) if !list.is_empty()))
+        });
+
+    // Binding to match candidate facts against. For a `?` constraint, the
+    // arg-level `$( $x )?` bound the placeholder to a 0-or-1 element list. When
+    // non-empty (the constraint case) it holds exactly one value, so we
+    // treat it as a scalar `One(v)` here. This makes `bind_scalar` perform an
+    // equality check against the bound value instead of blindly appending to
+    // the list — otherwise `$( $a2 is article )?` with `$a2=[running]` would
+    // spuriously match `the is article` by appending `the`, and the rule
+    // would fire on facts that don't actually satisfy the constraint.
+    let match_b: Bindings = if must_match {
+        let mut mb = b.clone();
+        for name in &list_ph {
+            if let Some(BindValue::Many(list)) = b.get(name) {
+                if let Some(v) = list.first() {
+                    mb.map.insert(name.clone(), BindValue::One(v.clone()));
+                }
+            }
+        }
+        mb
+    } else {
+        b.clone()
+    };
+
     // matching facts (consistent with b), in fact order
     let mut matched: Vec<Bindings> = Vec::new();
     let mut matched_idx: Vec<usize> = Vec::new();
@@ -614,24 +656,13 @@ fn match_fact_repetition(
         if used[i] {
             continue;
         }
-        for b2 in pf.match_fact(&facts[i], b) {
+        for b2 in pf.match_fact(&facts[i], &match_b) {
             matched.push(b2);
             matched_idx.push(i);
         }
     }
 
     let mut out = Vec::new();
-    // A `?` whose list-bound placeholder is an empty list is "disabled": the
-    // corresponding arg-level `$( $x )?` matched zero iterations, so there is
-    // nothing to verify. It must match zero facts rather than greedily
-    // grabbing any matching fact (which could steal a fact needed by a later
-    // required `?`). A non-empty list makes it required (see `must_match`);
-    // an unbound or literal-only `?` is a free optional that grabs if present.
-    let disabled = matches!(rep.kind, RepetitionKind::Optional)
-        && list_ph.iter().any(|name| {
-            b.get(name)
-                .is_some_and(|v| matches!(v, BindValue::Many(list) if list.is_empty()))
-        });
     let take: Vec<usize> = match rep.kind {
         RepetitionKind::Optional if !matched_idx.is_empty() && !disabled => vec![matched_idx[0]],
         RepetitionKind::ZeroOrMore | RepetitionKind::OneOrMore => matched_idx.clone(),
@@ -642,34 +673,39 @@ fn match_fact_repetition(
         rep.kind,
         RepetitionKind::Optional | RepetitionKind::ZeroOrMore
     ) && !want_present;
-    // For `?` repetitions, if any list-bound placeholder is already bound to
-    // a non-empty list (from an arg-level repetition), the fact-level `?`
-    // must match — it acts as a constraint, not a free optional.
-    let must_match = matches!(rep.kind, RepetitionKind::Optional)
-        && list_ph.iter().any(|name| {
-            b.get(name)
-                .is_some_and(|v| matches!(v, BindValue::Many(list) if !list.is_empty()))
-        });
     if want_present {
         let mut used2 = used.to_vec();
-        for &i in &take {
-            used2[i] = true;
-        }
         let mut b3 = b.clone();
-        for name in &list_ph {
-            let list: Vec<Arg> = matched
-                .iter()
-                .zip(matched_idx.iter())
-                .filter(|&(_, i)| take.contains(i))
-                .filter_map(|(bf, _)| match bf.get(name) {
-                    Some(BindValue::One(v)) => Some(v.clone()),
-                    _ => None,
-                })
-                .collect();
-            if !list.is_empty() {
-                b3.map.insert(name.clone(), BindValue::Many(list));
+        if !must_match {
+            // Free optional or `*`/`+`: consume the matched facts and bind
+            // their top-level placeholders to the collected values.
+            for &i in &take {
+                used2[i] = true;
+            }
+            for name in &list_ph {
+                let list: Vec<Arg> = matched
+                    .iter()
+                    .zip(matched_idx.iter())
+                    .filter(|&(_, i)| take.contains(i))
+                    .filter_map(|(bf, _)| match bf.get(name) {
+                        Some(BindValue::One(v)) => Some(v.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                if !list.is_empty() {
+                    b3.map.insert(name.clone(), BindValue::Many(list));
+                }
             }
         }
+        // When `must_match` (a `?` constraint), the placeholders are already
+        // bound by an arg-level repetition, so the fact-level `?` only
+        // verifies the fact exists. It must NOT consume the fact: otherwise a
+        // later `?` constraint referencing the same fact (e.g. `$a1` and `$a2`
+        // both bound to `an` against a single `an is article` fact) would find
+        // it already used and spuriously fail. Rebinding is skipped too — it
+        // would append into the already-bound list (corrupting it) and the
+        // filter only collects `One` values, which a list-bound placeholder
+        // never produces, so it was a no-op anyway.
         out.extend(match_items(rest, facts, &used2, &b3));
     } else if want_absent && !must_match {
         // No matching facts (or `?` with nothing to take): match zero facts.

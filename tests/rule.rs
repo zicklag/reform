@@ -482,3 +482,37 @@ fn fact_rep_plus_with_no_match_skips_both_branches() {
         "+ with no matching fact should not match"
     );
 }
+
+/// A fact-level `?` constraint whose inner fact holds several top-level
+/// placeholders, exercising the `must_match` conversion loop in
+/// `match_fact_repetition` across all three of its branches at once.
+///
+/// With input `an a is b` against `sentence $( $a1 )? $x is $( $a2 )? $y`:
+/// - `$a1` is bound to a non-empty list `[an]` (the arg-level `?` matched
+///   one), which makes `must_match` true and drives the conversion loop.
+/// - `$a2` is bound to an *empty* list `[]` (the arg-level `?` matched
+///   zero), so the outer `if let Some(Many(list))` succeeds but the inner
+///   `if let Some(v) = list.first()` fails — its else region is hit.
+/// - `$a3` appears only inside the fact-level `?`, so it is unbound
+///   (`None`), and the outer `if let Some(Many)` fails — its else region is
+///   hit.
+///
+/// `$a1` converts to `One(an)`; the 5-arg inner `$a1 $a2 $a3 is article`
+/// cannot match the 3-arg `an is article`, so the constraint is not
+/// satisfied and the pattern matches nothing.
+#[test]
+fn fact_rep_constraint_conversion_branches() {
+    let p = reform::parser::pattern(
+        "sentence $( $a1 )? $x is $( $a2 )? $y\n$( $a1 $a2 $a3 is article )?",
+    )
+    .unwrap();
+    let facts = vec![
+        fact(&["an", "is", "article"]),
+        fact(&["sentence", "an", "a", "is", "b"]),
+    ];
+    let matches = p.find_matches(&facts);
+    assert!(
+        matches.is_empty(),
+        "constraint with an empty/unbound placeholder and no matching fact should not match"
+    );
+}
