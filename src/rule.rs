@@ -777,6 +777,36 @@ impl Rule {
         }
         out
     }
+
+    /// All non-negated facts matched by the pattern, given a set of bindings.
+    /// Used to prevent the same rule from re-firing on the same facts.
+    pub fn matched_facts(&self, facts: &[Fact], b: &Bindings) -> Vec<Fact> {
+        let mut out = Vec::new();
+        for item in &self.pattern.0 {
+            match item {
+                PatternItem::Fact(pf) if !pf.negated => {
+                    for f in facts {
+                        if !pf.match_fact(f, b).is_empty() {
+                            out.push(f.clone());
+                        }
+                    }
+                }
+                PatternItem::FactRepetition(rep) => {
+                    for pf in &rep.facts {
+                        if !pf.negated {
+                            for f in facts {
+                                if !pf.match_fact(f, b).is_empty() {
+                                    out.push(f.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
 }
 
 // ---------------------------------------------------------------------------

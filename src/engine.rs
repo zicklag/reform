@@ -54,6 +54,9 @@ pub struct Engine {
     /// matches and fires. Enabled via `set_trace(true)` (CLI `--trace` or
     /// `REFORM_TRACE=1`).
     trace: bool,
+    /// Tracks which (rule, matched-fact-set) pairs have already fired in the
+    /// current `turn()` call, to prevent re-firing on the same facts.
+    fired: Vec<Vec<std::collections::HashSet<Fact>>>,
 }
 
 impl Engine {
@@ -251,6 +254,8 @@ impl Engine {
         const MAX_ITERATIONS: usize = 100_000;
         let rules = self.rules.clone();
         let mut any_changed = false;
+        // Reset fired tracking for this turn.
+        self.fired = vec![Vec::new(); rules.len()];
         let mut i = 0;
         let mut iterations = 0;
         while i < rules.len() {
@@ -264,6 +269,17 @@ impl Engine {
             let snapshot = self.facts.clone();
             self.changed = false;
             for bindings in rule.find_matches(&snapshot) {
+                // Check if this rule has already fired on this exact set of
+                // matched facts. If so, skip to prevent re-firing on the same
+                // facts (which causes infinite loops when a rule doesn't
+                // remove its matched facts).
+                let matched = rule.matched_facts(&snapshot, &bindings);
+                let matched_set: std::collections::HashSet<Fact> =
+                    matched.into_iter().collect();
+                if self.fired[i].contains(&matched_set) {
+                    continue;
+                }
+                self.fired[i].push(matched_set);
                 for rf in rule.removed_facts(&snapshot, &bindings) {
                     self.remove_fact(&rf);
                 }

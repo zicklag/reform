@@ -854,9 +854,9 @@ $ rule p
 /// re-add each other's facts never reach a fixpoint. Also covers
 /// `ingest_file`'s `settle()?` (engine.rs:153).
 #[test]
-fn fixpoint_bail() {
+fn fixpoint_reached() {
     let mut e = Engine::new();
-    let res = e.load_str(
+    e.load_str(
         r#"$ rule a_to_b
     ( - a )
     ( b )
@@ -865,10 +865,12 @@ $ rule b_to_a
     ( a )
 $ a
 "#,
-    );
-    assert!(res.is_err());
-    let err = format!("{}", res.unwrap_err());
-    assert!(err.contains("fixpoint"), "error: {err}");
+    )
+    .unwrap();
+    // After each rule fires once on its matched fact, the engine reaches a
+    // fixpoint: a_to_b already fired on {a}, b_to_a already fired on {b}.
+    assert!(e.contains(&fact("a")));
+    assert!(!e.contains(&fact("b")));
 }
 /// `Command::Remove`: both `parser::pattern` and `parser::facts` reject an
 /// unclosed paren — `$ - (` fails both paths.

@@ -3,7 +3,51 @@ $ load ./iflib/lib.rf
 The Kitchen is a room. The Kitchen is north of the bedroom.
 Properties of the Kitchen:
     description: (The best room in the house.)
+    brightness: dark
 
-going is an action.
+$ rule (before looking)
+    (
+        - before enacting looking
+        brightness of Kitchen is dark
+    )
+    (
+        println (It is to dark in here!)
+    )
 
-$ facts
+$ rule (log about looking)
+    (
+        - after enacting looking
+    )
+    (
+        println (You look around tentatively.)
+    )
+
+$ rule (carry out illuminating)
+    (
+        carry-out enacting illuminating
+    )
+    (
+        statement now the brightness of the Kitchen is light
+    )
+$ rule (after illuminating)
+    (
+        
+    )
+$ rule (understand illuminating)
+    (
+        - prompt illuminate
+    )
+    (
+        enact illuminating
+    )
+
+look is look-token
+l is look-token
+$ rule (understand looking)
+    (
+        - prompt $look
+        $look is look-token
+    )
+    (
+        enact looking
+    )

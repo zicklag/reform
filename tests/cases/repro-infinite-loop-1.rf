@@ -1,0 +1,26 @@
+$ rule (do thing)
+    (
+        - do thing $x
+    )
+    (
+        thing $x
+    )
+
+$ rule (default action)
+    (
+        - enact $action
+    )
+    (
+        done $action
+    )
+
+$ rule (print when enacting)
+    (
+        enact hello
+    )
+    (
+        println Hello!
+        do thing example
+    )
+
+$ enact hello
