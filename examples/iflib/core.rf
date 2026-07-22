@@ -67,8 +67,9 @@ $ rule (x is relation of y)
 
 $ rule (the prop of x is value)
     (
-        - statement $( $a )? $prop of $x is $value
-        $( $a is article )?
+        - statement $( $a1 )? $prop of $( $a2 )? $x is $value
+        $( $a1 is article )?
+        $( $a2 is article )?
     )
     (
         $prop of $x is $value

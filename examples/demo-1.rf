@@ -1,0 +1,94 @@
+# Demo 1: Noun phrase resolution via rule rewriting
+#
+# The core idea: use rules to match statements containing relative clauses
+# (like "the room the player is in") and rewrite them into simpler statements
+# with the resolved value substituted in. The rewritten statement then matches
+# the existing general-purpose rules.
+#
+# This works because a rule's pattern can simultaneously match the statement
+# AND query the world model (e.g. `player at $room`), then the body creates
+# a new statement with `$room` substituted in place of the relative clause.
+
+$ load ./iflib/lib.rf
+
+# ===========================================================================
+# World setup
+# ===========================================================================
+
+the Kitchen is a room
+the Study is a room
+
+$ player at Kitchen
+
+brightness of Kitchen is dark
+brightness of Study is light
+
+# ===========================================================================
+# Noun phrase resolution rules
+# ===========================================================================
+
+# Pattern 1: "the room the player is in" -> resolves to player's location
+#
+# Matches:  ... room the player is in ...
+# Against:  player at $room
+# Rewrites: ... $room ...
+$ rule (resolve room the player is in)
+    (
+        - statement $( $before )* room the player is in $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# Pattern 2: "the location of the player" -> resolves to player's location
+#
+# Matches:  ... location of the player ...
+# Against:  player at $room
+# Rewrites: ... $room ...
+$ rule (resolve location of the player)
+    (
+        - statement $( $before )* location of the player $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# Pattern 3: "the room that contains the player" -> resolves to player's location
+#
+# Matches:  ... room that contains the player ...
+# Against:  player at $room
+# Rewrites: ... $room ...
+$ rule (resolve room that contains the player)
+    (
+        - statement $( $before )* room that contains the player $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# ===========================================================================
+# Tests
+# ===========================================================================
+
+# Test 1: "now the brightness of the room the player is in is light"
+# The resolution rule rewrites this to:
+#   "now the brightness of Kitchen is light"
+# Then the core "now the prop of x is value" rule handles it.
+now the brightness of the room the player is in is light .
+$ assert brightness of Kitchen is light
+$ println (Test 1 passed: brightness of Kitchen is light)
+
+# Test 2: "now the brightness of the location of the player is dark"
+# The resolution rule rewrites this to:
+#   "now the brightness of Kitchen is dark"
+now the brightness of the location of the player is dark .
+$ assert brightness of Kitchen is dark
+$ println (Test 2 passed: brightness of Kitchen is dark)
+
+# Test 3: "now the brightness of the room that contains the player is light"
+now the brightness of the room that contains the player is light .
+$ assert brightness of Kitchen is light
+$ println (Test 3 passed: brightness of Kitchen is light)

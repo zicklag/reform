@@ -116,13 +116,13 @@ peg::parser! {
                 // Anything that isn't a curly brace or square bracket
                 not_curlies() not_squares() char:[_] { char.into() }
             )+
-            { substrs.join("").into() }
+            { substrs.join("").as_str().into() }
 
 
         // A literal arg is an arg with it's contents wrapped in parenthesis to make
         // it taken literally all in the same arg.
         rule literal_arg() -> Arg =
-            "(" arg:literal_arg_inner() ")" { arg.into() }
+            "(" arg:literal_arg_inner() ")" { arg.as_str().into() }
 
         // Parses the inner content of a literal argument.
         // TODO(perf): it'd be nicest if this didn't allocate. Maybe we can return
@@ -222,9 +222,9 @@ peg::parser! {
             { PatternFactRepetition { kind, facts } }
 
         pub rule pattern_fact() -> PatternFact =
-            " "* "-" args:arg_templates() fact_end() { PatternFact { removed: true, negated: false, args } } /
-            " "* "!" args:arg_templates() fact_end() { PatternFact { removed: false, negated: true, args } } /
-            " "* args:arg_templates() fact_end() { PatternFact { removed: false, negated: false, args } }
+            " "* "-" args:arg_templates() fact_end() { PatternFact::new(true, false, args) } /
+            " "* "!" args:arg_templates() fact_end() { PatternFact::new(false, true, args) } /
+            " "* args:arg_templates() fact_end() { PatternFact::new(false, false, args) }
 
         // Parse a rule body as a substitution template. The body is a flat
         // sequence of chunks: literal text, `$name` placeholders (substituted
@@ -286,7 +286,10 @@ peg::parser! {
                 args:arg_templates()
             ")"
             kind:repetition_kind()
-            { RepeatedArgs { kind, args } }
+            {
+                let top_ph = crate::rule::top_placeholders(&args);
+                RepeatedArgs { kind, args, top_ph }
+            }
 
         rule placeholder() -> String =
             "$" name:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "." / "," / ";" / ":" / "'" / "!") [_])+)

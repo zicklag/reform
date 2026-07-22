@@ -1,0 +1,15 @@
+$ rule (parse nested bindings)
+    (
+        - sentence example $( start $( $rule )+ end )*
+    )
+    (
+        $(
+          this should not be empty: $( $rule )+  
+        )*
+    )
+
+example start fact 1 end start fact 2 end
+
+$ facts
+$ assert this should not be empty: fact 1
+$ assert this should not be empty: fact 2

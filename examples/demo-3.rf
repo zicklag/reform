@@ -1,0 +1,234 @@
+# Demo 3: Chained resolution and rule body usage
+#
+# This demo shows:
+#   1. Chained resolution — resolving nested noun phrases in multiple
+#      steps (e.g., "the location of the player" -> "Kitchen", then
+#      "the brightness of Kitchen" -> set)
+#   2. Using resolved noun phrases in rule bodies (not just statements)
+#   3. An "illuminate" action that uses noun phrase resolution
+#   4. A "locate" action that uses noun phrase resolution
+#
+# How chained resolution works:
+#   The engine reaches a fixpoint: after each resolution step rewrites the
+#   statement, the engine restarts from the most specific rule, which picks
+#   up the rewritten statement and applies the next resolution. This
+#   continues until no more rules match.
+#
+# Limitation: chained resolution with nested relative clauses (e.g.,
+# "the container that contains the key that the player is carrying")
+# requires the inner clause to be resolved first. The current $( $after )*
+# pattern in the outer rule captures the inner clause as part of "after",
+# which produces incorrect rewrites. A future enhancement could use
+# multi-stage intermediate facts to handle this properly.
+
+$ load ./iflib/lib.rf
+
+# ===========================================================================
+# World setup
+# ===========================================================================
+
+the Kitchen is a room
+the Study is a room
+
+$ player at Kitchen
+
+$ located apple Kitchen
+$ located book Kitchen
+$ located lamp Study
+
+$ container basket
+$ located basket Kitchen
+$ located coin basket
+$ located key basket
+
+$ player is carrying key
+$ player is carrying hammer
+
+# Properties
+brightness of Kitchen is dark
+brightness of Study is light
+brightness of basket is dark
+
+# ===========================================================================
+# Noun phrase resolution rules
+# ===========================================================================
+
+# "the room the player is in" -> player's location
+$ rule (resolve room the player is in)
+    (
+        - statement $( $before )* room the player is in $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# "the location of the player" -> player's location
+$ rule (resolve location of the player)
+    (
+        - statement $( $before )* location of the player $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# "the room that contains the player" -> player's location
+$ rule (resolve room that contains the player)
+    (
+        - statement $( $before )* room that contains the player $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# "the container that contains X" -> the container holding X
+$ rule (resolve container that contains)
+    (
+        - statement $( $before )* container that contains $( $a )? $item $( $after )*
+        located $item $container
+        container $container
+        $( $a is article )?
+    )
+    (
+        statement $( $before )* $container $( $after )*
+    )
+
+# "the X that the player is carrying" -> a carried item
+$ rule (resolve that the player is carrying)
+    (
+        - statement $( $before )* $item that the player is carrying $( $after )*
+        player is carrying $item
+    )
+    (
+        statement $( $before )* $item $( $after )*
+    )
+$ rule (resolve things the player is carrying)
+    (
+        - statement $( $before )* the things the player is carrying $( $after )*
+        $(
+            player is carrying $thing
+        )+
+    )
+    (
+        statement $( $before )* $( $thing )+ $( $after )*
+    )
+
+# "the X that is in Y" -> an item located in Y
+$ rule (resolve that is in)
+    (
+        - statement $( $before )* $item that is in $( $a )? $loc $( $after )*
+        located $item $loc
+        $( $a is article )?
+    )
+    (
+        statement $( $before )* $item $( $after )*
+    )
+
+# ===========================================================================
+# Using resolution in rule bodies
+#
+# To use noun phrase resolution in rule bodies, we create a "sentence" fact
+# from the body. The sentence goes through the normal parsing pipeline:
+# period splitting -> statement -> resolution -> core rules.
+# ===========================================================================
+
+# Understand "illuminate" as the illuminating action
+$ rule (understand illuminate)
+    (
+        - prompt illuminate
+    )
+    (
+        enact illuminating
+    )
+
+# The illuminating action: set brightness of player's location to light
+$ rule (carry-out illuminating)
+    (
+        carry-out enacting illuminating
+    )
+    (
+        sentence now the brightness of the room the player is in is light .
+    )
+
+# Understand "darken" as the darkening action
+$ rule (understand darken)
+    (
+        - prompt darken
+    )
+    (
+        enact darkening
+    )
+
+$ rule (carry-out darkening)
+    (
+        carry-out enacting darkening
+    )
+    (
+        sentence now the brightness of the room the player is in is dark .
+    )
+
+# Understand "locate" as the locating action
+# Uses a separate fact for the target item because the action system
+# only supports single-word action names.
+$ rule (understand locate)
+    (
+        - prompt locate $item
+    )
+    (
+        enact locate
+        locate-target $item
+    )
+
+$ rule (carry-out locate)
+    (
+        carry-out enacting locate
+        locate-target $item
+        located $item $loc
+    )
+    (
+        $ println $item is in $loc
+    )
+
+# Clean up the locate-target fact after the action
+$ rule (after locate)
+    (
+        after enacting locate
+        - locate-target $item
+    )
+    ()
+
+# ===========================================================================
+# Tests
+# ===========================================================================
+
+# Test 1: Chained resolution
+# "the location of the player" -> "Kitchen" (player at Kitchen)
+# Then: "now the brightness of Kitchen is light"
+now the brightness of the location of the player is light.
+$ assert brightness of Kitchen is light
+$ println (Test 1 passed: chained resolution works)
+
+# Test 2: Container resolution
+# "the container that contains the coin" -> "basket" (located coin basket)
+now the brightness of the container that contains the coin is light .
+$ assert brightness of basket is light
+$ println (Test 2 passed: container resolution works)
+
+# Test 3: Using resolution in a rule body
+# The "illuminate" action creates a sentence that gets resolved
+> illuminate
+$ assert brightness of Kitchen is light
+$ println (Test 3 passed: illuminate action works via resolution)
+
+# Test 4: Darken
+> darken
+$ assert brightness of Kitchen is dark
+$ println (Test 4 passed: darken action works via resolution)
+
+# Test 5: Locate
+> locate key
+$ println (Test 5: should show key is in basket)
+
+$ println (All tests passed.)

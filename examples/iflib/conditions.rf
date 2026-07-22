@@ -1,0 +1,34 @@
+# Conditions are sub-facts that look like:
+#
+#     eval-cond some condition phrase end-cond
+#
+# The rules here will replace those with the rule that represents
+# the condition:
+#
+#     cond-rule some condition rule end-cond
+
+$ rule (parse conditions in statements, with and)
+    (
+        - $( $start )* if $( $cond-phrase )+ and $( $end )*
+    )
+    (
+        $( $start )* eval-cond $( $cond-phrase )+ end-cond if $( $end )*
+    )
+    
+$ rule (parse conditions in statements, without and)
+    (
+        - $( $start )* if $( $cond-phrase )+ : $( $end )*
+    )
+    (
+        $( $start )* eval-cond $( $cond-phrase )+ end-cond : $( $end )*
+    )
+
+$ rule (condition if prop of x is value)
+    (
+        - $( $start )* eval-cond $( $a1 )? $prop of $( $a2 )? $x is $value end-cond $( $end )*
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $( $start )* cond-rule $prop of $x is $value end-cond $( $end )*
+    )

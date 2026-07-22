@@ -1,0 +1,139 @@
+# Demo 2: Advanced noun phrase resolution patterns
+#
+# Building on demo-1, this shows:
+#   - Resolving "the container that contains X" to find what holds X
+#   - Resolving "the X that the player is carrying" to find carried items
+#   - Resolving "the X that is in Y" to find items in a location
+#
+# Key insight: the world model uses simple facts (located, container,
+# player is carrying), and the resolution rules query those facts to
+# substitute concrete values into statements. The statements then match
+# the existing general-purpose rules.
+
+$ load ./iflib/lib.rf
+
+# ===========================================================================
+# World setup (using $ prefix to bypass sentence parsing for facts the
+# core rules don't handle well — in a real game, you'd add custom
+# parsing rules for these patterns)
+# ===========================================================================
+
+the Kitchen is a room
+the Study is a room
+
+$ player at Kitchen
+
+# Items in locations
+$ located apple Kitchen
+$ located book Kitchen
+$ located lamp Study
+
+# A container in the Kitchen
+$ container basket
+$ located basket Kitchen
+$ located coin basket
+
+# Player is carrying the key
+$ player is carrying key
+
+# Properties
+brightness of Kitchen is dark
+brightness of Study is light
+
+# ===========================================================================
+# Noun phrase resolution rules
+# ===========================================================================
+
+# "the room the player is in" -> player's location
+$ rule (resolve room the player is in)
+    (
+        - statement $( $before )* room the player is in $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# "the location of the player" -> player's location
+$ rule (resolve location of the player)
+    (
+        - statement $( $before )* location of the player $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# "the room that contains the player" -> player's location
+$ rule (resolve room that contains the player)
+    (
+        - statement $( $before )* room that contains the player $( $after )*
+        player at $room
+    )
+    (
+        statement $( $before )* $room $( $after )*
+    )
+
+# "the container that contains X" -> the container holding X
+$ rule (resolve container that contains)
+    (
+        - statement $( $before )* container that contains $( $a )? $item $( $after )*
+        located $item $container
+        container $container
+        $( $a is article )?
+    )
+    (
+        statement $( $before )* $container $( $after )*
+    )
+
+# "the X that the player is carrying" -> a carried item
+$ rule (resolve that the player is carrying)
+    (
+        - statement $( $before )* $item that the player is carrying $( $after )*
+        player is carrying $item
+    )
+    (
+        statement $( $before )* $item $( $after )*
+    )
+
+# "the X that is in Y" -> an item located in Y
+$ rule (resolve that is in)
+    (
+        - statement $( $before )* $item that is in $( $a )? $loc $( $after )*
+        located $item $loc
+        $( $a is article )?
+    )
+    (
+        statement $( $before )* $item $( $after )*
+    )
+
+# ===========================================================================
+# Tests
+# ===========================================================================
+
+# Test 1: "now the brightness of the room the player is in is light"
+now the brightness of the room the player is in is light .
+$ assert brightness of Kitchen is light
+$ println (Test 1 passed: brightness of Kitchen is light)
+
+# Test 2: "now the brightness of the container that contains the coin is light"
+# Resolution: "container that contains the coin" + located coin basket +
+#   container basket -> "basket". Rewrites to:
+#   "now the brightness of basket is light"
+now the brightness of the container that contains the coin is light .
+$ assert brightness of basket is light
+$ println (Test 2 passed: brightness of basket is light)
+
+# Test 3: "now the brightness of the key that the player is carrying is light"
+# Resolution: "key that the player is carrying" + player is carrying key -> "key"
+now the brightness of the key that the player is carrying is light .
+$ assert brightness of key is light
+$ println (Test 3 passed: brightness of key is light)
+
+# Test 4: "now the brightness of the apple that is in the Kitchen is light"
+# Resolution: "apple that is in the Kitchen" + located apple Kitchen -> "apple"
+now the brightness of the apple that is in the Kitchen is light .
+$ assert brightness of apple is light
+$ println (Test 4 passed: brightness of apple is light)
+
+$ println (All tests passed.)

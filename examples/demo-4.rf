@@ -1,0 +1,143 @@
+# Demo 4: English conditions with `when` clauses
+#
+# This demo shows how to parse `when` clauses from English-like text and
+# use them as conditions in action rules.
+#
+# The key idea: a rule parses `statement $action when $( $condition )+ : $( $body )+`
+# and generates a new rule whose pattern includes the condition as a fact to match.
+# This means the condition is checked at pattern-match time — the body only fires
+# if the condition fact exists in the engine.
+#
+# For example:
+#   look when player at Garden : say (You see a beautiful garden.)
+#
+# Generates a rule equivalent to:
+#   $ rule (when look)
+#       (
+#           carry-out enacting look
+#           player at Garden
+#       )
+#       (
+#           sentence say (You see a beautiful garden.)
+#       )
+#
+# The `and` keyword joins multiple conditions:
+#   examine when player at Garden and player is carrying key : say (You examine the key.)
+#
+# Conditions are in "normal form" — the same format as facts in the engine.
+# To use English conditions like "the player is in the garden", you'd first
+# run them through the sentence->statement->fact pipeline to convert them
+# to normal form, then use the result as the condition. (See demo-1 for
+# the noun phrase resolution approach.)
+
+$ load ./iflib/lib.rf
+
+# ===========================================================================
+# World setup
+# ===========================================================================
+
+the Kitchen is a room
+the Garden is a room
+
+$ player at Garden
+
+$ located lamp Garden
+$ player is carrying key
+
+brightness of Garden is light
+brightness of Kitchen is dark
+
+# ===========================================================================
+# Understand rules for actions used in tests
+# ===========================================================================
+
+$ rule (understand look)
+    (
+        - prompt look
+    )
+    (
+        enact look
+    )
+
+$ rule (understand examine)
+    (
+        - prompt examine
+    )
+    (
+        enact examine
+    )
+
+# ===========================================================================
+# When-clause parser: single condition
+#
+# Matches:  statement $action when $( $condition )+ : $( $body )+
+# Creates:  a rule that matches carry-out enacting $action AND $( $condition )+
+#           and fires sentence $( $body )+
+# ===========================================================================
+
+$ rule (parse when clause)
+    (
+        - statement $action when $( $condition )+ : $( $body )+
+    )
+    (
+        rule (when $action)
+            (
+                carry-out enacting $action
+                $( $condition )+
+            )
+            (
+                sentence $( $body )+
+            )
+    )
+
+# ===========================================================================
+# When-clause parser: two conditions joined with "and"
+#
+# Matches:  statement $action when $( $c1 )+ and $( $c2 )+ : $( $body )+
+# Creates:  a rule that matches carry-out enacting $action AND both conditions
+# ===========================================================================
+
+$ rule (parse when clause with and)
+    (
+        - statement $action when $( $c1 )+ and $( $c2 )+ : $( $body )+
+    )
+    (
+        rule (when $action)
+            (
+                carry-out enacting $action
+                $( $c1 )+
+                $( $c2 )+
+            )
+            (
+                sentence $( $body )+
+            )
+    )
+
+# ===========================================================================
+# Tests
+# ===========================================================================
+
+# Test 1: Single condition (normal form)
+# "look when player at Garden : say (You see a beautiful garden.)"
+# Generates a rule that matches carry-out enacting look AND player at Garden.
+# Since the player IS at the Garden, the body fires.
+look when player at Garden : say (You see a beautiful garden.) .
+> look
+$ println (Test 1 passed: look in garden works)
+
+# Test 2: Two conditions with "and" (normal form)
+# "examine when player at Garden and player is carrying key : say (You examine the key.)"
+# Generates a rule that matches carry-out enacting examine AND both conditions.
+# Since the player IS at the Garden AND IS carrying the key, the body fires.
+examine when player at Garden and player is carrying key : say (You examine the key.) .
+> examine
+$ println (Test 2 passed: examine with two conditions works)
+
+# Test 3: Condition not met
+# "look when player at Kitchen : say (You see a kitchen.)"
+# The player is at the Garden, not the Kitchen, so this rule should NOT fire.
+look when player at Kitchen : say (You see a kitchen.) .
+> look
+$ println (Test 3 passed: condition-not-met correctly suppressed the action)
+
+$ println (All tests passed.)

@@ -71,10 +71,10 @@ fn bindings_merge_scalar_conflict() {
 fn bindings_merge_many_same() {
     let mut a = Bindings::new();
     a.map
-        .insert("x".to_string(), BindValue::Many(vec![Arg::from("1")]));
+        .insert("x".to_string(), BindValue::Many(vec![BindValue::One(Arg::from("1"))]));
     let mut b = Bindings::new();
     b.map
-        .insert("x".to_string(), BindValue::Many(vec![Arg::from("1")]));
+        .insert("x".to_string(), BindValue::Many(vec![BindValue::One(Arg::from("1"))]));
     assert!(a.merge(&b));
 }
 
@@ -83,9 +83,9 @@ fn bindings_merge_many_new() {
     let mut a = Bindings::new();
     let mut b = Bindings::new();
     b.map
-        .insert("x".to_string(), BindValue::Many(vec![Arg::from("1")]));
+        .insert("x".to_string(), BindValue::Many(vec![BindValue::One(Arg::from("1"))]));
     assert!(a.merge(&b));
-    assert_eq!(a.get("x"), Some(&BindValue::Many(vec![Arg::from("1")])));
+    assert_eq!(a.get("x"), Some(&BindValue::Many(vec![BindValue::One(Arg::from("1"))])));
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn bindings_merge_many_into_scalar_fails() {
     a.bind_scalar("x", Arg::from("1"));
     let mut b = Bindings::new();
     b.map
-        .insert("x".to_string(), BindValue::Many(vec![Arg::from("1")]));
+        .insert("x".to_string(), BindValue::Many(vec![BindValue::One(Arg::from("1"))]));
     assert!(!a.merge(&b));
 }
 
@@ -102,10 +102,10 @@ fn bindings_merge_many_into_scalar_fails() {
 fn bindings_merge_many_different_fails() {
     let mut a = Bindings::new();
     a.map
-        .insert("x".to_string(), BindValue::Many(vec![Arg::from("1")]));
+        .insert("x".to_string(), BindValue::Many(vec![BindValue::One(Arg::from("1"))]));
     let mut b = Bindings::new();
     b.map
-        .insert("x".to_string(), BindValue::Many(vec![Arg::from("2")]));
+        .insert("x".to_string(), BindValue::Many(vec![BindValue::One(Arg::from("2"))]));
     assert!(!a.merge(&b));
 }
 
@@ -115,11 +115,7 @@ fn bindings_merge_many_different_fails() {
 
 #[test]
 fn pattern_fact_matches_fact() {
-    let pf = PatternFact {
-        removed: false,
-        negated: false,
-        args: vec![ArgTemplate::Literal(Arg::from("a"))],
-    };
+    let pf = PatternFact::new(false, false, vec![ArgTemplate::Literal(Arg::from("a"))]);
     let f = fact(&["a"]);
     assert!(pf.matches_fact(&f).is_some());
     let f2 = fact(&["b"]);
@@ -136,7 +132,7 @@ fn render_chunks_many_binding() {
     let mut bindings = Bindings::new();
     bindings.map.insert(
         "x".to_string(),
-        BindValue::Many(vec![Arg::from("a"), Arg::from("b")]),
+        BindValue::Many(vec![BindValue::One(Arg::from("a")), BindValue::One(Arg::from("b"))]),
     );
     let s = b.render(&bindings);
     assert_eq!(s, "a b");
@@ -230,11 +226,11 @@ fn render_repeat_mismatched_drivers() {
     let mut bindings = Bindings::new();
     bindings.map.insert(
         "x".to_string(),
-        BindValue::Many(vec![Arg::from("1"), Arg::from("2")]),
+        BindValue::Many(vec![BindValue::One(Arg::from("1")), BindValue::One(Arg::from("2"))]),
     );
     bindings
         .map
-        .insert("y".to_string(), BindValue::Many(vec![Arg::from("a")]));
+        .insert("y".to_string(), BindValue::Many(vec![BindValue::One(Arg::from("a"))]));
     let s = b.render(&bindings);
     assert_eq!(s, "", "mismatched drivers should render nothing");
 }
@@ -643,6 +639,6 @@ fn rule_find_matches_delegates() {
     assert_eq!(matches.len(), 1);
     assert_eq!(
         matches[0].get("words"),
-        Some(&BindValue::Many(vec![Arg::from("alpha")]))
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("alpha"))]))
     );
 }

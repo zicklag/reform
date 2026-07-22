@@ -199,6 +199,18 @@ pub struct PatternFact {
     pub removed: bool,
     pub negated: bool,
     pub args: Vec<ArgTemplate>,
+    /// Precomputed set of placeholder names that appear inside arg repetitions
+    /// (list-bound placeholders). Used by `match_fact` to avoid per-call
+    /// allocation of a `HashSet`.
+    list_bound: Vec<String>,
+}
+
+impl PatternFact {
+    /// Construct a new `PatternFact`, precomputing the list-bound placeholder set.
+    pub fn new(removed: bool, negated: bool, args: Vec<ArgTemplate>) -> Self {
+        let list_bound = nested_placeholders(&args);
+        PatternFact { removed, negated, args, list_bound }
+    }
 }
 
 /// A repeated block of pattern facts.
@@ -229,6 +241,11 @@ pub enum ArgTemplate {
 pub struct RepeatedArgs {
     pub kind: RepetitionKind,
     pub args: Vec<ArgTemplate>,
+    /// Precomputed placeholder names appearing at any depth inside this
+    /// repetition (including nested repetitions). Used to seed a repetition
+    /// frame so a zero-iteration match still yields an empty `Many` for each
+    /// placeholder.
+    pub top_ph: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -355,12 +372,16 @@ use crate::Fact;
 
 use std::collections::HashMap;
 
-/// A bound placeholder value: a single argument, or a list of arguments
-/// collected across a repeated match.
+/// A bound placeholder value: a single argument, or a list of sub-values
+/// collected across a repeated match. A `Many` can contain `One` values (a
+/// flat list, for a placeholder repeated at one nesting level) or nested
+/// `Many` values (grouped across outer repetitions). A placeholder bound at
+/// nesting depth `d` — the number of arg repetitions enclosing it — is a
+/// `Many` nested `d` levels deep with `One` values at the leaves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindValue {
     One(Arg),
-    Many(Vec<Arg>),
+    Many(Vec<BindValue>),
 }
 
 /// Placeholder bindings produced by matching a pattern against facts.
@@ -378,15 +399,14 @@ impl Bindings {
         self.map.get(name)
     }
 
-    /// Bind `name` to a scalar value. If `name` is already bound to a scalar,
-    /// this checks consistency (equal values). If `name` is bound to a list
-    /// (a list-bound placeholder inside a repetition), the value is appended
-    /// to the list. Returns false on a scalar conflict.
+    /// Bind `name` to a scalar value, consistency-checking against any
+    /// existing binding. Returns false on conflict. (The repetition matcher
+    /// accumulates list-bound placeholders via the frame stack, not here.)
     pub fn bind_scalar(&mut self, name: &str, val: Arg) -> bool {
         match self.map.get_mut(name) {
             Some(BindValue::One(existing)) => existing == &val,
             Some(BindValue::Many(list)) => {
-                list.push(val);
+                list.push(BindValue::One(val));
                 true
             }
             None => {
@@ -421,21 +441,53 @@ impl Bindings {
 
 impl PatternFact {
     /// Every full match of this pattern fact against `fact`, starting from
-    /// existing `bindings`, in lazy-first order: `match_args` yields greedier
-    /// parses (optional `?` preferring one iteration, `+`/`*` matching as few
-    /// iterations as possible) before less-greedy ones, so the laziest full
-    /// match comes first. A single fact may admit several full matches with
-    /// different placeholder bindings; returning all of them lets the caller
-    /// (`match_items`) backtrack across pattern items when the laziest binding
-    /// fails a later constraint (e.g. an `$( $a is article )?` whose `$a` was
-    /// bound by an arg-level `$( $a )?` to a value with no matching fact).
+    /// existing `bindings`, in lazy-first order. A single fact may admit
+    /// several full matches with different placeholder bindings; returning
+    /// all of them lets the caller (`match_items`) backtrack across pattern
+    /// items when the laziest binding fails a later constraint.
+    ///
+    /// List-bound placeholders (those inside an arg repetition) are matched
+    /// fresh against `fact` and accumulated through the frame stack. If the
+    /// input `bindings` already hold a value for one of this fact's list-bound
+    /// placeholders, that value is the expected (final) result from a prior
+    /// match — used by `removed_facts`/`matched_facts` to re-identify the
+    /// consumed fact — so only fresh matches that reproduce it exactly are
+    /// kept. Scalars and list-bound placeholders from other pattern items
+    /// are carried through as constraints.
     pub fn match_fact(&self, fact: &Fact, bindings: &Bindings) -> Vec<Bindings> {
         let args: &[Arg] = fact.as_slice();
         let n = args.len();
+        let mut st = State::default();
+        // Build `expected` only when there are list-bound bindings to check.
+        // In the common fresh-matching path (no prior bindings), this is empty
+        // and we skip the allocation entirely.
+        let expected: Option<HashMap<String, BindValue>> = if self.list_bound.is_empty() {
+            // No list-bound placeholders in this fact: all bindings go to st.
+            for (k, v) in &bindings.map {
+                st.b.map.insert(k.clone(), v.clone());
+            }
+            None
+        } else {
+            let mut exp = HashMap::new();
+            for (k, v) in &bindings.map {
+                if self.list_bound.contains(k) {
+                    exp.insert(k.clone(), v.clone());
+                } else {
+                    st.b.map.insert(k.clone(), v.clone());
+                }
+            }
+            if exp.is_empty() { None } else { Some(exp) }
+        };
         let mut out = Vec::new();
-        for (end, b) in match_args(&self.args, args, 0, bindings) {
+        for (end, s) in match_args(&self.args, args, 0, &st) {
             if end == n {
-                out.push(b);
+                let ok = match &expected {
+                    None => true,
+                    Some(exp) => exp.iter().all(|(k, exp_v)| s.b.map.get(k) == Some(exp_v)),
+                };
+                if ok {
+                    out.push(s.b);
+                }
             }
         }
         out
@@ -447,196 +499,233 @@ impl PatternFact {
     }
 }
 
-/// Placeholder names appearing directly (not nested in a deeper repetition)
-/// in a pattern-arg list — these are list-bound when the list is repeated.
-fn top_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
-    pats.iter()
-        .filter_map(|a| match a {
-            ArgTemplate::Placeholder(n) => Some(n.clone()),
-            _ => None,
-        })
-        .collect()
+/// Placeholder names appearing anywhere inside an arg repetition within
+/// `pats` (recursing into nested repetitions) — i.e. the list-bound
+/// placeholders of this fact. Top-level scalar placeholders are excluded.
+fn nested_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
+    let mut out = Vec::new();
+    for a in pats {
+        if let ArgTemplate::RepeatedArgs(r) = a {
+            collect_all_placeholders(&r.args, &mut out);
+        }
+    }
+    out
 }
 
+fn collect_all_placeholders(
+    pats: &[ArgTemplate],
+    out: &mut Vec<String>,
+) {
+    for a in pats {
+        match a {
+            ArgTemplate::Placeholder(n) => {
+                out.push(n.clone());
+            }
+            ArgTemplate::RepeatedArgs(r) => collect_all_placeholders(&r.args, out),
+            ArgTemplate::Literal(_) => {}
+        }
+    }
+}
+
+/// Placeholder names appearing anywhere in `pats` (recursing into nested
+/// repetitions). Used to pre-seed a repetition frame so a zero-iteration match
+/// still yields an empty `Many` for each of its placeholders.
+pub(crate) fn top_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_ph_names_in_args(pats, &mut out);
+    out
+}
+
+fn collect_ph_names_in_args(pats: &[ArgTemplate], out: &mut Vec<String>) {
+    for a in pats {
+        match a {
+            ArgTemplate::Placeholder(n) => out.push(n.clone()),
+            ArgTemplate::RepeatedArgs(r) => collect_ph_names_in_args(&r.args, out),
+            ArgTemplate::Literal(_) => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Arg-level matching: a frame-stack accumulator.
+//
+// List-bound placeholders are accumulated in a stack of frames, one per
+// active repetition level. A direct placeholder match appends a `One` to the
+// innermost (top) frame; when a repetition completes, its frame is wrapped as
+// a single `Many` and appended to the parent frame (grouping across the outer
+// repetition) or written to the root bindings (at the outermost level). This
+// nests naturally: a placeholder at depth `d` becomes a `Many` nested `d`
+// levels deep, grouped across each enclosing repetition. Scalars (placeholders
+// not inside any arg repetition) live in the root bindings and are
+// consistency-checked across the whole match.
+// ---------------------------------------------------------------------------
+
+/// In-progress matching state: completed bindings plus a stack of repetition
+/// frames, each accumulating the list-bound placeholders at its level.
+#[derive(Debug, Clone, Default)]
+struct State {
+    b: Bindings,
+    /// Frames are `Vec<(name, values)>` instead of `HashMap` because the
+    /// placeholder set per repetition is tiny (1-3 entries). Linear scan on
+    /// a small Vec avoids HashMap table allocation, hashing, and rehashing
+    /// on every `State` clone.
+    frames: Vec<Vec<(String, Vec<BindValue>)>>,
+}
+
+impl State {
+    /// Append `val` to the innermost frame's list for `name` (a list-bound
+    /// placeholder at the current repetition level).
+    fn append(&mut self, name: &str, val: BindValue) {
+        let frame = self.frames.last_mut().expect("append called inside a repetition");
+        if let Some((_, list)) = frame.iter_mut().find(|(n, _)| n == name) {
+            list.push(val);
+        } else {
+            frame.push((name.to_string(), vec![val]));
+        }
+    }
+
+    /// Push a fresh repetition frame, pre-seeded with every placeholder
+    /// appearing inside the repetition so a zero-iteration match still yields
+    /// an empty `Many` rather than leaving the placeholder unbound.
+    fn push_frame(&mut self, r: &RepeatedArgs) {
+        let mut frame = Vec::with_capacity(r.top_ph.len());
+        for n in &r.top_ph {
+            frame.push((n.clone(), Vec::new()));
+        }
+        self.frames.push(frame);
+    }
+
+    /// Pop the innermost frame and fold its lists into the parent: each
+    /// placeholder's list is wrapped as a `Many` and either appended to the
+    /// new top frame (grouping under an outer repetition) or written to the
+    /// root bindings (at the outermost level).
+    fn promote(&mut self) {
+        let frame = self.frames.pop().expect("promote called with a frame pushed");
+        for (name, list) in frame {
+            let group = BindValue::Many(list);
+            match self.frames.last_mut() {
+                Some(f) => {
+                    if let Some((_, existing)) = f.iter_mut().find(|(n, _)| n == &name) {
+                        existing.push(group);
+                    } else {
+                        f.push((name, vec![group]));
+                    }
+                }
+                None => { self.b.map.insert(name, group); }
+            }
+        }
+    }
+}
+
+/// Match a sequence of arg templates against `args` starting at `start`,
+/// returning every `(end, state)` where the whole sequence matches, in
+/// lazy-first order.
 fn match_args(
     pats: &[ArgTemplate],
     args: &[Arg],
     start: usize,
-    b: &Bindings,
-) -> Vec<(usize, Bindings)> {
+    st: &State,
+) -> Vec<(usize, State)> {
     if pats.is_empty() {
-        return vec![(start, b.clone())];
+        return vec![(start, st.clone())];
     }
     let (first, rest) = pats.split_first().unwrap();
     let mut out = Vec::new();
     match first {
         ArgTemplate::Literal(lit) => {
             if start < args.len() && &args[start] == lit {
-                out.extend(match_args(rest, args, start + 1, b));
+                out.extend(match_args(rest, args, start + 1, st));
             }
         }
         ArgTemplate::Placeholder(name) => {
             if start < args.len() {
-                let mut b2 = b.clone();
-                if b2.bind_scalar(name, args[start].clone()) {
-                    out.extend(match_args(rest, args, start + 1, &b2));
+                let mut s = st.clone();
+                if s.frames.is_empty() {
+                    // Scalar: consistency-check against existing bindings.
+                    if s.b.bind_scalar(name, args[start].clone()) {
+                        out.extend(match_args(rest, args, start + 1, &s));
+                    }
+                } else {
+                    // List-bound: append to the innermost frame.
+                    s.append(name, BindValue::One(args[start].clone()));
+                    out.extend(match_args(rest, args, start + 1, &s));
                 }
             }
         }
         ArgTemplate::RepeatedArgs(r) => {
-            // Check if any top-level placeholder is already bound to a non-empty
-            // Many list. If so, this is a re-match (e.g. from removed_facts or
-            // matched_facts) and we must verify the fact matches those bound
-            // values rather than creating a new empty list — otherwise we'd
-            // spuriously match a different fact with different values.
-            let has_existing = r.args.iter().any(|a| {
-                if let ArgTemplate::Placeholder(n) = a {
-                    b.get(n).is_some_and(|v| matches!(v, BindValue::Many(list) if !list.is_empty()))
-                } else {
-                    false
-                }
-            });
-            if has_existing {
-                // The bindings already have values for this repetition's
-                // placeholders. Verify the fact matches those values by
-                // matching the repetition against the fact's args and checking
-                // that the resulting bindings are consistent with the existing ones.
-                let mut b0 = b.clone();
-                for n in top_placeholders(&r.args) {
-                    b0.map.insert(n, BindValue::Many(Vec::new()));
-                }
-                match r.kind {
-                    RepetitionKind::Optional => {
-                        for (mid, b2) in match_args(&r.args, args, start, &b0) {
-                            if bindings_compatible(&b, &b2) {
-                                out.extend(match_args(rest, args, mid, &b2));
-                            }
-                        }
-                        // Zero-iteration: b0 has all repetition placeholders
-                        // reset to empty lists, which are always prefixes of
-                        // the original bindings, so no compatibility check.
-                        out.extend(match_args(rest, args, start, &b0));
-                    }
-                    RepetitionKind::ZeroOrMore => {
-                        out.extend(match_reps_constrained(&r.args, args, start, &b0, false, rest, b));
-                    }
-                    RepetitionKind::OneOrMore => {
-                        out.extend(match_reps_constrained(&r.args, args, start, &b0, true, rest, b));
-                    }
-                }
-            } else {
-                // No existing bindings: normal matching with empty lists.
-                let mut b0 = b.clone();
-                for n in top_placeholders(&r.args) {
-                    b0.map.insert(n, BindValue::Many(Vec::new()));
-                }
-                match r.kind {
-                    RepetitionKind::Optional => {
-                        for (mid, b2) in match_args(&r.args, args, start, &b0) {
-                            out.extend(match_args(rest, args, mid, &b2));
-                        }
-                        out.extend(match_args(rest, args, start, &b0));
-                    }
-                    RepetitionKind::ZeroOrMore => {
-                        out.extend(match_reps(&r.args, args, start, &b0, false, rest));
-                    }
-                    RepetitionKind::OneOrMore => {
-                        out.extend(match_reps(&r.args, args, start, &b0, true, rest));
-                    }
-                }
+            out.extend(match_rep(r, args, start, st, rest));
+        }
+    }
+    out
+}
+
+/// Match a `$( ... )?/+/*` arg repetition then `rest`. Pushes a frame for the
+/// repetition's list-bound placeholders; the frame is promoted (folded into
+/// the parent or root) when the repetition stops and `rest` is matched.
+fn match_rep(
+    r: &RepeatedArgs,
+    args: &[Arg],
+    start: usize,
+    st: &State,
+    rest: &[ArgTemplate],
+) -> Vec<(usize, State)> {
+    let mut s = st.clone();
+    s.push_frame(r);
+    let mut out = Vec::new();
+    match r.kind {
+        // Greedy: one iteration preferred, zero as fallback.
+        RepetitionKind::Optional => {
+            for (mid, s2) in match_args(&r.args, args, start, &s) {
+                let mut s3 = s2;
+                s3.promote();
+                out.extend(match_args(rest, args, mid, &s3));
             }
+            let mut s0 = s;
+            s0.promote();
+            out.extend(match_args(rest, args, start, &s0));
+        }
+        RepetitionKind::ZeroOrMore => {
+            out.extend(match_reps(&r.args, args, start, &s, false, rest));
+        }
+        RepetitionKind::OneOrMore => {
+            out.extend(match_reps(&r.args, args, start, &s, true, rest));
         }
     }
     out
 }
 
 /// Match `inner` repeated (per `at_least_one`) then `rest`, returning all
-/// `(end, bindings)` where the whole sequence matches. `b` already has the
-/// repetition's list-bound placeholders pre-populated as empty lists; each
-/// iteration appends to them. Guards against infinite recursion when `inner`
-/// can match zero args.
+/// `(end, state)` where the whole sequence matches. `st` already has the
+/// repetition's frame pushed; each iteration appends to it, and the frame is
+/// promoted when the repetition stops. The zero-width guard avoids infinite
+/// recursion when `inner` can match zero args.
 fn match_reps(
     inner: &[ArgTemplate],
     args: &[Arg],
     start: usize,
-    b: &Bindings,
+    st: &State,
     at_least_one: bool,
     rest: &[ArgTemplate],
-) -> Vec<(usize, Bindings)> {
+) -> Vec<(usize, State)> {
     let mut out = Vec::new();
     if !at_least_one {
-        out.extend(match_args(rest, args, start, b));
+        let mut s0 = st.clone();
+        s0.promote();
+        out.extend(match_args(rest, args, start, &s0));
     }
-    for (mid, b2) in match_args(inner, args, start, b) {
+    for (mid, s2) in match_args(inner, args, start, st) {
         if mid == start {
-            // inner matched zero args: stop iterating to avoid a loop.
-            // This is unreachable because the parser always produces at least
-            // one arg template inside a repetition.
+            // Zero-width iteration: would loop forever if recursed. For `+`
+            // it satisfies the one-iteration requirement; promote and stop
+            // (match `rest`). For `*` the zero-iterations branch above already
+            // covered stopping, so skip to avoid the loop.
             if at_least_one {
-                out.extend(match_args(rest, args, mid, &b2));
+                let mut s3 = s2;
+                s3.promote();
+                out.extend(match_args(rest, args, mid, &s3));
             }
         } else {
-            out.extend(match_reps(inner, args, mid, &b2, false, rest));
-        }
-    }
-    out
-}
-
-/// Check that the new bindings `b2` are compatible with the existing bindings
-/// `b`. For `Many` placeholders, the values in `b2` must be a prefix of the
-/// values in `b` (the repetition accumulates one word at a time, so after the
-/// first iteration `b2` has only the first word, not the full list). `One`
-/// placeholders are already checked by `bind_scalar` so they're skipped here.
-/// Since `b2` is always derived from a clone of `b` (with some `Many` lists
-/// reset to empty), every `Many` key in `b` also exists as `Many` in `b2`.
-fn bindings_compatible(b: &Bindings, b2: &Bindings) -> bool {
-    for (name, val) in &b.map {
-        if let BindValue::Many(existing) = val
-            && let Some(BindValue::Many(new)) = b2.get(name)
-        {
-            // `new` must be a prefix of `existing`
-            if new.len() > existing.len() {
-                return false;
-            }
-            for (i, v) in new.iter().enumerate() {
-                if v != &existing[i] {
-                    return false;
-                }
-            }
-        }
-    }
-    true
-}
-
-/// Like `match_reps` but checks that the resulting bindings are compatible
-/// with the existing bindings `constraint`. Used when re-matching facts
-/// against already-bound placeholders (e.g. in `removed_facts`).
-///
-/// `mid == start` (inner matching zero args) can't happen here: the caller
-/// only enters this path when `has_existing` is true, which requires a
-/// direct `Placeholder` in the inner — and a placeholder always consumes
-/// exactly one arg. When args are exhausted `match_args` returns empty, so
-/// the loop simply doesn't execute. The zero-width guard from `match_reps`
-/// is therefore unnecessary.
-fn match_reps_constrained(
-    inner: &[ArgTemplate],
-    args: &[Arg],
-    start: usize,
-    b: &Bindings,
-    at_least_one: bool,
-    rest: &[ArgTemplate],
-    constraint: &Bindings,
-) -> Vec<(usize, Bindings)> {
-    let mut out = Vec::new();
-    if !at_least_one {
-        // `b` already satisfies the constraint: the initial call passes `b0`
-        // (empty-list prefixes, always compatible) and the recursive call is
-        // gated by `bindings_compatible(constraint, &b2)`.
-        out.extend(match_args(rest, args, start, b));
-    }
-    for (mid, b2) in match_args(inner, args, start, b) {
-        if bindings_compatible(constraint, &b2) {
-            out.extend(match_reps_constrained(inner, args, mid, &b2, false, rest, constraint));
+            out.extend(match_reps(inner, args, mid, &s2, false, rest));
         }
     }
     out
@@ -777,7 +866,7 @@ fn match_fact_repetition_detailed(
         let mut mb = b.clone();
         for name in &list_ph {
             if let Some(BindValue::Many(list)) = b.get(name)
-                && let Some(v) = list.first()
+                && let Some(BindValue::One(v)) = list.first()
             {
                 mb.map.insert(name.clone(), BindValue::One(v.clone()));
             }
@@ -825,12 +914,19 @@ fn match_fact_repetition_detailed(
                 used2[i] = true;
             }
             for name in &list_ph {
-                let list: Vec<Arg> = matched
+                // Collect each matched fact's scalar binding for `name`. A
+                // `Many` here means `name` was already list-bound by a sibling
+                // repetition (shared placeholder, same context): the fact's
+                // scalar match appended into that existing list, which is not
+                // this repetition's contribution, so it is filtered out and
+                // the existing binding is left untouched (keeping the sibling
+                // repetitions consistent).
+                let list: Vec<BindValue> = matched
                     .iter()
                     .zip(matched_idx.iter())
                     .filter(|&(_, i)| take.contains(i))
                     .filter_map(|(bf, _)| match bf.get(name) {
-                        Some(BindValue::One(v)) => Some(v.clone()),
+                        Some(BindValue::One(v)) => Some(BindValue::One(v.clone())),
                         _ => None,
                     })
                     .collect();
@@ -947,18 +1043,25 @@ fn render_chunks(chunks: &[BodyChunk], b: &Bindings, out: &mut String) {
         match chunk {
             BodyChunk::Text(t) => out.push_str(t),
             BodyChunk::Placeholder(name) => match b.get(name) {
-                Some(BindValue::One(v)) => out.push_str(&crate::normal_form_arg(v)),
-                Some(BindValue::Many(list)) => {
-                    for (i, v) in list.iter().enumerate() {
-                        if i > 0 {
-                            out.push(' ');
-                        }
-                        out.push_str(&crate::normal_form_arg(v));
-                    }
-                }
+                Some(v) => render_value(v, out),
                 None => {}
             },
             BodyChunk::Repeat(r) => render_repeat(r, b, out),
+        }
+    }
+}
+/// Render a bound value: a scalar arg as-is, or a list space-joined (recursing
+/// into nested `Many`s so a grouped placeholder at any depth renders flat).
+fn render_value(v: &BindValue, out: &mut String) {
+    match v {
+        BindValue::One(arg) => out.push_str(&crate::normal_form_arg(arg)),
+        BindValue::Many(list) => {
+            for (i, child) in list.iter().enumerate() {
+                if i > 0 {
+                    out.push(' ');
+                }
+                render_value(child, out);
+            }
         }
     }
 }
@@ -968,7 +1071,7 @@ fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String) {
     // Collect each one's bound list exactly once — by construction every entry
     // here is a `Many` value (that's the filter), so there is no second
     // fallible lookup and no dead branch when we read the lengths or elements.
-    let driver_lists: Vec<(String, Vec<Arg>)> = list_placeholders(&r.chunks)
+    let driver_lists: Vec<(String, Vec<BindValue>)> = list_placeholders(&r.chunks)
         .into_iter()
         .filter_map(|name| match b.get(&name) {
             Some(BindValue::Many(list)) => Some((name, list.clone())),
@@ -989,7 +1092,7 @@ fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String) {
     for i in 0..n {
         let mut b2 = b.clone();
         for (name, list) in &driver_lists {
-            b2.map.insert(name.clone(), BindValue::One(list[i].clone()));
+            b2.map.insert(name.clone(), list[i].clone());
         }
         render_chunks(&r.chunks, &b2, out);
     }

@@ -69,13 +69,15 @@ before is before-token
 Before is before-token
 $ rule (parse before rule statement)
     (
-        - statement $before $action : $( $words )+
+        - statement $before $action $( cond-rule $( $rule )+ end-cond )* : $( $words )+
         $before is before-token
     )
     (
         rule (before $action rule)
             (
                 - before enacting $action
+                $($($rule )+
+                )*
             )
             (
                 sentence $( $words )+

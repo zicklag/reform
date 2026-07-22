@@ -5,14 +5,8 @@ Properties of the Kitchen:
     description: (The best room in the house.)
     brightness: dark
 
-$ rule (before looking)
-    (
-        - before enacting looking
-        brightness of Kitchen is dark
-    )
-    (
-        println (It is to dark in here!)
-    )
+Before looking if the brightness of Kitchen is dark:
+    say (It is too dark in here!)
 
 Understand look as looking. Understand l as looking.
 After looking:
@@ -24,3 +18,4 @@ Carry-out illuminating:
 After illuminating:
     say (You have illuminated the room.)
 
+$ quit 

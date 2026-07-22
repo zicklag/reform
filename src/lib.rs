@@ -1,11 +1,11 @@
-use internment::ArcIntern;
+use internment::Intern;
 
 pub mod engine;
 pub mod parser;
 pub mod rule;
 
 /// An argument in a [`Fact`].
-pub type Arg = ArcIntern<str>;
+pub type Arg = Intern<str>;
 
 /// A reform fact
 #[derive(PartialEq, Eq, Hash, Debug, Clone, derive_more::Deref)]
@@ -13,7 +13,7 @@ pub struct Fact(pub Vec<Arg>);
 
 impl Fact {
     pub fn is_rule(&self) -> bool {
-        self.len() == 4 && &self[0] == "rule"
+        self.len() == 4 && &*self[0] == "rule"
     }
 }
 

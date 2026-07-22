@@ -1,0 +1,21 @@
+$ rule (parse nested bindings)
+    (
+        - sentence example $( start $( $rule )+ end )*
+    )
+    (
+        $(
+          this should not be empty: $( $rule )+
+        )*
+    )
+
+example start fact 1 end start fact 2 end start fact 3 end
+
+$ facts
+# Three outer groups -> three facts, each with its inner `$rule` list intact.
+# A flattened (ungrouped) accumulation would instead produce six facts
+# ("this should not be empty: fact", "...: 1", "...: fact", ...).
+$ assert this should not be empty: fact 1
+$ assert this should not be empty: fact 2
+$ assert this should not be empty: fact 3
+$ assert-not this should not be empty: fact
+$ assert-not this should not be empty: 1

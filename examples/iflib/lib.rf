@@ -1,4 +1,5 @@
 $ load ./core.rf
+$ load ./conditions.rf
 $ load ./actions.rf
 $ load ./prompt.rf
 
