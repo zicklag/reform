@@ -741,6 +741,22 @@ $ quit
     assert!(e.contains(&fact("b")));
 }
 
+/// `$ -` with a pattern containing characters that the pattern parser
+/// rejects (e.g. a bare `$`) falls back to exact fact removal.
+#[test]
+fn dash_command_pattern_fallback() {
+    let mut e = Engine::new();
+    e.load_str(
+        r#"$ - $( a )*
+$ assert-not ( a )
+$ quit
+"#,
+    )
+    .unwrap();
+    // The fallback parsed `$( a )*` as a single fact and removed it.
+    // Since no such fact existed, the engine state is unchanged.
+}
+
 // -- unknown command fallback -------------------------------------------------
 
 /// An unknown command keyword is silently ignored (the `_ => Ok(())` branch).
@@ -1130,4 +1146,49 @@ fn trace_emits_events() {
         .unwrap();
     assert!(e.contains(&fact("b")));
     assert!(!e.contains(&fact("a")));
+}
+
+// -- matched_facts coverage -------------------------------------------------
+
+/// A negated fact inside a `?` repetition exercises the `!pf.negated` guard
+/// in `matched_facts`'s `FactRepetition` arm (rule.rs:796).
+#[test]
+fn matched_facts_negated_in_repetition() {
+    let mut e = Engine::new();
+    e.load_str(
+        r#"$ rule r
+    (
+        a
+        $( !b )?
+    )
+    (
+        c
+    )
+$ a
+$ assert c
+$ quit
+"#,
+    )
+    .unwrap();
+    assert!(e.contains(&fact("c")));
+}
+
+// -- fixpoint bail-out (MAX_ITERATIONS) --------------------------------------
+
+/// A rule that peels one fact per firing, producing a new fact with a
+/// different binding each time, will exceed MAX_ITERATIONS and bail.
+/// Uses a low iteration cap so the test completes quickly.
+#[test]
+fn fixpoint_max_iterations() {
+    let mut e = Engine::new();
+    e.set_max_iterations(10);
+    let res = e.load_str(
+        r#"$ rule r
+    ( - a $x )
+    ( a (f $x) )
+$ a 0
+"#,
+    );
+    let err = format!("{}", res.unwrap_err());
+    assert!(err.contains("fixpoint"), "error: {err}");
 }

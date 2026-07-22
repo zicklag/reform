@@ -59,3 +59,19 @@ $ rule (clean up after enacting phase)
         - after enacting $action
     )
     ()
+
+#
+# Add some sentence parsers for creating rules rules for the
+# actions
+# 
+
+before is before-token
+Before is before-token
+$ rule (parse before rule statement)
+    (
+        - statement $before $action : $( $sentences )+
+        $before is before-token
+    )
+    (
+        
+    )

@@ -114,3 +114,11 @@ $ rule (properties of x, separated by colons)
             $prop of $x is $value
         )+
     )
+
+$ rule (parse say statement)
+    (
+        - statement say $( $word )+
+    )
+    (
+        println $( $word )+
+    )

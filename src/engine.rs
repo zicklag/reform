@@ -3,10 +3,19 @@ use crate::{Arg, Fact, parser};
 use anyhow::{Result, anyhow, bail};
 use std::path::{Path, PathBuf};
 
+
+use crate::rule::PatternFact;
+#[derive(Debug)]
+/// match against the fact store, or a list of exact facts to remove.
+enum RemoveTarget {
+    Pattern(PatternFact),
+    Facts(Vec<Fact>),
+}
+
 /// A parsed engine command extracted from a fact.
 #[derive(Debug)]
 enum Command<'a> {
-    Remove(&'a [&'a str]),
+    Remove(RemoveTarget),
     Println(&'a [&'a str]),
     Print(&'a [&'a str]),
     Quit,
@@ -19,12 +28,28 @@ enum Command<'a> {
 }
 
 /// Try to parse a fact as a command. Returns `None` if the fact is not a
-/// recognized command keyword.
+/// recognized command keyword. A recognized command with invalid arguments
+/// falls back to removing the parsed facts (see the `"-"` arm).
 fn parse_command<'a>(args: &'a [&'a str]) -> Option<Command<'a>> {
-    let first = *args.first()?;
+    let first = args.first().copied()?;
     let rest = &args[1..];
     Some(match first {
-        "-" => Command::Remove(rest),
+        "-" => {
+            let pattern_str = rest
+                .iter()
+                .map(|a| crate::normal_form_arg(&Arg::from(*a)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if rest.is_empty() {
+                Command::Remove(RemoveTarget::Facts(Vec::new()))
+            } else if let Ok(pf) = parser::pattern_fact(&pattern_str) {
+                Command::Remove(RemoveTarget::Pattern(pf))
+            } else {
+                let facts = parser::facts(&pattern_str)
+                    .expect("fact parser succeeds on input from the fact parser");
+                Command::Remove(RemoveTarget::Facts(facts))
+            }
+        }
         "println" => Command::Println(rest),
         "print" => Command::Print(rest),
         "quit" => Command::Quit,
@@ -40,7 +65,7 @@ fn parse_command<'a>(args: &'a [&'a str]) -> Option<Command<'a>> {
 
 /// The Reform rule engine: a fact store plus the registered rules that fire
 /// against it each turn.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Engine {
     facts: Vec<Fact>,
     rules: Vec<Rule>,
@@ -57,8 +82,26 @@ pub struct Engine {
     /// Tracks which (rule, matched-fact-set) pairs have already fired in the
     /// current `turn()` call, to prevent re-firing on the same facts.
     fired: Vec<Vec<std::collections::HashSet<Fact>>>,
+    /// Maximum iterations per `turn()` call before bailing with a fixpoint
+    /// error. Exposed for testing; the default (100_000) is a safety net.
+    max_iterations: usize,
 }
 
+
+impl Default for Engine {
+    fn default() -> Self {
+        Self {
+            facts: Vec::new(),
+            rules: Vec::new(),
+            quit: false,
+            changed: false,
+            base_dir: None,
+            trace: false,
+            fired: Vec::new(),
+            max_iterations: 100_000,
+        }
+    }
+}
 impl Engine {
     pub fn new() -> Self {
         Self::default()
@@ -77,6 +120,11 @@ impl Engine {
     }
     pub fn set_trace(&mut self, on: bool) {
         self.trace = on;
+    }
+    /// Set the maximum iterations per `turn()` call. Lower values are useful
+    /// for testing the fixpoint bail-out without waiting for 100k iterations.
+    pub fn set_max_iterations(&mut self, n: usize) {
+        self.max_iterations = n;
     }
 
     pub fn clear_quit(&mut self) {
@@ -251,7 +299,6 @@ impl Engine {
     }
 
     pub fn turn(&mut self) -> Result<()> {
-        const MAX_ITERATIONS: usize = 100_000;
         let rules = self.rules.clone();
         let mut any_changed = false;
         // Reset fired tracking for this turn.
@@ -260,8 +307,8 @@ impl Engine {
         let mut iterations = 0;
         while i < rules.len() {
             iterations += 1;
-            if iterations > MAX_ITERATIONS {
-                bail!("engine did not reach a fixpoint within {MAX_ITERATIONS} iterations");
+            if iterations > self.max_iterations {
+                bail!("engine did not reach a fixpoint within {} iterations", self.max_iterations);
             }
             let rule = &rules[i];
             // Snapshot facts per-rule so that removals by a more specific rule
@@ -318,26 +365,21 @@ impl Engine {
 
     fn execute_command(&mut self, cmd: Command) -> Result<()> {
         match cmd {
-            Command::Remove(args) => {
-                if !args.is_empty() {
-                    // Reconstruct the pattern string with proper parenthesization
-                    // so that multi-word args (originally `(foo bar)`) round-trip
-                    // through the pattern parser correctly.
-                    let pattern_str = args
-                        .iter()
-                        .map(|a| crate::normal_form_arg(&Arg::from(*a)))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    // Try pattern-based removal first (like `$ find`).
-                    if let Ok(pat) = parser::pattern(&pattern_str) {
-                        let matching = self.find_matching_facts(&pat)?;
+            Command::Remove(target) => {
+                match target {
+                    RemoveTarget::Pattern(pf) => {
+                        let matching: Vec<Fact> = self
+                            .facts
+                            .iter()
+                            .filter(|f| pf.matches_fact(f).is_some())
+                            .cloned()
+                            .collect();
                         for f in matching {
                             self.remove_fact(&f);
                         }
-                    } else {
-                        // Fall back to exact fact removal.
-                        let parsed = parser::facts(&pattern_str)?;
-                        for f in parsed {
+                    }
+                    RemoveTarget::Facts(facts) => {
+                        for f in facts {
                             self.remove_fact(&f);
                         }
                     }

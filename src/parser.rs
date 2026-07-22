@@ -4,7 +4,7 @@ use crate::rule::{
     RepeatBlock, RepeatedArgs, RepetitionKind,
 };
 
-pub use reform_parser::{facts, pattern};
+pub use reform_parser::{facts, pattern, pattern_fact};
 
 /// Parse a rule body template. The body grammar is *infallible*: every input
 /// string parses (any character that isn't part of a `$…` placeholder or
@@ -221,7 +221,7 @@ peg::parser! {
             (" " / "\t")* eol()
             { PatternFactRepetition { kind, facts } }
 
-        rule pattern_fact() -> PatternFact =
+        pub rule pattern_fact() -> PatternFact =
             " "* "-" args:arg_templates() fact_end() { PatternFact { removed: true, negated: false, args } } /
             " "* "!" args:arg_templates() fact_end() { PatternFact { removed: false, negated: true, args } } /
             " "* args:arg_templates() fact_end() { PatternFact { removed: false, negated: false, args } }

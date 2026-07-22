@@ -31,7 +31,10 @@ $ rule (carry out illuminating)
     )
 $ rule (after illuminating)
     (
-        
+        after enacting illuminating
+    )
+    (
+        println (You have illuminated the room.)
     )
 $ rule (understand illuminating)
     (
