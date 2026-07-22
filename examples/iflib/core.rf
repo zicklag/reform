@@ -2,22 +2,29 @@
 # up by periods and had trailing periods removed. This lets the rest
 # of the parser operate on "statements" instead of "sentences" and
 # automatically support having multiple statements on one line.
-$ rule (split sentences by periods)
+$ rule (split sentences by periods 1)
     (
         - sentence $( $words1 )+ . $( $words2 )+
     )
     (
         statement $( $words1 )+
-        statement $( $words2 )+
+        sentence $( $words2 )+
     )
-$ rule (split sentences by periods)
+$ rule (split sentences by periods 2)
+    (
+        - sentence $( $words )+ .
+    )
+    (
+        statement $( $words )+
+    )
+$ rule (split sentences by periods 3)
     (
         - sentence $( $words )+
     )
     (
         statement $( $words )+
     )
-$ rule (strip trailing periods)
+$ rule (strip trailing periods from statements)
     (
         - statement $( $words )+ .
     )
@@ -26,7 +33,7 @@ $ rule (strip trailing periods)
     )
 
 # This rule will print a warning if any statement was not understood.
-$ rule (default statment rule)
+$ rule (warn about statements not understood)
     (
         - statement $( $arg )*
     )
@@ -34,8 +41,7 @@ $ rule (default statment rule)
         $ println (Warning: I did not understand this sentence:) ($($arg )*)
     )
 
-# $x is $y
-$ rule x_is_y
+$ rule (The $x is a $y)
     (
         - statement $( $a1 )? $x is $( $a2 )? $y
         $( $a1 is article )?
@@ -45,16 +51,41 @@ $ rule x_is_y
         $x is $y
     )
 
-# $x is $relation $of $y
-$ rule x_is_rel_of_y
+$ rule ($x is $relation of $y)
     (
         - statement $( $a1 )? $x is $( $a2 )? $rel $( $prep )? $( $a3 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
         $( $a3 is article )?
         $( $prep is preposition )?
+        ! $rel is article
+        ! $rel is preposition
     )
     (
         $x is $rel $( $prep )? $y
     )
 
+$ rule (the $prop is $x of $y)
+    (
+        - statement $( $a1 )? $prop of $x is $value
+        $( $a1 is article )?
+    )
+    (
+        $prop of $x is $value
+    )
+
+# Properties of $x:
+#   $prop: $value
+#   $prop: $value
+properties is properties-token
+Properties is properties-token
+$ rule (properties of x)
+    (
+        - statement $prop-token of $x : $( $prop : $value )+
+        $prop-token is properties-token
+    )
+    (
+        $(
+            $prop of $x is $value
+        )+
+    )

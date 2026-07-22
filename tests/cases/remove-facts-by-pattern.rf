@@ -1,0 +1,9 @@
+$ john is a crab
+$ mary is a crab
+$ carrie is a moose 
+
+$ - $x is a crab
+
+$ assert carrie is a moose
+$ assert-not john is a crab
+$ assert-not mary is a crab

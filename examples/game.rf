@@ -1,5 +1,7 @@
 $ load ./iflib/lib.rf
 
-John is parent of Billy
+The Kitchen is a room. The Kitchen is north of the bedroom.
+
+going is an action.
 
 $ facts

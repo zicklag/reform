@@ -684,6 +684,63 @@ fn dash_command_removes_fact() {
     assert!(!e.contains(&fact("a b c")));
 }
 
+// -- dash command with pattern ------------------------------------------------
+
+/// `$ - a $x` removes all facts matching the pattern (like `$ find`).
+#[test]
+fn dash_command_removes_with_pattern() {
+    let e = load(
+        r#"
+$ alice likes cats
+$ bob likes dogs
+$ alice likes birds
+$ - alice likes $x
+$ assert-not alice likes cats
+$ assert-not alice likes birds
+$ assert bob likes dogs
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("bob likes dogs")));
+    assert!(!e.contains(&fact("alice likes cats")));
+    assert!(!e.contains(&fact("alice likes birds")));
+}
+
+/// `$ - $x` with a bare placeholder removes all facts.
+#[test]
+fn dash_command_removes_all_with_placeholder() {
+    let e = load(
+        r#"
+$ a
+$ b
+$ c
+$ - $x
+$ assert-not a
+$ assert-not b
+$ assert-not c
+$ quit
+"#,
+    );
+    assert!(e.facts().is_empty());
+}
+
+/// `$ -` with a pattern that matches nothing is a no-op.
+#[test]
+fn dash_command_pattern_no_match() {
+    let e = load(
+        r#"
+$ a
+$ b
+$ - c $x
+$ assert a
+$ assert b
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("a")));
+    assert!(e.contains(&fact("b")));
+}
+
 // -- unknown command fallback -------------------------------------------------
 
 /// An unknown command keyword is silently ignored (the `_ => Ok(())` branch).
@@ -813,14 +870,12 @@ $ a
     let err = format!("{}", res.unwrap_err());
     assert!(err.contains("fixpoint"), "error: {err}");
 }
-
-/// `Command::Remove`: `parser::facts(&fact_str)?` (engine.rs:240) — `$ - (\()`
-/// carries the arg value `(`, so `fact_str` is `(` which `parser::facts`
-/// rejects.
+/// `Command::Remove`: both `parser::pattern` and `parser::facts` reject an
+/// unclosed paren — `$ - (` fails both paths.
 #[test]
 fn remove_command_parse_error() {
     let mut e = Engine::new();
-    let res = e.load_str("$ - (\\()");
+    let res = e.load_str("$ - (");
     assert!(res.is_err());
 }
 

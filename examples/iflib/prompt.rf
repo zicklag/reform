@@ -1,0 +1,7 @@
+$ rule (apologize for prompts not understood)
+    (
+        - prompt $( $word )+
+    )
+    (
+        $ println (I'm sorry I didn't understand that.)
+    )

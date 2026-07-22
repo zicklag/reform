@@ -1,0 +1,22 @@
+# Don't allow mice
+$ rule (delete mice)
+    (
+        - $x is a mouse
+    )
+    ()
+
+# Add a mouse
+$ bob is a mouse
+
+
+# It should not be added
+$ assert-not bob is a mouse
+
+# Delete the mouse delete rule
+$ - rule (delete mice) $x $y
+
+# Add a mouse
+$ bob is a mouse
+
+# It should be added
+$ assert bob is a mouse

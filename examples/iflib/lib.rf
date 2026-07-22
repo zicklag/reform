@@ -1,4 +1,6 @@
 $ load ./core.rf
+$ load ./actions.rf
+$ load ./prompt.rf
 
 # Define the articles and prepositions
 

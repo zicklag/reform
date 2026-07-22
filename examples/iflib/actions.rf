@@ -1,0 +1,16 @@
+# Here we setup actions, which progress in phases. The default phase rules
+# will progress an action through the phases automatically.
+# 
+# Other rules may respond to the action in the different phases, and if they
+# consume the fact, they can prevent the action from moving to later phases.
+# If they do not consume the fact, then multiple rules may respond to the same
+# action.
+# 
+# The phases are:
+# 
+# 1. Before
+# 2. Instead
+# 3. Check
+# 4. Carry out
+# 5. After
+

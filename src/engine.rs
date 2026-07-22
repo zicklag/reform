@@ -102,6 +102,11 @@ impl Engine {
                 eprintln!("[trace] - {}", normal_form_fact(fact));
             }
             self.changed = true;
+            // If the removed fact is a rule fact, also remove the rule.
+            if fact.is_rule() {
+                let name = &fact[1];
+                self.rules.retain(|r| r.name != *name);
+            }
         }
         removed
     }
@@ -299,10 +304,26 @@ impl Engine {
         match cmd {
             Command::Remove(args) => {
                 if !args.is_empty() {
-                    let fact_str = args.join(" ");
-                    let parsed = parser::facts(&fact_str)?;
-                    for f in parsed {
-                        self.remove_fact(&f);
+                    // Reconstruct the pattern string with proper parenthesization
+                    // so that multi-word args (originally `(foo bar)`) round-trip
+                    // through the pattern parser correctly.
+                    let pattern_str = args
+                        .iter()
+                        .map(|a| crate::normal_form_arg(&Arg::from(*a)))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    // Try pattern-based removal first (like `$ find`).
+                    if let Ok(pat) = parser::pattern(&pattern_str) {
+                        let matching = self.find_matching_facts(&pat)?;
+                        for f in matching {
+                            self.remove_fact(&f);
+                        }
+                    } else {
+                        // Fall back to exact fact removal.
+                        let parsed = parser::facts(&pattern_str)?;
+                        for f in parsed {
+                            self.remove_fact(&f);
+                        }
                     }
                 }
                 Ok(())
