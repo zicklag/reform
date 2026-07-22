@@ -41,7 +41,7 @@ $ rule (warn about statements not understood)
         $ println (Warning: I did not understand this sentence:) ($($arg )*)
     )
 
-$ rule (The $x is a $y)
+$ rule (The x is a y)
     (
         - statement $( $a1 )? $x is $( $a2 )? $y
         $( $a1 is article )?
@@ -51,7 +51,7 @@ $ rule (The $x is a $y)
         $x is $y
     )
 
-$ rule ($x is $relation of $y)
+$ rule (x is relation of y)
     (
         - statement $( $a1 )? $x is $( $a2 )? $rel $( $prep )? $( $a3 )? $y
         $( $a1 is article )?
@@ -65,24 +65,49 @@ $ rule ($x is $relation of $y)
         $x is $rel $( $prep )? $y
     )
 
-$ rule (the $prop is $x of $y)
+$ rule (the prop of x is value)
     (
-        - statement $( $a1 )? $prop of $x is $value
-        $( $a1 is article )?
+        - statement $( $a )? $prop of $x is $value
+        $( $a is article )?
     )
     (
         $prop of $x is $value
     )
 
+now is now-token
+Now is now-token
+$ rule (now the prop of x is value, when deleting previous value)
+    (
+        - statement $nowToken $( $a1 )? $prop of $( $a2 )? $x is $value
+        - $prop of $x is $oldValue
+        $nowToken is now-token
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $prop of $x is $value
+    )
+$ rule (now the prop of x is value, when there is no previous value)
+    (
+        - statement $nowToken $( $a )? $prop of $( $a2 )? $x is $value
+        $nowToken is now-token
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $prop of $x is $value
+    )
+
+properties is properties-token
+Properties is properties-token
 # Properties of $x:
 #   $prop: $value
 #   $prop: $value
-properties is properties-token
-Properties is properties-token
-$ rule (properties of x)
+$ rule (properties of x, separated by colons)
     (
-        - statement $prop-token of $x : $( $prop : $value )+
+        - statement $prop-token of $( $a1 )? $x : $( $prop : $value )+
         $prop-token is properties-token
+        $( $a1 is article )?
     )
     (
         $(

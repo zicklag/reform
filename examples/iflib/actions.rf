@@ -8,9 +8,60 @@
 # 
 # The phases are:
 # 
-# 1. Before
-# 2. Instead
-# 3. Check
-# 4. Carry out
-# 5. After
+# 1. Before - before enacting $action
+# 2. Instead - instead-of enacting $action
+# 3. Check - check enacting $action
+# 4. Carry out - carry-out enacting $action
+# 5. After - after enacting $action
 
+$ rule (transition action enact to before phase)
+    (
+        - enact $action
+        $action is action
+    )
+    (
+        before enacting $action
+    )
+    
+$ rule (transition action from before to instead phase)
+    (
+        - before enacting $action
+        $action is action
+    )
+    (
+        instead-of enacting $action
+    )
+    
+$ rule (transition action from instead-of to check phase)
+    (
+        - instead-of enacting $action
+        $action is action
+    )
+    (
+        check enacting $action
+    )
+    
+$ rule (transition action from check to carry-out phase)
+    (
+        - check enacting $action
+        $action is action
+    )
+    (
+        carry-out enacting $action
+    )
+    
+$ rule (transition action from carry-out to after phase)
+    (
+        - carry-out enacting $action
+        $action is action
+    )
+    (
+        after enacting $action
+    )
+
+$ rule (clean up after enacting phase)
+    (
+        - after enacting $action
+        $action is action
+    )
+    ()

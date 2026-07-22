@@ -1,7 +1,8 @@
-$ rule (apologize for prompts not understood)
+$ rule (apologize for prompts not understanding a prompt)
     (
         - prompt $( $word )+
     )
     (
-        $ println (I'm sorry I didn't understand that.)
+        println (I'm sorry I didn't understand that.)
     )
+

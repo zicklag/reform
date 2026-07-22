@@ -1,6 +1,8 @@
 $ load ./iflib/lib.rf
 
 The Kitchen is a room. The Kitchen is north of the bedroom.
+Properties of the Kitchen:
+    description: (The best room in the house.)
 
 going is an action.
 
