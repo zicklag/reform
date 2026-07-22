@@ -484,34 +484,65 @@ fn match_args(
             }
         }
         ArgTemplate::RepeatedArgs(r) => {
-            // Pre-populate the repetition's list-bound placeholders with empty
-            // lists, so each iteration appends to them (see bind_scalar).
-            let mut b0 = b.clone();
-            for n in top_placeholders(&r.args) {
-                b0.map.insert(n, BindValue::Many(Vec::new()));
-            }
-            match r.kind {
-                RepetitionKind::Optional => {
-                    // Greedy `?`: yield one-iteration results first, then the
-                    // zero-iteration result — always both, not just one when
-                    // one-iteration succeeds. Producing both lets callers
-                    // backtrack across pattern items when the greedier parse
-                    // fails a later constraint (e.g. an `$( $a is article )?`
-                    // whose `$a` was bound by the one-iteration parse to a
-                    // value with no matching fact): `match_items` tries
-                    // bindings in this order and short-circuits at the first
-                    // that satisfies the entire pattern, preserving "prefer
-                    // one, fall back to zero".
-                    for (mid, b2) in match_args(&r.args, args, start, &b0) {
-                        out.extend(match_args(rest, args, mid, &b2));
+            // Check if any top-level placeholder is already bound to a non-empty
+            // Many list. If so, this is a re-match (e.g. from removed_facts or
+            // matched_facts) and we must verify the fact matches those bound
+            // values rather than creating a new empty list — otherwise we'd
+            // spuriously match a different fact with different values.
+            let has_existing = r.args.iter().any(|a| {
+                if let ArgTemplate::Placeholder(n) = a {
+                    b.get(n).is_some_and(|v| matches!(v, BindValue::Many(list) if !list.is_empty()))
+                } else {
+                    false
+                }
+            });
+            if has_existing {
+                // The bindings already have values for this repetition's
+                // placeholders. Verify the fact matches those values by
+                // matching the repetition against the fact's args and checking
+                // that the resulting bindings are consistent with the existing ones.
+                let mut b0 = b.clone();
+                for n in top_placeholders(&r.args) {
+                    b0.map.insert(n, BindValue::Many(Vec::new()));
+                }
+                match r.kind {
+                    RepetitionKind::Optional => {
+                        for (mid, b2) in match_args(&r.args, args, start, &b0) {
+                            if bindings_compatible(&b, &b2) {
+                                out.extend(match_args(rest, args, mid, &b2));
+                            }
+                        }
+                        // Zero-iteration: b0 has all repetition placeholders
+                        // reset to empty lists, which are always prefixes of
+                        // the original bindings, so no compatibility check.
+                        out.extend(match_args(rest, args, start, &b0));
                     }
-                    out.extend(match_args(rest, args, start, &b0));
+                    RepetitionKind::ZeroOrMore => {
+                        out.extend(match_reps_constrained(&r.args, args, start, &b0, false, rest, b));
+                    }
+                    RepetitionKind::OneOrMore => {
+                        out.extend(match_reps_constrained(&r.args, args, start, &b0, true, rest, b));
+                    }
                 }
-                RepetitionKind::ZeroOrMore => {
-                    out.extend(match_reps(&r.args, args, start, &b0, false, rest));
+            } else {
+                // No existing bindings: normal matching with empty lists.
+                let mut b0 = b.clone();
+                for n in top_placeholders(&r.args) {
+                    b0.map.insert(n, BindValue::Many(Vec::new()));
                 }
-                RepetitionKind::OneOrMore => {
-                    out.extend(match_reps(&r.args, args, start, &b0, true, rest));
+                match r.kind {
+                    RepetitionKind::Optional => {
+                        for (mid, b2) in match_args(&r.args, args, start, &b0) {
+                            out.extend(match_args(rest, args, mid, &b2));
+                        }
+                        out.extend(match_args(rest, args, start, &b0));
+                    }
+                    RepetitionKind::ZeroOrMore => {
+                        out.extend(match_reps(&r.args, args, start, &b0, false, rest));
+                    }
+                    RepetitionKind::OneOrMore => {
+                        out.extend(match_reps(&r.args, args, start, &b0, true, rest));
+                    }
                 }
             }
         }
@@ -551,25 +582,94 @@ fn match_reps(
     out
 }
 
+/// Check that the new bindings `b2` are compatible with the existing bindings
+/// `b`. For `Many` placeholders, the values in `b2` must be a prefix of the
+/// values in `b` (the repetition accumulates one word at a time, so after the
+/// first iteration `b2` has only the first word, not the full list). `One`
+/// placeholders are already checked by `bind_scalar` so they're skipped here.
+/// Since `b2` is always derived from a clone of `b` (with some `Many` lists
+/// reset to empty), every `Many` key in `b` also exists as `Many` in `b2`.
+fn bindings_compatible(b: &Bindings, b2: &Bindings) -> bool {
+    for (name, val) in &b.map {
+        if let BindValue::Many(existing) = val
+            && let Some(BindValue::Many(new)) = b2.get(name)
+        {
+            // `new` must be a prefix of `existing`
+            if new.len() > existing.len() {
+                return false;
+            }
+            for (i, v) in new.iter().enumerate() {
+                if v != &existing[i] {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Like `match_reps` but checks that the resulting bindings are compatible
+/// with the existing bindings `constraint`. Used when re-matching facts
+/// against already-bound placeholders (e.g. in `removed_facts`).
+///
+/// `mid == start` (inner matching zero args) can't happen here: the caller
+/// only enters this path when `has_existing` is true, which requires a
+/// direct `Placeholder` in the inner — and a placeholder always consumes
+/// exactly one arg. When args are exhausted `match_args` returns empty, so
+/// the loop simply doesn't execute. The zero-width guard from `match_reps`
+/// is therefore unnecessary.
+fn match_reps_constrained(
+    inner: &[ArgTemplate],
+    args: &[Arg],
+    start: usize,
+    b: &Bindings,
+    at_least_one: bool,
+    rest: &[ArgTemplate],
+    constraint: &Bindings,
+) -> Vec<(usize, Bindings)> {
+    let mut out = Vec::new();
+    if !at_least_one {
+        // `b` already satisfies the constraint: the initial call passes `b0`
+        // (empty-list prefixes, always compatible) and the recursive call is
+        // gated by `bindings_compatible(constraint, &b2)`.
+        out.extend(match_args(rest, args, start, b));
+    }
+    for (mid, b2) in match_args(inner, args, start, b) {
+        if bindings_compatible(constraint, &b2) {
+            out.extend(match_reps_constrained(inner, args, mid, &b2, false, rest, constraint));
+        }
+    }
+    out
+}
+
 impl Pattern {
-    /// All ways to match this pattern against the given facts. Each pattern
-    /// fact line matches a distinct fact; repetition blocks collect lists.
+    /// All ways to match this pattern against the given facts, returning
+    /// both the bindings and the indices of the matched (non-negated) facts.
+    /// Each pattern fact line matches a distinct fact; repetition blocks
+    /// collect lists.
     pub fn find_matches(&self, facts: &[Fact]) -> Vec<Bindings> {
+        self.find_matches_detailed(facts)
+            .into_iter()
+            .map(|(b, _)| b)
+            .collect()
+    }
+
+    /// Like `find_matches` but also returns the indices of the matched facts.
+    pub fn find_matches_detailed(&self, facts: &[Fact]) -> Vec<(Bindings, Vec<usize>)> {
         let used = vec![false; facts.len()];
-        match_items(&self.0, facts, &used, &Bindings::new())
+        match_items_detailed(&self.0, facts, &used, &Bindings::new())
     }
 }
 
-/// Match a sequence of pattern items against the fact set, where `used`
-/// marks facts already consumed by a single-fact item.
-fn match_items(
+/// Like `match_items` but also returns the indices of matched facts.
+fn match_items_detailed(
     items: &[PatternItem],
     facts: &[Fact],
     used: &[bool],
     b: &Bindings,
-) -> Vec<Bindings> {
+) -> Vec<(Bindings, Vec<usize>)> {
     if items.is_empty() {
-        return vec![b.clone()];
+        return vec![(b.clone(), Vec::new())];
     }
     let (first, rest) = items.split_first().unwrap();
     let mut out = Vec::new();
@@ -580,7 +680,7 @@ fn match_items(
                 // fact matches. Binds nothing, consumes nothing.
                 let any = facts.iter().any(|f| !pf.match_fact(f, b).is_empty());
                 if !any {
-                    out.extend(match_items(rest, facts, used, b));
+                    out.extend(match_items_detailed(rest, facts, used, b));
                 }
             } else {
                 for i in 0..facts.len() {
@@ -602,9 +702,13 @@ fn match_items(
                     // everything (so `data one | two | three` splits as
                     // `first one | rest ...`, not `first one | two | ...`).
                     for b2 in pf.match_fact(&facts[i], b) {
-                        let rest_matches = match_items(rest, facts, &used2, &b2);
+                        let rest_matches = match_items_detailed(rest, facts, &used2, &b2);
                         if !rest_matches.is_empty() {
-                            out.extend(rest_matches);
+                            // Prepend this fact's index to each result's index list.
+                            for (b3, mut idxs) in rest_matches {
+                                idxs.insert(0, i);
+                                out.push((b3, idxs));
+                            }
                             break;
                         }
                     }
@@ -612,22 +716,20 @@ fn match_items(
             }
         }
         PatternItem::FactRepetition(rep) => {
-            out.extend(match_fact_repetition(rep, facts, used, b, rest));
+            out.extend(match_fact_repetition_detailed(rep, facts, used, b, rest));
         }
     }
     out
 }
 
-/// Match a fact-level repetition block. Collects all unused facts matching
-/// the inner (single) pattern fact consistently, binding the inner's
-/// top-level placeholders to paired lists. `?` takes at most one fact.
-fn match_fact_repetition(
+/// Like `match_fact_repetition` but also returns the indices of matched facts.
+fn match_fact_repetition_detailed(
     rep: &PatternFactRepetition,
     facts: &[Fact],
     used: &[bool],
     b: &Bindings,
     rest: &[PatternItem],
-) -> Vec<Bindings> {
+) -> Vec<(Bindings, Vec<usize>)> {
     if rep.facts.len() != 1 {
         // Multi-fact inner repetitions aren't supported yet.
         return Vec::new();
@@ -746,18 +848,35 @@ fn match_fact_repetition(
         // would append into the already-bound list (corrupting it) and the
         // filter only collects `One` values, which a list-bound placeholder
         // never produces, so it was a no-op anyway.
-        out.extend(match_items(rest, facts, &used2, &b3));
+        for (b_rest, idxs) in match_items_detailed(rest, facts, &used2, &b3) {
+            let all_idxs = if must_match {
+                // `?` constraint: the fact is verified but NOT consumed, so
+                // don't include its index in the result.
+                idxs
+            } else {
+                let mut all = take.clone();
+                all.extend(idxs);
+                all
+            };
+            out.push((b_rest, all_idxs));
+        }
     } else if want_absent && !must_match {
         // No matching facts (or `?` with nothing to take): match zero facts.
-        out.extend(match_items(rest, facts, used, b));
+        out.extend(match_items_detailed(rest, facts, used, b));
     }
     out
 }
+
 
 impl Rule {
     /// All ways this rule's pattern matches the given facts.
     pub fn find_matches(&self, facts: &[Fact]) -> Vec<Bindings> {
         self.pattern.find_matches(facts)
+    }
+
+    /// Like `find_matches` but also returns the indices of the matched facts.
+    pub fn find_matches_detailed(&self, facts: &[Fact]) -> Vec<(Bindings, Vec<usize>)> {
+        self.pattern.find_matches_detailed(facts)
     }
 
     /// Facts matched by pattern facts marked for removal (`-`), given a set of

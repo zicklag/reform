@@ -14,43 +14,13 @@ $ rule (before looking)
         println (It is to dark in here!)
     )
 
-$ rule (log about looking)
-    (
-        - after enacting looking
-    )
-    (
-        println (You look around tentatively.)
-    )
+Understand look as looking. Understand l as looking.
+After looking:
+    say (You look around tentatively.)
 
-$ rule (carry out illuminating)
-    (
-        carry-out enacting illuminating
-    )
-    (
-        statement now the brightness of the Kitchen is light
-    )
-$ rule (after illuminating)
-    (
-        after enacting illuminating
-    )
-    (
-        println (You have illuminated the room.)
-    )
-$ rule (understand illuminating)
-    (
-        - prompt illuminate
-    )
-    (
-        enact illuminating
-    )
+Understand illuminate as illuminating.
+Carry-out illuminating:
+    now the brightness of the Kitchen is light
+After illuminating:
+    say (You have illuminated the room.)
 
-look is look-token
-l is look-token
-$ rule (understand looking)
-    (
-        - prompt $look
-        $look is look-token
-    )
-    (
-        enact looking
-    )

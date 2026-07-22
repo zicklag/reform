@@ -315,7 +315,7 @@ impl Engine {
             // prevent less specific rules from matching the same facts.
             let snapshot = self.facts.clone();
             self.changed = false;
-            for bindings in rule.find_matches(&snapshot) {
+            for (bindings, _matched_indices) in rule.find_matches_detailed(&snapshot) {
                 // Check if this rule has already fired on this exact set of
                 // matched facts. If so, skip to prevent re-firing on the same
                 // facts (which causes infinite loops when a rule doesn't

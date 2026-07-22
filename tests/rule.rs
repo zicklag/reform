@@ -516,3 +516,133 @@ fn fact_rep_constraint_conversion_branches() {
         "constraint with an empty/unbound placeholder and no matching fact should not match"
     );
 }
+
+
+// ---------------------------------------------------------------------------
+// removed_facts / matched_facts — re-matching with existing Many bindings
+// ---------------------------------------------------------------------------
+
+/// `removed_facts` with a `$( $words )+` (OneOrMore) pattern must only remove
+/// the fact that was actually matched, not every fact that independently
+/// matches the pattern. Before the fix, re-matching created fresh empty
+/// list bindings, so both facts matched and both were removed.
+#[test]
+fn removed_facts_one_or_more_only_matched() {
+    use reform::rule::Rule;
+    let rule = Rule::parse(&[
+        "rule", "split", "- sentence $( $words )+", "statement $( $words )+",
+    ])
+    .unwrap();
+    let facts = vec![
+        fact(&["sentence", "alpha"]),
+        fact(&["sentence", "beta"]),
+    ];
+    let matches = rule.find_matches_detailed(&facts);
+    assert_eq!(matches.len(), 2);
+    // First match binds alpha — only that fact should be removed.
+    let (b1, _) = &matches[0];
+    let removed = rule.removed_facts(&facts, b1);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["sentence", "alpha"]));
+    // Second match binds beta — only that fact should be removed.
+    let (b2, _) = &matches[1];
+    let removed = rule.removed_facts(&facts, b2);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["sentence", "beta"]));
+}
+
+/// Same scenario with `$( $words )*` (ZeroOrMore) — exercises the
+/// `has_existing` + `ZeroOrMore` path in `match_args` and the
+/// `!at_least_one` branch of `match_reps_constrained`.
+#[test]
+fn removed_facts_zero_or_more_only_matched() {
+    use reform::rule::Rule;
+    let rule = Rule::parse(&[
+        "rule", "split", "- sentence $( $words )*", "statement $( $words )*",
+    ])
+    .unwrap();
+    let facts = vec![
+        fact(&["sentence", "alpha"]),
+        fact(&["sentence", "beta"]),
+    ];
+    let matches = rule.find_matches_detailed(&facts);
+    assert_eq!(matches.len(), 2);
+    let (b1, _) = &matches[0];
+    let removed = rule.removed_facts(&facts, b1);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["sentence", "alpha"]));
+    let (b2, _) = &matches[1];
+    let removed = rule.removed_facts(&facts, b2);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["sentence", "beta"]));
+}
+
+/// `$( $a )? $x` (Optional) where `$a` binds to a non-empty list — exercises
+/// the `has_existing` + `Optional` path, including the zero-iteration
+/// `bindings_compatible` check.
+#[test]
+fn removed_facts_optional_only_matched() {
+    use reform::rule::Rule;
+    let rule = Rule::parse(&[
+        "rule", "split", "- sentence $( $a )? $x", "result $x",
+    ])
+    .unwrap();
+    let facts = vec![
+        fact(&["sentence", "alpha", "beta"]),
+        fact(&["sentence", "gamma", "delta"]),
+    ];
+    let matches = rule.find_matches_detailed(&facts);
+    assert_eq!(matches.len(), 2);
+    let (b1, _) = &matches[0];
+    let removed = rule.removed_facts(&facts, b1);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["sentence", "alpha", "beta"]));
+    let (b2, _) = &matches[1];
+    let removed = rule.removed_facts(&facts, b2);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["sentence", "gamma", "delta"]));
+}
+
+/// A nested `$( $( $x )* )+` (OneOrMore with a zero-width inner `*`) pattern
+/// during re-matching verifies that `removed_facts` only removes the matched
+/// fact. The zero-width inner doesn't trigger `has_existing` (no direct
+/// Placeholder in the outer repetition), so this exercises the normal path.
+#[test]
+fn removed_facts_nested_zero_width_inner() {
+    use reform::rule::Rule;
+    let rule = Rule::parse(&[
+        "rule", "split", "- prefix $( $( $x )* )+", "result",
+    ])
+    .unwrap();
+    let facts = vec![
+        fact(&["prefix", "alpha"]),
+        fact(&["prefix", "beta"]),
+    ];
+    let matches = rule.find_matches_detailed(&facts);
+    assert_eq!(matches.len(), 2);
+    let (b1, _) = &matches[0];
+    let removed = rule.removed_facts(&facts, b1);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["prefix", "alpha"]));
+    let (b2, _) = &matches[1];
+    let removed = rule.removed_facts(&facts, b2);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["prefix", "beta"]));
+}
+
+/// `Rule::find_matches` delegates to `Pattern::find_matches`.
+#[test]
+fn rule_find_matches_delegates() {
+    use reform::rule::Rule;
+    let rule = Rule::parse(&[
+        "rule", "r", "- sentence $( $words )+", "statement $( $words )+",
+    ])
+    .unwrap();
+    let facts = vec![fact(&["sentence", "alpha"])];
+    let matches = rule.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(
+        matches[0].get("words"),
+        Some(&BindValue::Many(vec![Arg::from("alpha")]))
+    );
+}

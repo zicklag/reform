@@ -1,0 +1,19 @@
+# Regression: when a removed-fact pattern like `- sentence $( $words )+`
+# matches two facts, only the *matched* fact should be removed — not every
+# fact that independently matches the pattern. Before the fix, removed_facts
+# re-matched all facts with fresh empty list bindings, deleting both sentences
+# on the first firing so `statement beta` was never produced.
+
+$ rule split
+    (
+        - sentence $( $words )+
+    )
+    (
+        statement $( $words )+
+    )
+
+$ sentence alpha
+$ sentence beta
+
+$ assert statement alpha
+$ assert statement beta

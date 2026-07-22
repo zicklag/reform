@@ -6,3 +6,19 @@ $ rule (apologize for prompts not understanding a prompt)
         println (I'm sorry I didn't understand that.)
     )
 
+Understand is understand-token
+understand is understand-token
+$ rule (parse understand statement)
+    (
+        - statement $understand $word as $action
+        $understand is understand-token
+    )
+    (
+        rule (understand $word as $action)
+            (
+                - prompt $word
+            )
+            (
+                enact $action
+            )
+    )

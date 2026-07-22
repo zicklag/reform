@@ -69,9 +69,50 @@ before is before-token
 Before is before-token
 $ rule (parse before rule statement)
     (
-        - statement $before $action : $( $sentences )+
+        - statement $before $action : $( $words )+
         $before is before-token
     )
     (
-        
+        rule (before $action rule)
+            (
+                - before enacting $action
+            )
+            (
+                sentence $( $words )+
+            )
+    )
+    
+
+carry-out is carry-out-token
+Carry-out is carry-out-token
+$ rule (parse carry-out rule statement)
+    (
+        - statement $carry-out $action : $( $words )+
+        $carry-out is carry-out-token
+    )
+    (
+        rule (carry-out $action rule)
+            (
+                carry-out enacting $action
+            )
+            (
+                sentence $( $words )+
+            )
+    )
+    
+after is after-token
+After is after-token
+$ rule (parse after rule statement)
+    (
+        - statement $after $action : $( $words )+
+        $after is after-token
+    )
+    (
+        rule (after $action rule)
+            (
+                after enacting $action
+            )
+            (
+                sentence $( $words )+
+            )
     )
