@@ -15,7 +15,7 @@ $ rule (parse conditions in statements, with and)
         $( $start )* eval-cond $( $cond-phrase )+ end-cond if $( $end )*
     )
     
-$ rule (parse conditions in statements, without and)
+$ rule (parse conditions in statements, ending in colon)
     (
         - $( $start )* if $( $cond-phrase )+ : $( $end )*
     )
@@ -23,7 +23,7 @@ $ rule (parse conditions in statements, without and)
         $( $start )* eval-cond $( $cond-phrase )+ end-cond : $( $end )*
     )
 
-$ rule (condition if prop of x is value)
+$ rule (condition rule: if prop of x is value)
     (
         - $( $start )* eval-cond $( $a1 )? $prop of $( $a2 )? $x is $value end-cond $( $end )*
         $( $a1 is article )?

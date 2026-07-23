@@ -58,6 +58,7 @@ peg::parser! {
             { args.into_iter().flat_map(|x| x.into_iter()).collect() }
         rule line_arg_batch() -> Vec<Arg> =
             template_args() /
+            args:template_curly_args() { args } /
             arg:literal_arg() { vec![arg] } /
             arg:plain_word() { vec![arg] }
 
@@ -91,9 +92,11 @@ peg::parser! {
         // literal strings should work inside curlies like they do outside.
         rule template_curly_args() -> Vec<Arg> =
             "{"
+                " "*
                 matched:(
                     arg:plain_word()
                 ) ** " "
+                " "*
             "}"
             {
                 let mut args = Vec::new();
@@ -158,7 +161,7 @@ peg::parser! {
             p:punctuation() { p.into() }
 
         // Matches normal sentence punctuation.
-        rule punctuation() -> &'input str = $( ";" / "." / "'" / ":" )
+        rule punctuation() -> &'input str = $( "," / ";" / "." / "'" / ":" )
 
         // Helpers for negative lookahead
         rule not_brackets() = not_curlies() not_squares() not_parens()

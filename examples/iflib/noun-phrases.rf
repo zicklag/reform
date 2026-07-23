@@ -1,0 +1,10 @@
+
+$ rule (noun phrase: the prop of x)
+    (
+        - $( $before )+ { the $prop of $( $a )? $x } $( $after )*
+        $( $a is article )?
+        $prop of $x is $value
+    )
+    (
+        $( $before )+ $value $( $after )*
+    )

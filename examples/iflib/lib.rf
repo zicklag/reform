@@ -1,6 +1,7 @@
 $ load ./core.rf
 $ load ./conditions.rf
 $ load ./actions.rf
+$ load ./noun-phrases.rf
 $ load ./prompt.rf
 
 # Define the articles and prepositions

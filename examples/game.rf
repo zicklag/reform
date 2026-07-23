@@ -4,13 +4,15 @@ The Kitchen is a room. The Kitchen is north of the bedroom.
 Properties of the Kitchen:
     description: (The best room in the house.)
     brightness: dark
+    
+The location of the player is Kitchen.
 
 Before looking if the brightness of Kitchen is dark:
     say (It is too dark in here!)
 
 Understand look as looking. Understand l as looking.
 After looking:
-    say (You look around tentatively.)
+    say You are in { the location of the player }
 
 Understand illuminate as illuminating.
 Carry-out illuminating:
@@ -18,4 +20,3 @@ Carry-out illuminating:
 After illuminating:
     say (You have illuminated the room.)
 
-$ quit 

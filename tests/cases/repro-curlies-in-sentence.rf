@@ -1,0 +1,4 @@
+This is a sentence, with a {noun phrase}.
+
+$ facts
+$ assert sentence This is a sentence , with a { noun phrase } .
