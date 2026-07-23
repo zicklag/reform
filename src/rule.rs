@@ -577,11 +577,11 @@ impl State {
     /// placeholder at the current repetition level).
     fn append(&mut self, name: &str, val: BindValue) {
         let frame = self.frames.last_mut().expect("append called inside a repetition");
-        if let Some((_, list)) = frame.iter_mut().find(|(n, _)| n == name) {
-            list.push(val);
-        } else {
-            frame.push((name.to_string(), vec![val]));
-        }
+        let (_, list) = frame
+            .iter_mut()
+            .find(|(n, _)| n == name)
+            .expect("placeholder pre-seeded in its repetition frame");
+        list.push(val);
     }
 
     /// Push a fresh repetition frame, pre-seeded with every placeholder
@@ -605,11 +605,11 @@ impl State {
             let group = BindValue::Many(list);
             match self.frames.last_mut() {
                 Some(f) => {
-                    if let Some((_, existing)) = f.iter_mut().find(|(n, _)| n == &name) {
-                        existing.push(group);
-                    } else {
-                        f.push((name, vec![group]));
-                    }
+                    let (_, existing) = f
+                        .iter_mut()
+                        .find(|(n, _)| n == &name)
+                        .expect("nested placeholder pre-seeded in outer frame");
+                    existing.push(group);
                 }
                 None => { self.b.map.insert(name, group); }
             }
