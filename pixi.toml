@@ -1,0 +1,11 @@
+[workspace]
+authors = ["Zicklag <zicklag@katharostech.com>"]
+channels = ["conda-forge"]
+name = "reform"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+llvm-tools = ">=22.1.8,<23"

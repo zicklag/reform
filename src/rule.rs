@@ -422,7 +422,7 @@ impl Bindings {
         for (k, v) in &other.map {
             match v {
                 BindValue::One(val) => {
-                    if !self.bind_scalar(k, val.clone()) {
+                    if !self.bind_scalar(k, *val) {
                         return false;
                     }
                 }
@@ -642,12 +642,12 @@ fn match_args(
                 let mut s = st.clone();
                 if s.frames.is_empty() {
                     // Scalar: consistency-check against existing bindings.
-                    if s.b.bind_scalar(name, args[start].clone()) {
+                    if s.b.bind_scalar(name, args[start]) {
                         out.extend(match_args(rest, args, start + 1, &s));
                     }
                 } else {
                     // List-bound: append to the innermost frame.
-                    s.append(name, BindValue::One(args[start].clone()));
+                    s.append(name, BindValue::One(args[start]));
                     out.extend(match_args(rest, args, start + 1, &s));
                 }
             }
@@ -868,7 +868,7 @@ fn match_fact_repetition_detailed(
             if let Some(BindValue::Many(list)) = b.get(name)
                 && let Some(BindValue::One(v)) = list.first()
             {
-                mb.map.insert(name.clone(), BindValue::One(v.clone()));
+                mb.map.insert(name.clone(), BindValue::One(*v));
             }
         }
         mb
@@ -926,7 +926,7 @@ fn match_fact_repetition_detailed(
                     .zip(matched_idx.iter())
                     .filter(|&(_, i)| take.contains(i))
                     .filter_map(|(bf, _)| match bf.get(name) {
-                        Some(BindValue::One(v)) => Some(BindValue::One(v.clone())),
+                        Some(BindValue::One(v)) => Some(BindValue::One(*v)),
                         _ => None,
                     })
                     .collect();
@@ -1042,10 +1042,11 @@ fn render_chunks(chunks: &[BodyChunk], b: &Bindings, out: &mut String) {
     for chunk in chunks {
         match chunk {
             BodyChunk::Text(t) => out.push_str(t),
-            BodyChunk::Placeholder(name) => match b.get(name) {
-                Some(v) => render_value(v, out),
-                None => {}
-            },
+            BodyChunk::Placeholder(name) => {
+                if let Some(v) = b.get(name) {
+                    render_value(v, out);
+                }
+            }
             BodyChunk::Repeat(r) => render_repeat(r, b, out),
         }
     }
