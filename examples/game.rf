@@ -12,7 +12,7 @@ Before looking if the brightness of Kitchen is dark:
 
 Understand look as looking. Understand l as looking.
 After looking:
-    say You are in { the location of the player }
+    say [You are in { the location of the player }]
 
 Understand illuminate as illuminating.
 Carry-out illuminating:
