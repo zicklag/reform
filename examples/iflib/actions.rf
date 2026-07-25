@@ -65,6 +65,14 @@ $ rule (clean up after enacting phase)
 # actions
 # 
 
+$ rule (parse enact action statement)
+    (
+        - statement enact $action
+    )
+    (
+        enact $action
+    )
+
 before is before-token
 Before is before-token
 $ rule (parse before rule statement)

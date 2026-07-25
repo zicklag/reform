@@ -1,10 +1,16 @@
 $ load ./iflib/lib.rf
 
+Properties of the story:
+    title: (The Mysterious Attack)
+    author: (KTech Studio)
+    episode: 1
+    series: (The New Guard)
+
 The Kitchen is a room. The Kitchen is north of the bedroom.
 Properties of the Kitchen:
     description: (The best room in the house.)
     brightness: dark
-    
+
 The location of the player is Kitchen.
 
 Before looking if the brightness of Kitchen is dark:
@@ -12,7 +18,7 @@ Before looking if the brightness of Kitchen is dark:
 
 Understand look as looking. Understand l as looking.
 After looking:
-    say [You are in { the location of the player }]
+    say (You are in ) { the location of the player }
 
 Understand illuminate as illuminating.
 Carry-out illuminating:
@@ -20,3 +26,8 @@ Carry-out illuminating:
 After illuminating:
     say (You have illuminated the room.)
 
+After starting:
+    say (Let's do this thing.
+    )
+
+Start the story.

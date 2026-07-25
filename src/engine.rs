@@ -387,7 +387,7 @@ impl Engine {
                 Ok(())
             }
             Command::Println(args) => {
-                println!("{}", args.join(" "));
+                println!("{}", args.join(""));
                 Ok(())
             }
             Command::Print(args) => {

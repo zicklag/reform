@@ -1,0 +1,20 @@
+# Metadata and parsers related to the story itself.
+
+$ rule (parse start the story)
+    (
+        - statement Start the story
+    )
+    (
+        enact starting
+    )
+
+$ rule (print story credits)
+    (
+        carry-out enacting starting
+        title of story is $title
+        author of story is $author
+    )
+    (
+        println (") $title (" by ) $author
+        println
+    )
