@@ -136,7 +136,7 @@ impl Engine {
             false
         } else {
             if self.trace {
-                eprintln!("[trace] + {}", normal_form_fact(&fact));
+                eprintln!("\x1b[2m[trace] + {}\x1b[0m", normal_form_fact(&fact));
             }
             self.facts.push(fact);
             self.changed = true;
@@ -150,7 +150,7 @@ impl Engine {
         let removed = self.facts.len() != before;
         if removed {
             if self.trace {
-                eprintln!("[trace] - {}", normal_form_fact(fact));
+                eprintln!("\x1b[2m[trace] - {}\x1b[0m", normal_form_fact(fact));
             }
             self.changed = true;
             // If the removed fact is a rule fact, also remove the rule.
@@ -165,7 +165,7 @@ impl Engine {
     pub fn add_rule(&mut self, rule: Rule) {
         if self.trace {
             eprintln!(
-                "[trace] rule {} (specificity {})",
+                "\x1b[2m[trace] rule {} (specificity {})\x1b[0m",
                 rule.name, rule.specificity
             );
         }
@@ -331,11 +331,16 @@ impl Engine {
                     self.remove_fact(&rf);
                 }
                 let text = rule.body.render(&bindings);
+                if self.trace {
+                    let rendered = text.trim_end();
+                    if rendered.is_empty() {
+                        eprintln!("\x1b[2m[trace] fire {} -> (empty)\x1b[0m", rule.name);
+                    } else {
+                        eprintln!("\x1b[2m[trace] fire {} -> {}\x1b[0m", rule.name, rendered);
+                    }
+                }
                 if text.trim().is_empty() {
                     continue;
-                }
-                if self.trace {
-                    eprintln!("[trace] fire {} -> {}", rule.name, text.trim_end());
                 }
                 for f in parser::facts(&text)? {
                     self.ingest_body(f)?;
