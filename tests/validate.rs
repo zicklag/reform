@@ -95,7 +95,7 @@ $ rule
     ( b )
 "#;
     let err = parse_rule(src).expect_err("should reject");
-    assert!(err.contains("exactly 4 arguments"), "got: {err}");
+    assert!(err.contains("4 or 5 arguments"), "got: {err}");
 }
 
 /// A rule with extra arguments beyond the required 4 is rejected.
@@ -107,8 +107,9 @@ $ rule r extra
     ( b )
 "#;
     let err = parse_rule(src).expect_err("should reject");
-    assert!(err.contains("exactly 4 arguments"), "got: {err}");
+    assert!(err.contains("must start with + or -"), "got: {err}");
 }
+
 
 /// An empty pattern (no pattern items) is valid.
 #[test]

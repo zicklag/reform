@@ -13,7 +13,7 @@ pub struct Fact(pub Vec<Arg>);
 
 impl Fact {
     pub fn is_rule(&self) -> bool {
-        self.len() == 4 && &*self[0] == "rule"
+        self.len() >= 4 && &*self[0] == "rule"
     }
 }
 

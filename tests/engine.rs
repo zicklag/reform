@@ -1078,6 +1078,164 @@ fn compute_specificity_scores() {
     );
 }
 
+// -- specificity adjustment (5th rule arg) ------------------------------------
+
+/// A rule with a positive specificity adjustment fires before a rule with
+/// higher computed specificity but no adjustment.
+#[test]
+fn specificity_adjustment_positive_overrides() {
+    let e = load(
+        r#"
+$ x is a thing
+$ rule boosted
+    ( $x is a thing )
+    ( boosted-result )
+    +100
+$ rule literal
+    ( x is a thing )
+    ( literal-result )
+$ assert boosted-result
+$ assert literal-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("boosted-result")));
+    assert!(e.contains(&fact("literal-result")));
+}
+
+/// A rule with a negative specificity adjustment fires after a rule with
+/// lower computed specificity.
+#[test]
+fn specificity_adjustment_negative_delays() {
+    let e = load(
+        r#"
+$ x is a thing
+$ rule literal
+    ( x is a thing )
+    ( literal-result )
+$ rule delayed
+    ( $x is a thing )
+    ( delayed-result )
+    -100
+$ assert literal-result
+$ assert delayed-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("literal-result")));
+    assert!(e.contains(&fact("delayed-result")));
+}
+
+/// A rule with a negative adjustment can be made to fire after a catch-all.
+#[test]
+fn specificity_adjustment_negative_below_catchall() {
+    let e = load(
+        r#"
+$ x is a thing
+$ rule catchall
+    ( $x is $y $z )
+    ( catchall-result )
+$ rule specific
+    ( x is a thing )
+    ( specific-result )
+    -100
+$ assert catchall-result
+$ assert specific-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("catchall-result")));
+    assert!(e.contains(&fact("specific-result")));
+}
+
+/// A rule with a positive adjustment can outrank a more specific rule.
+#[test]
+fn specificity_adjustment_positive_outranks_more_specific() {
+    let e = load(
+        r#"
+$ x is a thing
+$ rule boosted
+    ( $x is a thing )
+    ( boosted-result )
+    +10
+$ rule literal
+    ( x is a thing )
+    ( literal-result )
+$ assert boosted-result
+$ assert literal-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("boosted-result")));
+    assert!(e.contains(&fact("literal-result")));
+}
+
+/// The 5th argument must start with + or -.
+#[test]
+fn specificity_adjustment_must_be_signed() {
+    let mut e = Engine::new();
+    let res = e.load_str(
+        r#"$ rule r
+    ( a is b )
+    ( c )
+    5
+"#,
+    );
+    let err = format!("{}", res.unwrap_err());
+    assert!(
+        err.contains("must start with + or -"),
+        "error: {err}"
+    );
+}
+
+/// The 5th argument must be a valid integer.
+#[test]
+fn specificity_adjustment_invalid_integer() {
+    let mut e = Engine::new();
+    let res = e.load_str(
+        r#"$ rule r
+    ( a is b )
+    ( c )
+    +abc
+"#,
+    );
+    let err = format!("{}", res.unwrap_err());
+    assert!(
+        err.contains("invalid specificity adjustment"),
+        "error: {err}"
+    );
+}
+
+/// The 5th argument must not be empty.
+#[test]
+fn specificity_adjustment_empty() {
+    let mut e = Engine::new();
+    let res = e.load_str(
+        r#"$ rule r
+    ( a is b )
+    ( c )
+    +
+"#,
+    );
+    let err = format!("{}", res.unwrap_err());
+    assert!(
+        err.contains("invalid specificity adjustment"),
+        "error: {err}"
+    );
+}
+
+/// The 5th argument empty string via direct parse.
+#[test]
+fn specificity_adjustment_empty_via_direct_parse() {
+    use reform::rule::Rule;
+    let err = Rule::parse(&["rule", "r", "a is b", "( c )", ""]).unwrap_err();
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("must be a signed integer"),
+        "error: {msg}"
+    );
+}
+
 /// Rules with equal specificity preserve insertion order (stable sort).
 #[test]
 fn specificity_equal_preserves_insertion_order() {

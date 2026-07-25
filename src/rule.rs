@@ -1,7 +1,7 @@
 use crate::Arg;
 use anyhow::{Context, Result, bail};
 
-/// A parsed rule with its name, pattern, and body.
+/// A parsed rule with its name, pattern, body, and optional specificity adjustment.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub struct Rule {
     /// The rule's name (the second argument of the `rule` fact).
@@ -10,30 +10,50 @@ pub struct Rule {
     pub pattern: Pattern,
     /// The body to execute when the pattern matches.
     pub body: Body,
-    /// Specificity score: higher = more specific. Rules are sorted by this
-    /// so that more specific rules fire first.
-    pub specificity: u64,
+    /// Effective specificity score: computed base + optional adjustment.
+    /// Higher = more specific. Rules are sorted by this so that more specific
+    /// rules fire first.
+    pub specificity: i64,
+    /// Optional signed integer added to the computed specificity.
+    /// Positive values make the rule more specific; negative values make it
+    /// less specific. Parsed from the optional 5th argument of the `rule` fact.
+    pub specificity_adjustment: i64,
 }
 
 impl Rule {
-    /// Parse a `rule` fact (4 arguments: `rule`, name, pattern, body) into a [`Rule`].
+    /// Parse a `rule` fact (4 or 5 arguments: `rule`, name, pattern, body,
+    /// and optionally a signed integer specificity adjustment) into a [`Rule`].
     pub fn parse(fact: &[&str]) -> Result<Self> {
-        if fact.len() != 4 {
-            bail!(
-                "rule fact must have exactly 4 arguments, got {}",
-                fact.len()
-            );
+        if fact.len() < 4 || fact.len() > 5 {
+            bail!("rule fact must have 4 or 5 arguments, got {}", fact.len());
         }
         let name = Arg::from(fact[1]);
         let pattern = crate::parser::pattern(fact[2])
             .with_context(|| format!("failed to parse rule pattern: {}", fact[2]))?;
         let body = crate::parser::body(fact[3]);
-        let specificity = compute_specificity(&pattern);
+        let base_specificity = compute_specificity(&pattern);
+        let specificity_adjustment = if fact.len() == 5 {
+            let s = fact[4].trim();
+            if s.is_empty() {
+                bail!("specificity adjustment must be a signed integer, got empty string");
+            }
+            if !s.starts_with('-') && !s.starts_with('+') {
+                bail!("specificity adjustment must start with + or -, got {s:?}");
+            };
+            let n: i64 = s
+                .parse()
+                .with_context(|| format!("invalid specificity adjustment: {s:?}"))?;
+            n
+        } else {
+            0
+        };
+        let specificity = base_specificity as i64 + specificity_adjustment;
         let rule = Rule {
             name,
             pattern,
             body,
             specificity,
+            specificity_adjustment,
         };
         rule.validate()?;
         Ok(rule)
@@ -209,7 +229,12 @@ impl PatternFact {
     /// Construct a new `PatternFact`, precomputing the list-bound placeholder set.
     pub fn new(removed: bool, negated: bool, args: Vec<ArgTemplate>) -> Self {
         let list_bound = nested_placeholders(&args);
-        PatternFact { removed, negated, args, list_bound }
+        PatternFact {
+            removed,
+            negated,
+            args,
+            list_bound,
+        }
     }
 }
 
@@ -512,10 +537,7 @@ fn nested_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
     out
 }
 
-fn collect_all_placeholders(
-    pats: &[ArgTemplate],
-    out: &mut Vec<String>,
-) {
+fn collect_all_placeholders(pats: &[ArgTemplate], out: &mut Vec<String>) {
     for a in pats {
         match a {
             ArgTemplate::Placeholder(n) => {
@@ -576,7 +598,10 @@ impl State {
     /// Append `val` to the innermost frame's list for `name` (a list-bound
     /// placeholder at the current repetition level).
     fn append(&mut self, name: &str, val: BindValue) {
-        let frame = self.frames.last_mut().expect("append called inside a repetition");
+        let frame = self
+            .frames
+            .last_mut()
+            .expect("append called inside a repetition");
         let (_, list) = frame
             .iter_mut()
             .find(|(n, _)| n == name)
@@ -600,7 +625,10 @@ impl State {
     /// new top frame (grouping under an outer repetition) or written to the
     /// root bindings (at the outermost level).
     fn promote(&mut self) {
-        let frame = self.frames.pop().expect("promote called with a frame pushed");
+        let frame = self
+            .frames
+            .pop()
+            .expect("promote called with a frame pushed");
         for (name, list) in frame {
             let group = BindValue::Many(list);
             match self.frames.last_mut() {
@@ -611,7 +639,9 @@ impl State {
                         .expect("nested placeholder pre-seeded in outer frame");
                     existing.push(group);
                 }
-                None => { self.b.map.insert(name, group); }
+                None => {
+                    self.b.map.insert(name, group);
+                }
             }
         }
     }
@@ -620,12 +650,7 @@ impl State {
 /// Match a sequence of arg templates against `args` starting at `start`,
 /// returning every `(end, state)` where the whole sequence matches, in
 /// lazy-first order.
-fn match_args(
-    pats: &[ArgTemplate],
-    args: &[Arg],
-    start: usize,
-    st: &State,
-) -> Vec<(usize, State)> {
+fn match_args(pats: &[ArgTemplate], args: &[Arg], start: usize, st: &State) -> Vec<(usize, State)> {
     if pats.is_empty() {
         return vec![(start, st.clone())];
     }
@@ -962,7 +987,6 @@ fn match_fact_repetition_detailed(
     }
     out
 }
-
 
 impl Rule {
     /// All ways this rule's pattern matches the given facts.
