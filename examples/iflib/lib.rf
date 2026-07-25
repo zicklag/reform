@@ -1,9 +1,11 @@
 $ load ./core.rf
 $ load ./conditions.rf
+$ load ./activities.rf
 $ load ./actions.rf
 $ load ./noun-phrases.rf
 $ load ./prompt.rf
-$ load ./story.rf
+$ load ./rooms.rf
+$ load ./game.rf
 
 # Define the articles and prepositions
 

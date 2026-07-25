@@ -1,0 +1,13 @@
+looking is an action.
+
+Understand look as looking.
+Understand l as looking.
+$ rule (carry-out looking)
+    (
+        carry-out enacting looking
+        location of player is $here
+        description of $here is $description
+    )
+    (
+        sentence say $description
+    )

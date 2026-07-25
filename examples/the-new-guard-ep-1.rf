@@ -1,0 +1,40 @@
+$ load ./iflib/lib.rf
+
+Properties of the game:
+    title: (The Mysterious Attack)
+    author: (KTech Studio)
+    episode: 1
+    series: (The New Guard)
+
+Before starting first-time-look:
+    say ("Kion, wake up."
+
+Kion stirs, and opens his eyes slowly, "Hmm, what?"
+
+When his eyes come into focus Kion sees Rani hovering over him. She yawns deeply, "Kion, it’s morning, it’s time for the Guard to take their shift."
+
+"Oh, yeah, I’m up," Kion says stretching. As he rises Rani lies down and watches him for a moment. Kion shakes his mane and turns to her. "You know, we really have to figure out a way we’re not always awake at different times. I feel like we don’t get to spend much time with each other lately."
+
+Rani smiles drowsily, "Yes, I agree, I’ve just been so busy…" she yawns again and sets her chin on her paws.
+
+"That’s OK," Kion says nuzzling her affectionately, "right now you need rest. Me and the Guard will be on patrol soon."
+
+"Alright…" Rani replies as her eyes close.
+
+
+---- You are playing as Kion! What do you want to do? ----
+)
+
+The tree-of-life is a room.
+Properties of tree-of-life:
+    name: (the Tree of Life)
+    description: (Kion is in the tree of life.
+
+The light is coming through the big opening in the tree in front of him.
+
+Rani is here, sleeping.
+)
+
+The location of the player is tree-of-life.
+
+Start the game.

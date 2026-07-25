@@ -1,0 +1,59 @@
+# Metadata and parsers related to the game itself.
+
+$ rule (parse start the game)
+    (
+        - statement Start the game
+    )
+    (
+        start starting-game
+    )
+
+$ rule (print game credits)
+    (
+        started starting-game
+    )
+    (
+        start printing-game-credits
+    )
+
+
+$ rule (started printing game credits activity)
+    (
+        started printing-game-credits
+        title of game is $title
+        author of game is $author
+    )
+    (
+        sentence say (
+  ") $title (" by ) $author (
+        )
+        stop printing-game-credits
+    )
+
+After stopping printing-game-credits:
+    start first-time-look
+
+$ rule (first time look)
+    (
+        started first-time-look
+    )
+    (
+        enact looking
+    )
+
+$ rule (stop first time look)
+    (
+        during first-time-look
+        after looking
+    )
+    (
+        stop first-time-look
+    )
+    
+$ rule (stop starting game)
+    (
+        after stopping first-time-look
+    )
+    (
+        stop starting-game
+    )

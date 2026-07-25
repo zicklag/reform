@@ -1,0 +1,102 @@
+# An activity is similar to an action, but has fewer phaes and is
+# explicitly started and stopped.
+# 
+# There is only meant to be one activity of any given type running
+# at the same time.
+
+$ rule (transition start activity to before starting)
+    (
+        - start $activity $( $args )*
+    )
+    (
+        before starting $activity $( $args )*
+    )
+
+$ rule (transition before starting activity to activity in-progress)
+    (
+        - before starting $activity $( $args )*
+    )
+    (
+        during $activity $( $args )*
+        started $activity
+    )
+
+$ rule (cleanup started activity)
+    (
+        - started $activity
+    )
+    ()
+
+$ rule (transition activity in-progress to after activity)
+    (
+        - during $activity $( $args )*
+        - stop $activity
+    )
+    (
+        after stopping $activity $( $args )*
+    )
+
+$ rule (clean up after stopping activity)
+    (
+        - after stoping $activity $( $args )*
+    )
+    ()
+
+#
+# Parsers
+# 
+
+$ rule (parse start activity statement)
+    (
+        - statement start $activity $( $args )*
+    )
+    (
+        start $activity $( $args )*
+    )
+    
+$ rule (parse stop activity statement)
+    (
+        - statement stop $activity
+    )
+    (
+        stop $activity
+    )
+
+before is before-token
+Before is before-token
+$ rule (parse before starting activity rule statement)
+    (
+        - statement $before starting $activity $( cond-rule $( $rule )+ end-cond )* : $( $words )+
+        $before is before-token
+    )
+    (
+        rule (before starting $activity rule)
+            (
+                before starting $activity $(
+                $($rule )+
+                )*
+            )
+            (
+                sentence $( $words )+
+            )
+    )
+    
+
+after is after-token
+After is after-token
+$ rule (parse after stopping activity rule statement)
+    (
+        - statement $after stopping $activity $( cond-rule $( $rule )+ end-cond )* : $( $words )+
+        $after is after-token
+    )
+    (
+        rule (after stopping $activity rule)
+            (
+                after stopping $activity
+                $($($rule )+
+                )*
+            )
+            (
+                sentence $( $words )+
+            )
+    )
