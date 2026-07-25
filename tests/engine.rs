@@ -1030,13 +1030,13 @@ fn compute_specificity_scores() {
     let p: Pattern = reform::parser::pattern("a is b\n! c is d").unwrap();
     assert_eq!(compute_specificity(&p), 16); // only the non-negated fact counts
 
-    // Arg-level `+` with literals: 1 + 5(a) + ((5-2) + (5-2)) = 12
+    // Arg-level `+` with literals: 1 + 5(a) + ((5-3) + (5-3)) = 10
     let p: Pattern = reform::parser::pattern("a $( b c )+").unwrap();
-    assert_eq!(compute_specificity(&p), 12);
+    assert_eq!(compute_specificity(&p), 10);
 
-    // Arg-level `*` with a placeholder: 1 + (4-3) = 2
+    // Arg-level `*` with a placeholder: 1 + (4-4) = 2
     let p: Pattern = reform::parser::pattern("$( $x )*").unwrap();
-    assert_eq!(compute_specificity(&p), 2);
+    assert_eq!(compute_specificity(&p), 1);
 
     // Nested arg-level repetition: outer `+` (penalty 2) around inner `*`
     // (penalty 3); the literal `b` is at stacked penalty 5 -> 5-5 = 0.

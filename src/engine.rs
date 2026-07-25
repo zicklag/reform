@@ -333,11 +333,7 @@ impl Engine {
                 let text = rule.body.render(&bindings);
                 if self.trace {
                     let rendered = text.trim_end();
-                    if rendered.is_empty() {
-                        eprintln!("\x1b[2m[trace] fire {} -> (empty)\x1b[0m", rule.name);
-                    } else {
-                        eprintln!("\x1b[2m[trace] fire {} -> {}\x1b[0m", rule.name, rendered);
-                    }
+                    eprintln!("\x1b[2m[trace] fire {} -> {}\x1b[0m", rule.name, rendered);
                 }
                 if text.trim().is_empty() {
                     continue;

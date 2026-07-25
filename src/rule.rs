@@ -166,8 +166,8 @@ fn repeated_args_specificity(ra: &RepeatedArgs, parent_penalty: u64) -> u64 {
 fn rep_penalty(kind: RepetitionKind) -> u64 {
     match kind {
         RepetitionKind::Optional => 1,
-        RepetitionKind::OneOrMore => 2,
-        RepetitionKind::ZeroOrMore => 3,
+        RepetitionKind::OneOrMore => 3,
+        RepetitionKind::ZeroOrMore => 4,
     }
 }
 
