@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use internment::Intern;
 
 pub mod engine;

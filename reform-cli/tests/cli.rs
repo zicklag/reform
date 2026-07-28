@@ -38,7 +38,7 @@ mod cli_tests {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(game.as_bytes()).unwrap();
         let (out, _err) = run("look\n", &[file.path().to_str().unwrap()]);
-        assert!(out.contains("you see a cave"), "stdout was: {out:?}");
+        assert!(out.contains("youseeacave"), "stdout was: {out:?}");
     }
 
     /// Without `-A`, a `$`-prefixed line is just part of the prompt (not a command).

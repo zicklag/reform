@@ -1,71 +1,21 @@
 use crate::rule::Rule;
 use crate::{Arg, Fact, parser};
 use anyhow::{Result, anyhow, bail};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-
-use crate::rule::PatternFact;
-#[derive(Debug)]
-/// match against the fact store, or a list of exact facts to remove.
-enum RemoveTarget {
-    Pattern(PatternFact),
-    Facts(Vec<Fact>),
-}
-
-/// A parsed engine command extracted from a fact.
-#[derive(Debug)]
-enum Command<'a> {
-    Remove(RemoveTarget),
-    Println(&'a [&'a str]),
-    Print(&'a [&'a str]),
-    Quit,
-    Panic(&'a [&'a str]),
-    Assert(&'a [&'a str]),
-    AssertNot(&'a [&'a str]),
-    Find(&'a [&'a str]),
-    Facts,
-    Load(&'a [&'a str]),
-}
-
-/// Try to parse a fact as a command. Returns `None` if the fact is not a
-/// recognized command keyword. A recognized command with invalid arguments
-/// falls back to removing the parsed facts (see the `"-"` arm).
-fn parse_command<'a>(args: &'a [&'a str]) -> Option<Command<'a>> {
-    let first = args.first().copied()?;
-    let rest = &args[1..];
-    Some(match first {
-        "-" => {
-            let pattern_str = rest
-                .iter()
-                .map(|a| crate::normal_form_arg(&Arg::from(*a)))
-                .collect::<Vec<_>>()
-                .join(" ");
-            if rest.is_empty() {
-                Command::Remove(RemoveTarget::Facts(Vec::new()))
-            } else if let Ok(pf) = parser::pattern_fact(&pattern_str) {
-                Command::Remove(RemoveTarget::Pattern(pf))
-            } else {
-                let facts = parser::facts(&pattern_str)
-                    .expect("fact parser succeeds on input from the fact parser");
-                Command::Remove(RemoveTarget::Facts(facts))
-            }
-        }
-        "println" => Command::Println(rest),
-        "print" => Command::Print(rest),
-        "quit" => Command::Quit,
-        "panic" => Command::Panic(rest),
-        "assert" => Command::Assert(rest),
-        "assert-not" => Command::AssertNot(rest),
-        "find" => Command::Find(rest),
-        "facts" => Command::Facts,
-        "load" => Command::Load(rest),
-        _ => return None,
-    })
-}
+/// A command handler: a closure that receives the engine and the command's
+/// argument list (the first element of the original fact, i.e. the command
+/// name, is NOT included).
+///
+/// Handlers are `Fn` (not `FnMut`) so they can be safely re-entered: a
+/// handler that calls back into `dispatch_command` for the same name will
+/// find itself still in the map and can be cloned again.
+pub type CommandHandler = Arc<dyn Fn(&mut Engine, &[Arg]) -> Result<()>>;
 
 /// The Reform rule engine: a fact store plus the registered rules that fire
 /// against it each turn.
-#[derive(Debug)]
 pub struct Engine {
     facts: Vec<Fact>,
     rules: Vec<Rule>,
@@ -85,12 +35,31 @@ pub struct Engine {
     /// Maximum iterations per `turn()` call before bailing with a fixpoint
     /// error. Exposed for testing; the default (100_000) is a safety net.
     max_iterations: usize,
+    /// Custom command handlers, keyed by command name (e.g. `"println"`,
+    /// `"load"`, `"-"`). All commands are registered handlers — there are no
+    /// special-cased built-ins.
+    commands: HashMap<String, CommandHandler>,
 }
 
+impl std::fmt::Debug for Engine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Engine")
+            .field("facts", &self.facts)
+            .field("rules", &self.rules)
+            .field("quit", &self.quit)
+            .field("changed", &self.changed)
+            .field("base_dir", &self.base_dir)
+            .field("trace", &self.trace)
+            .field("fired", &self.fired)
+            .field("max_iterations", &self.max_iterations)
+            .field("commands", &self.commands.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
 
 impl Default for Engine {
     fn default() -> Self {
-        Self {
+        let mut engine = Self {
             facts: Vec::new(),
             rules: Vec::new(),
             quit: false,
@@ -99,9 +68,13 @@ impl Default for Engine {
             trace: false,
             fired: Vec::new(),
             max_iterations: 100_000,
-        }
+            commands: HashMap::new(),
+        };
+        engine.register_default_commands();
+        engine
     }
 }
+
 impl Engine {
     pub fn new() -> Self {
         Self::default()
@@ -118,9 +91,11 @@ impl Engine {
     pub fn quit(&self) -> bool {
         self.quit
     }
+
     pub fn set_trace(&mut self, on: bool) {
         self.trace = on;
     }
+
     /// Set the maximum iterations per `turn()` call. Lower values are useful
     /// for testing the fixpoint bail-out without waiting for 100k iterations.
     pub fn set_max_iterations(&mut self, n: usize) {
@@ -129,6 +104,171 @@ impl Engine {
 
     pub fn clear_quit(&mut self) {
         self.quit = false;
+    }
+
+    /// The current base directory for `$ load` relative path resolution.
+    /// `None` means resolve against the process current working directory.
+    pub fn base_dir(&self) -> Option<&Path> {
+        self.base_dir.as_deref()
+    }
+
+    /// Set the base directory for `$ load` relative path resolution.
+    pub fn set_base_dir(&mut self, dir: Option<PathBuf>) {
+        self.base_dir = dir;
+    }
+
+    /// Register a custom command handler. The handler receives the engine and
+    /// the command's argument list (everything after the command name). If a
+    /// handler for `name` already exists it is replaced.
+    pub fn register_command(&mut self, name: &str, handler: CommandHandler) {
+        self.commands.insert(name.to_string(), handler);
+    }
+
+    /// Remove a previously registered command handler.
+    pub fn remove_command(&mut self, name: &str) {
+        self.commands.remove(name);
+    }
+
+    fn register_default_commands(&mut self) {
+        // - (remove)
+        self.register_command(
+            "-",
+            Arc::new(|engine, args| {
+                if args.is_empty() {
+                    // `$ -` with no args removes nothing (no-op).
+                    return Ok(());
+                }
+                let pattern_str = args
+                    .iter()
+                    .map(crate::normal_form_arg)
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if let Ok(pf) = parser::pattern_fact(&pattern_str) {
+                    let matching: Vec<Fact> = engine
+                        .facts
+                        .iter()
+                        .filter(|f| pf.matches_fact(f).is_some())
+                        .cloned()
+                        .collect();
+                    for f in matching {
+                        engine.remove_fact(&f);
+                    }
+                } else {
+                    let facts = parser::facts(&pattern_str)
+                        .expect("fact parser succeeds on input from the fact parser");
+                    for f in facts {
+                        engine.remove_fact(&f);
+                    }
+                }
+                Ok(())
+            }),
+        );
+        // load
+        self.register_command(
+            "load",
+            Arc::new(|engine, args| {
+                let raw = args.first().map(|a| &**a).unwrap_or("");
+                let path = match &engine.base_dir {
+                    Some(dir) => dir.join(raw),
+                    None => PathBuf::from(raw),
+                };
+                let src = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow!("load {}: {e}", path.display()))?;
+                let prev = engine.base_dir.take();
+                engine.base_dir = path.parent().map(|p| p.to_path_buf());
+                // Safe to use load_str_inner here: since handlers are Fn (not
+                // FnMut), dispatch_command clones the Arc without removing it
+                // from the map, so nested `$ load` directives can re-enter
+                // dispatch_command and find the handler still present.
+                let result = engine.load_str_inner(&src);
+                engine.base_dir = prev;
+                result
+            }),
+        );
+        // println
+        self.register_command(
+            "println",
+            Arc::new(|_engine, args| {
+                let s: String = args.iter().map(|a| &**a).collect();
+                println!("{s}");
+                Ok(())
+            }),
+        );
+        // print
+        self.register_command(
+            "print",
+            Arc::new(|_engine, args| {
+                let s: String = args.iter().map(|a| &**a).collect::<Vec<_>>().join(" ");
+                print!("{s}");
+                Ok(())
+            }),
+        );
+        // quit
+        self.register_command(
+            "quit",
+            Arc::new(|engine, _args| {
+                engine.quit = true;
+                Ok(())
+            }),
+        );
+        // panic
+        self.register_command(
+            "panic",
+            Arc::new(|_engine, args| {
+                let s: String = args.iter().map(|a| &**a).collect::<Vec<_>>().join(" ");
+                Err(anyhow!("panic: {s}"))
+            }),
+        );
+        // assert
+        self.register_command(
+            "assert",
+            Arc::new(|engine, args| {
+                let target = Fact(args.to_vec());
+                if engine.contains(&target) {
+                    Ok(())
+                } else {
+                    Err(anyhow!("assert failed: fact {:?} not in engine", target))
+                }
+            }),
+        );
+        // assert-not
+        self.register_command(
+            "assert-not",
+            Arc::new(|engine, args| {
+                let target = Fact(args.to_vec());
+                if !engine.contains(&target) {
+                    Ok(())
+                } else {
+                    Err(anyhow!("assert-not failed: fact {:?} is in engine", target))
+                }
+            }),
+        );
+        // find
+        self.register_command(
+            "find",
+            Arc::new(|engine, args| {
+                let pattern_str = if args.len() == 1 {
+                    args[0].to_string()
+                } else {
+                    args.iter().map(|a| &**a).collect::<Vec<_>>().join(" ")
+                };
+                let pat = parser::pattern(&pattern_str)?;
+                for f in engine.find_matching_facts(&pat)? {
+                    println!("{}", normal_form_fact(&f));
+                }
+                Ok(())
+            }),
+        );
+        // facts
+        self.register_command(
+            "facts",
+            Arc::new(|engine, _args| {
+                for f in &engine.facts {
+                    println!("{}", normal_form_fact(f));
+                }
+                Ok(())
+            }),
+        );
     }
 
     pub fn add_fact(&mut self, fact: Fact) -> bool {
@@ -208,6 +348,22 @@ impl Engine {
         Ok(())
     }
 
+    /// Dispatch a command by name. Returns `true` if a handler was found and
+    /// executed, `false` if no handler is registered for this name.
+    ///
+    /// Since handlers are `Fn` (not `FnMut`), we clone the `Arc` without
+    /// removing it from the map. This means a handler can safely re-enter
+    /// `dispatch_command` for the same name — the handler is still present
+    /// and can be cloned again.
+    pub fn dispatch_command(&mut self, name: &str, args: &[Arg]) -> Result<bool> {
+        let handler = match self.commands.get(name) {
+            Some(h) => h.clone(),
+            None => return Ok(false),
+        };
+        (handler)(self, args)?;
+        Ok(true)
+    }
+
     pub fn ingest_file(&mut self, fact: Fact) -> Result<()> {
         let args: Vec<Arg> = fact.iter().cloned().collect();
         if args.is_empty() {
@@ -238,16 +394,24 @@ impl Engine {
                 .chain(args.iter().map(|a| &**a))
                 .collect(),
         };
-        let cmd = parse_command(&strs);
         if is_rule {
             self.add_rule(Rule::parse(&strs)?);
         }
-        if cmd.is_none() {
+        // Commands aren't stored as facts — execute them after settle so
+        // rules fire first (e.g. `assert` needs rules to have run). Non-
+        // commands are stored, then settle fires rules on the new fact. Both
+        // paths settle exactly once, matching the original structure.
+        let cmd_name = match strs.first() {
+            Some(&name) if self.commands.contains_key(name) => Some(name),
+            _ => None,
+        };
+        if cmd_name.is_none() {
             self.add_fact(stored);
         }
         self.settle()?;
-        if let Some(cmd) = cmd {
-            self.execute_command(cmd)?;
+        if let Some(name) = cmd_name {
+            let cmd_args: Vec<Arg> = strs[1..].iter().map(|s| Arg::from(*s)).collect();
+            self.dispatch_command(name, &cmd_args)?;
         }
         Ok(())
     }
@@ -269,12 +433,19 @@ impl Engine {
         } else {
             args.iter().map(|a| &**a).collect()
         };
-        let cmd = parse_command(&strs);
         if is_rule {
             self.add_rule(Rule::parse(&strs)?);
         }
-        if let Some(cmd) = cmd {
-            self.execute_command(cmd)?;
+        // Check if this is a registered command. If so, don't store the fact
+        // as data — execute the command immediately (no settle needed since
+        // we're already inside a turn).
+        let cmd_name = match strs.first() {
+            Some(&name) if self.commands.contains_key(name) => Some(name),
+            _ => None,
+        };
+        if let Some(name) = cmd_name {
+            let cmd_args: Vec<Arg> = strs[1..].iter().map(|s| Arg::from(*s)).collect();
+            self.dispatch_command(name, &cmd_args)?;
         } else {
             self.add_fact(stripped);
         }
@@ -308,7 +479,10 @@ impl Engine {
         while i < rules.len() {
             iterations += 1;
             if iterations > self.max_iterations {
-                bail!("engine did not reach a fixpoint within {} iterations", self.max_iterations);
+                bail!(
+                    "engine did not reach a fixpoint within {} iterations",
+                    self.max_iterations
+                );
             }
             let rule = &rules[i];
             // Snapshot facts per-rule so that removals by a more specific rule
@@ -321,8 +495,7 @@ impl Engine {
                 // facts (which causes infinite loops when a rule doesn't
                 // remove its matched facts).
                 let matched = rule.matched_facts(&snapshot, &bindings);
-                let matched_set: std::collections::HashSet<Fact> =
-                    matched.into_iter().collect();
+                let matched_set: std::collections::HashSet<Fact> = matched.into_iter().collect();
                 if self.fired[i].contains(&matched_set) {
                     continue;
                 }
@@ -360,95 +533,6 @@ impl Engine {
         }
         self.changed = any_changed;
         Ok(())
-    }
-
-    // -- commands ----------------------------------------------------------
-
-    fn execute_command(&mut self, cmd: Command) -> Result<()> {
-        match cmd {
-            Command::Remove(target) => {
-                match target {
-                    RemoveTarget::Pattern(pf) => {
-                        let matching: Vec<Fact> = self
-                            .facts
-                            .iter()
-                            .filter(|f| pf.matches_fact(f).is_some())
-                            .cloned()
-                            .collect();
-                        for f in matching {
-                            self.remove_fact(&f);
-                        }
-                    }
-                    RemoveTarget::Facts(facts) => {
-                        for f in facts {
-                            self.remove_fact(&f);
-                        }
-                    }
-                }
-                Ok(())
-            }
-            Command::Println(args) => {
-                println!("{}", args.join(""));
-                Ok(())
-            }
-            Command::Print(args) => {
-                print!("{}", args.join(" "));
-                Ok(())
-            }
-            Command::Quit => {
-                self.quit = true;
-                Ok(())
-            }
-            Command::Panic(args) => Err(anyhow!("panic: {}", args.join(" "))),
-            Command::Assert(args) => {
-                let target = Fact(args.iter().map(|s| Arg::from(*s)).collect());
-                if self.contains(&target) {
-                    Ok(())
-                } else {
-                    Err(anyhow!("assert failed: fact {:?} not in engine", target))
-                }
-            }
-            Command::AssertNot(args) => {
-                let target = Fact(args.iter().map(|s| Arg::from(*s)).collect());
-                if !self.contains(&target) {
-                    Ok(())
-                } else {
-                    Err(anyhow!("assert-not failed: fact {:?} is in engine", target))
-                }
-            }
-            Command::Find(args) => {
-                let pattern_str = if args.len() == 1 {
-                    args[0].to_string()
-                } else {
-                    args.join(" ")
-                };
-                let pat = parser::pattern(&pattern_str)?;
-                for f in self.find_matching_facts(&pat)? {
-                    println!("{}", normal_form_fact(&f));
-                }
-                Ok(())
-            }
-            Command::Facts => {
-                for f in &self.facts {
-                    println!("{}", normal_form_fact(f));
-                }
-                Ok(())
-            }
-            Command::Load(args) => {
-                let raw = args.first().copied().unwrap_or("");
-                let path = match &self.base_dir {
-                    Some(dir) => dir.join(raw),
-                    None => PathBuf::from(raw),
-                };
-                let src = std::fs::read_to_string(&path)
-                    .map_err(|e| anyhow!("load {}: {e}", path.display()))?;
-                let prev = self.base_dir.take();
-                self.base_dir = path.parent().map(|p| p.to_path_buf());
-                let result = self.load_str_inner(&src);
-                self.base_dir = prev;
-                result
-            }
-        }
     }
 
     /// Facts in the engine that match the given (single-fact-line) pattern.

@@ -611,18 +611,14 @@ fn load_str_quit_mid_load() {
     assert!(!e.contains(&fact("after")));
 }
 
-// -- re-entrant load detection ------------------------------------------------
-// NOTE: The re-entrant check at engine.rs:81 is unreachable through normal
-// usage because the `load` command uses `load_str_inner` (not `load_str`).
-// It exists as a safety guard for future code paths.
 
-/// `execute_command` with an empty fact is a no-op (reached via ingest_body).
+/// An empty fact is a no-op (reached via ingest_body).
 #[test]
 fn execute_command_empty_args() {
     let mut e = Engine::new();
     // ingest_body with a fact that has only "$" - after stripping it's empty.
-    // The empty fact gets stored (it's not a command), but execute_command
-    // is never called because is_command is false for an empty fact.
+    // The empty fact gets stored (it's not a command), so no command handler
+    // is dispatched.
     e.ingest_body(reform::Fact(vec![reform::Arg::from("$")]))
         .unwrap();
     // The empty fact is stored (not a command, not a rule).
@@ -769,7 +765,7 @@ fn unknown_command_fallback() {
 
 // -- find command via load_str ------------------------------------------------
 
-/// `$ find $x` through the command path (hits execute_command find branch).
+/// `$ find $x` through the command path (hits the find handler's pattern parse).
 #[test]
 fn find_command_via_load_str() {
     let mut e = Engine::new();
@@ -799,7 +795,7 @@ fn find_command_multi_arg_via_load_str() {
 // a valid fact argument but unparseable when re-fed to `parser::facts` or
 // `parser::pattern`.
 
-/// `load_str_inner`: `parser::facts(src)?` (engine.rs:107) — unparseable source.
+/// `load_str_inner`: `parser::facts(src)?` (engine.rs:342) — unparseable source.
 #[test]
 fn load_str_parse_error() {
     let mut e = Engine::new();
@@ -807,7 +803,7 @@ fn load_str_parse_error() {
     assert!(res.is_err());
 }
 
-/// `ingest_file`: `Rule::parse(&strs)?` (engine.rs:148) — rule whose pattern
+/// `ingest_file`: `Rule::parse(&strs)?` (engine.rs:398) — rule whose pattern
 /// and body use `$x` at different repetition nestings, failing `validate`.
 #[test]
 fn ingest_file_rule_parse_error() {
@@ -818,7 +814,7 @@ fn ingest_file_rule_parse_error() {
     assert!(err.contains("$x"), "error: {err}");
 }
 
-/// `ingest_body`: `Rule::parse(&strs)?` (engine.rs:179) — a fact fed directly
+/// `ingest_body`: `Rule::parse(&strs)?` (engine.rs:437) — a fact fed directly
 /// to `ingest_body` that is a 4-arg rule whose pattern `?` fails
 /// `parser::pattern` (`?` is not a valid pattern token).
 #[test]
@@ -831,10 +827,10 @@ fn ingest_body_rule_parse_error() {
     assert!(err.contains("pattern"), "error: {err}");
 }
 
-/// `turn`: `parser::facts(&text)?` (engine.rs:222) — a rule body that renders
+/// `turn`: `parser::facts(&text)?` (engine.rs:514) — a rule body that renders
 /// to `(` (an unbalanced paren), which `parser::facts` rejects. The error
-/// propagates up through `turn`'s `?` (engine.rs:202) and `ingest_file`'s
-/// `settle()?` (engine.rs:153).
+/// propagates up through `turn`'s `?` (engine.rs:515) and `ingest_file`'s
+/// `settle()?` (engine.rs:411).
 #[test]
 fn turn_body_render_parse_error() {
     let mut e = Engine::new();
@@ -848,9 +844,9 @@ $ rule bad
     assert!(res.is_err());
 }
 
-/// `turn`: `self.ingest_body(f)?` (engine.rs:223) — a rule body that renders
+/// `turn`: `self.ingest_body(f)?` (engine.rs:515) — a rule body that renders
 /// to `panic`, producing a command fact whose execution errors. This also
-/// covers `ingest_body`'s `execute_command(cmd)?` (engine.rs:182).
+/// covers `ingest_body`'s `dispatch_command(name, &cmd_args)?` (engine.rs:448).
 #[test]
 fn turn_ingest_body_command_error() {
     let mut e = Engine::new();
@@ -866,9 +862,9 @@ $ rule p
     assert!(err.contains("panic"), "error: {err}");
 }
 
-/// `settle`: fixpoint `bail!` (engine.rs:207) — two rules that remove and
+/// `settle`: fixpoint `bail!` (engine.rs:482) — two rules that remove and
 /// re-add each other's facts never reach a fixpoint. Also covers
-/// `ingest_file`'s `settle()?` (engine.rs:153).
+/// `ingest_file`'s `settle()?` (engine.rs:411).
 #[test]
 fn fixpoint_reached() {
     let mut e = Engine::new();
@@ -888,7 +884,7 @@ $ a
     assert!(e.contains(&fact("a")));
     assert!(!e.contains(&fact("b")));
 }
-/// `Command::Remove`: both `parser::pattern` and `parser::facts` reject an
+/// `-` handler: both `parser::pattern` and `parser::facts` reject an
 /// unclosed paren — `$ - (` fails both paths.
 #[test]
 fn remove_command_parse_error() {
@@ -897,7 +893,7 @@ fn remove_command_parse_error() {
     assert!(res.is_err());
 }
 
-/// `Command::Find`: `parser::pattern(&pattern_str)?` (engine.rs:282) —
+/// `find` handler: `parser::pattern(&pattern_str)?` (engine.rs:255) —
 /// `$ find (\()` carries the arg value `(`, which `parser::pattern` rejects.
 #[test]
 fn find_command_pattern_parse_error() {
@@ -906,7 +902,7 @@ fn find_command_pattern_parse_error() {
     assert!(res.is_err());
 }
 
-/// `Command::Find`: `self.find_matching_facts(&pat)?` (engine.rs:283) —
+/// `find` handler: `self.find_matching_facts(&pat)?` (engine.rs:256) —
 /// `$ find ($( a )*)` carries the arg value `$( a )*`, which parses to a
 /// `FactRepetition` pattern that `find_matching_facts` rejects (it only
 /// supports single `Fact` patterns).
@@ -919,8 +915,8 @@ fn find_command_fact_repetition_error() {
     assert!(err.contains("single-fact"), "error: {err}");
 }
 
-/// `Command::Load`: `std::fs::read_to_string(path)?` and `.map_err(...)?`
-/// (engine.rs:297) — load a nonexistent file.
+/// `load` handler: `std::fs::read_to_string(path)?` and `.map_err(...)?`
+/// (engine.rs:175) — load a nonexistent file.
 #[test]
 fn load_command_file_not_found() {
     let mut e = Engine::new();
@@ -1265,7 +1261,7 @@ fn load_file_method() {
 }
 
 /// `$ load` inside a file loaded via `load_file` resolves relative to the
-/// file's directory (the `base_dir` branch of `Command::Load`).
+/// file's directory (the `base_dir` branch of the load handler).
 #[test]
 fn load_with_base_dir() {
     let dir = std::env::temp_dir().join("reform_test_base_dir");
@@ -1349,4 +1345,75 @@ $ a 0
     );
     let err = format!("{}", res.unwrap_err());
     assert!(err.contains("fixpoint"), "error: {err}");
+}
+
+// -- command API: dispatch_command -------------------------------------------
+
+/// `dispatch_command` returns `false` for an unregistered command name
+/// without erroring.
+#[test]
+fn dispatch_command_unknown_returns_false() {
+    let mut e = Engine::new();
+    assert!(!e.dispatch_command("no-such-command", &[]).unwrap());
+}
+
+/// `dispatch_command` returns `true` and executes a registered handler.
+#[test]
+fn dispatch_command_registered_executes() {
+    use std::sync::Arc;
+    let mut e = Engine::new();
+    let handler: reform::engine::CommandHandler = Arc::new(|engine, _args| {
+        engine.add_fact(fact("dispatched"));
+        Ok(())
+    });
+    e.register_command("custom", handler);
+    assert!(e.dispatch_command("custom", &[]).unwrap());
+    assert!(e.contains(&fact("dispatched")));
+}
+
+// -- command API: remove_command ---------------------------------------------
+
+/// `remove_command` unregisters a handler so the name is no longer treated
+/// as a command (a fact with that name is stored as data instead).
+#[test]
+fn remove_command_unregisters() {
+    use std::sync::Arc;
+    let mut e = Engine::new();
+    let handler: reform::engine::CommandHandler = Arc::new(|engine, _args| {
+        engine.add_fact(fact("fired"));
+        Ok(())
+    });
+    e.register_command("temp", handler);
+    e.remove_command("temp");
+    e.load_str("$ temp\n").unwrap();
+    // Not dispatched: no `fired` fact, and `temp` is stored as a regular fact.
+    assert!(!e.contains(&fact("fired")));
+    assert!(e.contains(&fact("temp")));
+}
+
+// -- base_dir / set_base_dir --------------------------------------------------
+
+/// `base_dir`/`set_base_dir` get and set the load-relative base directory.
+#[test]
+fn base_dir_get_set() {
+    use std::path::{Path, PathBuf};
+    let mut e = Engine::new();
+    assert!(e.base_dir().is_none());
+    e.set_base_dir(Some(PathBuf::from("/tmp/reform")));
+    assert_eq!(e.base_dir(), Some(Path::new("/tmp/reform")));
+    e.set_base_dir(None);
+    assert!(e.base_dir().is_none());
+}
+
+// -- Engine Debug -------------------------------------------------------------
+
+/// `Engine` implements `Debug` manually (handlers are `dyn Fn`, which can't
+/// be derived). The output lists registered command names.
+#[test]
+fn engine_debug_lists_commands() {
+    let e = Engine::new();
+    let s = format!("{:?}", e);
+    assert!(s.contains("Engine"), "debug output: {s}");
+    assert!(s.contains("println"), "debug output: {s}");
+    assert!(s.contains("quit"), "debug output: {s}");
 }
