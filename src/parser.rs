@@ -1,7 +1,7 @@
 use crate::Arg;
 use crate::rule::{
     ArgTemplate, Body, BodyChunk, Pattern, PatternFact, PatternFactRepetition, PatternItem,
-    RepeatBlock, RepeatedArgs, RepetitionKind,
+    RepeatBlock, RepeatedArgs,
 };
 
 pub use reform_parser::{facts, pattern, pattern_fact};
@@ -18,6 +18,7 @@ pub fn body(src: &str) -> Body {
 peg::parser! {
     grammar reform_parser() for str {
         use peg::RuleResult;
+        use crate::regex::RepetitionKind;
         use crate::Fact;
 
         // A file is a sequence of facts, separated by blank or comment-only

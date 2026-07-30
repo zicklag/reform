@@ -1,4 +1,5 @@
 use crate::Arg;
+pub use crate::regex::RepetitionKind;
 use anyhow::{Context, Result, bail};
 
 /// A parsed rule with its name, pattern, body, and optional specificity adjustment.
@@ -243,14 +244,6 @@ impl PatternFact {
 pub struct PatternFactRepetition {
     pub kind: RepetitionKind,
     pub facts: Vec<PatternFact>,
-}
-
-/// How many times a block repeats.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
-pub enum RepetitionKind {
-    Optional,
-    OneOrMore,
-    ZeroOrMore,
 }
 
 /// A single argument in a pattern: a literal, a placeholder, or a repeated block.

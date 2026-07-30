@@ -223,7 +223,7 @@ impl Engine {
         self.register_command(
             "assert",
             Arc::new(|engine, args| {
-                let target = Fact(args.to_vec());
+                let target = Fact(args.into());
                 if engine.contains(&target) {
                     Ok(())
                 } else {
@@ -235,7 +235,7 @@ impl Engine {
         self.register_command(
             "assert-not",
             Arc::new(|engine, args| {
-                let target = Fact(args.to_vec());
+                let target = Fact(args.into());
                 if !engine.contains(&target) {
                     Ok(())
                 } else {
@@ -370,7 +370,7 @@ impl Engine {
             return Ok(());
         }
         let stored = match &*args[0] {
-            "$" => Fact(args[1..].to_vec()),
+            "$" => Fact(args[1..].into()),
             ">" => Fact(
                 std::iter::once(Arg::from("prompt"))
                     .chain(args[1..].iter().cloned())
@@ -422,7 +422,7 @@ impl Engine {
             return Ok(());
         }
         let stripped = if &*args[0] == "$" {
-            Fact(args[1..].to_vec())
+            Fact(args[1..].into())
         } else {
             fact
         };
