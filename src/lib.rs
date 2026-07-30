@@ -7,8 +7,6 @@ pub mod parser;
 pub mod regex;
 pub mod rule;
 
-/// An interned string.
-pub type Str = Intern<str>;
 /// An argument in a [`Fact`].
 pub type Arg = Intern<str>;
 

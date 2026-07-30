@@ -291,8 +291,7 @@ peg::parser! {
             ")"
             kind:repetition_kind()
             {
-                let top_ph = crate::rule::top_placeholders(&args);
-                RepeatedArgs { kind, args, top_ph }
+                RepeatedArgs::new(kind, args)
             }
 
         rule placeholder() -> String =

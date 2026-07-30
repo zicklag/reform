@@ -1,5 +1,5 @@
 use crate::Arg;
-pub use crate::regex::RepetitionKind;
+pub use crate::regex::{Nfa, NfaPrefilter, RepetitionKind};
 use anyhow::{Context, Result, bail};
 
 /// A parsed rule with its name, pattern, body, and optional specificity adjustment.
@@ -224,17 +224,24 @@ pub struct PatternFact {
     /// (list-bound placeholders). Used by `match_fact` to avoid per-call
     /// allocation of a `HashSet`.
     list_bound: Vec<String>,
+    /// Precomputed bit-parallel structural pre-filter (`From<Nfa>`) for this
+    /// fact's args. `match_fact` consults it first to reject facts whose
+    /// arg shape can't match without running the binding matcher.
+    prefilter: NfaPrefilter,
 }
 
 impl PatternFact {
-    /// Construct a new `PatternFact`, precomputing the list-bound placeholder set.
+    /// Construct a new `PatternFact`, precomputing the list-bound placeholder
+    /// set and the structural pre-filter.
     pub fn new(removed: bool, negated: bool, args: Vec<ArgTemplate>) -> Self {
         let list_bound = nested_placeholders(&args);
+        let prefilter = NfaPrefilter::from(Nfa::from_tree(&args));
         PatternFact {
             removed,
             negated,
             args,
             list_bound,
+            prefilter,
         }
     }
 }
@@ -264,6 +271,15 @@ pub struct RepeatedArgs {
     /// frame so a zero-iteration match still yields an empty `Many` for each
     /// placeholder.
     pub top_ph: Vec<String>,
+}
+
+impl RepeatedArgs {
+    /// Construct a repeated-arg block, precomputing its `top_ph` placeholder
+    /// set (every placeholder at any depth inside `args`).
+    pub fn new(kind: RepetitionKind, args: Vec<ArgTemplate>) -> Self {
+        let top_ph = top_placeholders(&args);
+        RepeatedArgs { kind, args, top_ph }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +489,13 @@ impl PatternFact {
     /// kept. Scalars and list-bound placeholders from other pattern items
     /// are carried through as constraints.
     pub fn match_fact(&self, fact: &Fact, bindings: &Bindings) -> Vec<Bindings> {
+        // Structural pre-filter: reject facts whose arg shape can't match
+        // before running the binding matcher. The pre-filter is a sound
+        // over-approximation (it may admit non-matches), so this never drops a
+        // real match.
+        if !self.prefilter.matches(fact) {
+            return Vec::new();
+        }
         let args: &[Arg] = fact.as_slice();
         let n = args.len();
         let mut st = State::default();
@@ -545,7 +568,7 @@ fn collect_all_placeholders(pats: &[ArgTemplate], out: &mut Vec<String>) {
 /// Placeholder names appearing anywhere in `pats` (recursing into nested
 /// repetitions). Used to pre-seed a repetition frame so a zero-iteration match
 /// still yields an empty `Many` for each of its placeholders.
-pub(crate) fn top_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
+fn top_placeholders(pats: &[ArgTemplate]) -> Vec<String> {
     let mut out = Vec::new();
     collect_ph_names_in_args(pats, &mut out);
     out

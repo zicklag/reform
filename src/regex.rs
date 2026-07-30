@@ -3,21 +3,8 @@
 use fixedbitset::FixedBitSet;
 use smallvec::SmallVec;
 
-use crate::{Arg, Fact, Str};
-
-/// Parse tree of a regex that matches against [`Fact`][crate::Fact]s.
-#[derive(PartialEq, Eq, Hash, Debug, Clone, derive_more::Deref)]
-pub struct RegexTree(pub Vec<RegexItem>);
-
-/// An item in a regex tree.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
-pub enum RegexItem {
-    Symbol(NfaSymbol),
-    Repetition {
-        kind: RepetitionKind,
-        items: Vec<RegexItem>,
-    },
-}
+use crate::rule::ArgTemplate;
+use crate::{Arg, Fact};
 
 /// How many times a block repeats.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
@@ -27,12 +14,14 @@ pub enum RepetitionKind {
     ZeroOrMore,
 }
 
-/// The [Glushkov] NFA construction of a [`RegexTree`].
+/// The [Glushkov] NFA construction of a pattern's args (`&[ArgTemplate]`).
 ///
 /// [Glushkov]: https://en.wikipedia.org/wiki/Glushkov's_construction_algorithm
 pub struct Nfa {
-    /// For each position, what symbol does it match
-    pub symbols: SmallVec<[NfaSymbol; 8]>,
+    /// For each position, the symbol it matches: `Some(arg)` for a literal,
+    /// `None` for a placeholder (which matches any arg). Positions are always
+    /// leaves — repetitions are structural and compiled into `follows`.
+    pub symbols: SmallVec<[Option<Arg>; 8]>,
     /// For each position, what other positions may follow it.
     pub follows: SmallVec<[SmallVec<[u8; 8]>; 8]>,
     /// The other qualities of the NFA.
@@ -45,20 +34,11 @@ pub struct Qualities {
     pub nullable: bool,
 }
 
-/// A symbol in the glushkov NFA.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
-pub enum NfaSymbol {
-    /// A literal argument
-    Literal(Arg),
-    /// A placeholder ( wildcard )
-    Placeholder(Str),
-}
-
 impl Nfa {
-    pub fn from_tree(tree: RegexTree) -> Self {
+    pub fn from_tree(args: &[ArgTemplate]) -> Self {
         let mut symbols = SmallVec::new();
         let mut follows = SmallVec::new();
-        let qualities = Self::accumulate(&mut symbols, &mut follows, None, &tree);
+        let qualities = Self::accumulate(&mut symbols, &mut follows, None, args);
         Self {
             symbols,
             follows,
@@ -67,10 +47,10 @@ impl Nfa {
     }
 
     fn accumulate(
-        symbols: &mut SmallVec<[NfaSymbol; 8]>,
+        symbols: &mut SmallVec<[Option<Arg>; 8]>,
         follows: &mut SmallVec<[SmallVec<[u8; 8]>; 8]>,
         repetition: Option<RepetitionKind>,
-        items: &[RegexItem],
+        items: &[ArgTemplate],
     ) -> Qualities {
         // Glushkov construction over a sequence of items, concatenated left to
         // right. `repetition`, when set, wraps the whole sequence in a quantifier
@@ -81,21 +61,23 @@ impl Nfa {
         let mut nullable = true;
 
         for item in items {
-            let q = match item {
-                RegexItem::Symbol(sym) => {
-                    let pos = symbols.len() as u8;
-                    symbols.push(*sym);
-                    follows.push(SmallVec::new());
-                    let mut first: SmallVec<[u8; 4]> = SmallVec::new();
-                    first.push(pos);
-                    Qualities {
-                        first: first.clone(),
-                        last: first,
-                        nullable: false,
-                    }
-                }
-                RegexItem::Repetition { kind, items } => {
-                    Self::accumulate(symbols, follows, Some(*kind), items)
+            let q = if let ArgTemplate::RepeatedArgs(r) = item {
+                Self::accumulate(symbols, follows, Some(r.kind), &r.args)
+            } else {
+                // A leaf: `Some(arg)` for a literal, `None` for a placeholder.
+                let pos = symbols.len() as u8;
+                symbols.push(if let ArgTemplate::Literal(a) = item {
+                    Some(*a)
+                } else {
+                    None
+                });
+                follows.push(SmallVec::new());
+                let mut first: SmallVec<[u8; 4]> = SmallVec::new();
+                first.push(pos);
+                Qualities {
+                    first: first.clone(),
+                    last: first,
+                    nullable: false,
                 }
             };
 
@@ -173,6 +155,7 @@ fn extend_unique(dst: &mut SmallVec<[u8; 8]>, src: &[u8]) {
 /// *which* states are active). The correct step unions each active position's
 /// `Follow` set before intersecting with `char_mask`, as section 4 of the doc
 /// (`follow_bitmask[arg][active_states] -> reachable_states`) requires.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub struct NfaPrefilter {
     /// Number of positions (states). Bitsets use bits `0..n`.
     n: usize,
@@ -271,12 +254,12 @@ impl From<Nfa> for NfaPrefilter {
         let mut literals: Vec<(Arg, FixedBitSet)> = Vec::new();
         for (p, symbol) in nfa.symbols.iter().enumerate() {
             match symbol {
-                NfaSymbol::Placeholder(_) => any.insert(p),
-                NfaSymbol::Literal(arg) => {
+                Some(arg) => {
                     let mut mask = FixedBitSet::with_capacity(n);
                     mask.insert(p);
                     literals.push((*arg, mask));
                 }
+                None => any.insert(p),
             }
         }
 

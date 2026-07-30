@@ -1,34 +1,32 @@
 //! Tests for `NfaPrefilter`, the bit-parallel Glushkov simulation.
 //!
-//! Each test builds a `RegexTree` by hand, lifts it to an `Nfa`, then to an
-//! `NfaPrefilter`, and checks `matches` against hand-built `Fact`s. The
-//! simulation is an exact acceptor for the Glushkov automaton, so for patterns
-//! made of literals and *distinct* placeholders these expectations are exact.
-//! (A repeated binding placeholder like `$x $x` would be over-approximated,
-//! since the automaton forgets that the two occurrences must bind equally —
-//! that soundness slack is the whole point of it being a *pre*-filter.)
+//! Each test builds a pattern's args as `Vec<ArgTemplate>`, lifts them to an
+//! `Nfa`, then to an `NfaPrefilter`, and checks `matches` against hand-built
+//! `Fact`s. The simulation is an exact acceptor for the Glushkov automaton,
+//! so for patterns made of literals and *distinct* placeholders these
+//! expectations are exact. (A repeated binding placeholder like `$x $x` would
+//! be over-approximated, since the automaton forgets that the two occurrences
+//! must bind equally — that soundness slack is the whole point of it being a
+//! *pre*-filter.)
 
-use reform::regex::{Nfa, NfaPrefilter, NfaSymbol, RegexItem, RegexTree, RepetitionKind};
+use reform::regex::{Nfa, NfaPrefilter, RepetitionKind};
+use reform::rule::{ArgTemplate, RepeatedArgs};
 use reform::{Arg, Fact};
 
-fn lit(s: &str) -> RegexItem {
-    RegexItem::Symbol(NfaSymbol::Literal(Arg::from(s)))
+fn lit(s: &str) -> ArgTemplate {
+    ArgTemplate::Literal(Arg::from(s))
 }
 
-fn ph(s: &str) -> RegexItem {
-    RegexItem::Symbol(NfaSymbol::Placeholder(reform::Str::from(s)))
+fn ph(s: &str) -> ArgTemplate {
+    ArgTemplate::Placeholder(s.to_string())
 }
 
-fn rep(kind: RepetitionKind, items: Vec<RegexItem>) -> RegexItem {
-    RegexItem::Repetition { kind, items }
+fn rep(kind: RepetitionKind, items: Vec<ArgTemplate>) -> ArgTemplate {
+    ArgTemplate::RepeatedArgs(RepeatedArgs::new(kind, items))
 }
 
-fn tree(items: Vec<RegexItem>) -> RegexTree {
-    RegexTree(items)
-}
-
-fn prefilter(items: Vec<RegexItem>) -> NfaPrefilter {
-    NfaPrefilter::from(Nfa::from_tree(tree(items)))
+fn prefilter(items: Vec<ArgTemplate>) -> NfaPrefilter {
+    NfaPrefilter::from(Nfa::from_tree(&items))
 }
 
 fn fact(args: &[&str]) -> Fact {
