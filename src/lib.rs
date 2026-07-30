@@ -12,9 +12,6 @@ pub type Str = Intern<str>;
 /// An argument in a [`Fact`].
 pub type Arg = Intern<str>;
 
-/// The maximum length of a fact.
-pub const MAX_FACT_LEN: usize = 63;
-
 /// A reform fact
 #[derive(PartialEq, Eq, Hash, Debug, Clone, derive_more::Deref)]
 pub struct Fact(pub Vec<Arg>);
