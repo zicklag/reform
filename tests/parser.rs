@@ -19,49 +19,128 @@ fn fact(s: &str) -> reform::Fact {
 // Template arguments
 // ---------------------------------------------------------------------------
 
-/// A basic `[...]` template with literal text becomes a bracketed arg list.
+/// A basic `` `...` `` template with literal text becomes a backtick-bracketed
+/// arg list.
 #[test]
 fn basic_template() {
-    let f = fact("[hello world]");
+    let f = fact("`hello world`");
     assert_eq!(f.len(), 3);
-    assert_eq!(&*f[0], "[");
+    assert_eq!(&*f[0], "`");
     assert_eq!(&*f[1], "hello world");
-    assert_eq!(&*f[2], "]");
+    assert_eq!(&*f[2], "`");
 }
 
 /// A template with `{...}` curly-brace substitution splits the interior into
 /// brace-delimited word-split args.
 #[test]
 fn template_with_curly_substitution() {
-    let f = fact("[hello {name} world]");
+    let f = fact("`hello {name} world`");
     assert_eq!(f.len(), 7);
-    assert_eq!(&*f[0], "[");
+    assert_eq!(&*f[0], "`");
     assert_eq!(&*f[1], "hello ");
     assert_eq!(&*f[2], "{");
     assert_eq!(&*f[3], "name");
     assert_eq!(&*f[4], "}");
     assert_eq!(&*f[5], " world");
-    assert_eq!(&*f[6], "]");
+    assert_eq!(&*f[6], "`");
 }
 
 /// Escaped braces `\{` and `\}` inside a template produce literal braces.
 #[test]
 fn escaped_braces_in_template() {
-    let f = fact("[hello \\{name\\} world]");
+    let f = fact("`hello \\{name\\} world`");
     assert_eq!(f.len(), 3);
-    assert_eq!(&*f[0], "[");
+    assert_eq!(&*f[0], "`");
     assert_eq!(&*f[1], "hello {name} world");
-    assert_eq!(&*f[2], "]");
+    assert_eq!(&*f[2], "`");
 }
 
-/// Escaped brackets `\[` and `\]` inside a template produce literal brackets.
+/// Escaped backticks `` \` `` inside a template produce literal backticks.
 #[test]
-fn nested_balanced_brackets_in_template() {
-    let f = fact("[hello \\[world\\] stuff]");
+fn escaped_backtick_in_template() {
+    let f = fact("`hello \\`world\\` stuff`");
     assert_eq!(f.len(), 3);
-    assert_eq!(&*f[0], "[");
-    assert_eq!(&*f[1], "hello [world] stuff");
-    assert_eq!(&*f[2], "]");
+    assert_eq!(&*f[0], "`");
+    assert_eq!(&*f[1], "hello `world` stuff");
+    assert_eq!(&*f[2], "`");
+}
+
+// ---------------------------------------------------------------------------
+// Fenced (triple-backtick) blocks
+// ---------------------------------------------------------------------------
+
+/// A fenced block dedents its interior to the fence's column and ignores the
+/// leading/trailing newline. A single content line becomes one text arg
+/// between the `` ` `` markers.
+#[test]
+fn fenced_block_single_line() {
+    let f = fact("say ```\n    Hello, world.\n    ```\n");
+    assert_eq!(f.len(), 4);
+    assert_eq!(&*f[0], "say");
+    assert_eq!(&*f[1], "`");
+    assert_eq!(&*f[2], "Hello, world.");
+    assert_eq!(&*f[3], "`");
+}
+
+/// Blank lines inside a fence are preserved (as empty lines within the single
+/// merged text arg), and a `{…}` curly substitution splits the interior just
+/// like in a single-backtick template.
+#[test]
+fn fenced_block_blank_line_and_curly() {
+    let f = fact("say ```\n    Hello.\n\n    {name}\n    ```\n");
+    assert_eq!(f.len(), 7);
+    assert_eq!(&*f[0], "say");
+    assert_eq!(&*f[1], "`");
+    assert_eq!(&*f[2], "Hello.\n\n");
+    assert_eq!(&*f[3], "{");
+    assert_eq!(&*f[4], "name");
+    assert_eq!(&*f[5], "}");
+    assert_eq!(&*f[6], "`");
+}
+
+/// Content indented more than the fence keeps its extra indentation; content
+/// less indented (a blank line) is stripped as far as possible.
+#[test]
+fn fenced_block_nested_indent_preserved() {
+    let f = fact("    ```\n    line one\n        nested\n    ```\n");
+    assert_eq!(f.len(), 3);
+    assert_eq!(&*f[0], "`");
+    assert_eq!(&*f[1], "line one\n    nested");
+    assert_eq!(&*f[2], "`");
+}
+
+/// An empty fenced block produces just the two `` ` `` marker args.
+#[test]
+fn fenced_block_empty() {
+    let f = fact("```\n```\n");
+    assert_eq!(f.len(), 2);
+    assert_eq!(&*f[0], "`");
+    assert_eq!(&*f[1], "`");
+}
+
+/// Escaped braces (`\{`, `\}`) and backslash (`\\`) inside a fenced block produce
+/// literal characters in the merged text arg.
+#[test]
+fn fenced_block_escapes() {
+    let f = fact("    ```\n    literal \\{braces\\} and \\\\backslash\n    ```\n");
+    assert_eq!(f.len(), 3);
+    assert_eq!(&*f[0], "`");
+    assert_eq!(&*f[1], "literal {braces} and \\backslash");
+    assert_eq!(&*f[2], "`");
+}
+
+/// A template whose interior starts with a `{…}` curly section (no leading
+/// text) still emits the ` marker, the curly args, and the closing marker.
+#[test]
+fn template_starts_with_curly() {
+    let f = fact("`{name} world`");
+    assert_eq!(f.len(), 6);
+    assert_eq!(&*f[0], "`");
+    assert_eq!(&*f[1], "{");
+    assert_eq!(&*f[2], "name");
+    assert_eq!(&*f[3], "}");
+    assert_eq!(&*f[4], " world");
+    assert_eq!(&*f[5], "`");
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +320,8 @@ fn double_paren_literal_parens() {
 /// Escaped backslash `\\\\` in a template produces a literal backslash.
 #[test]
 fn escaped_backslash_in_template() {
-    let f = fact("[a\\\\b]");
-    // Template: [ a\\b ] -> args: [, a\b, ]
+    let f = fact("`a\\\\b`");
+    // Template: ` a\\b ` -> args: `, a\b, `
     assert_eq!(f.len(), 3);
     assert_eq!(&*f[1], "a\\b");
 }
@@ -298,6 +377,18 @@ fn normal_form_arg_backslash_escape() {
     assert_eq!(normal_form_arg(&Arg::from("a\\b.")), "(a\\\\b.)");
     // Backslash in an arg that doesn't need parens stays clean
     assert_eq!(normal_form_arg(&Arg::from("a\\b")), "a\\b");
+}
+
+/// `normal_form_arg` wraps a backtick (a template delimiter) so it survives
+/// re-parsing instead of starting a template. A bare `` ` `` becomes `(``)`,
+/// and a backtick inside a whitespace arg stays literal within the parens.
+#[test]
+fn normal_form_arg_wraps_backtick() {
+    use reform::Arg;
+    use reform::normal_form_arg;
+    assert_eq!(normal_form_arg(&Arg::from("`")), "(`)");
+    // Whitespace arg containing a backtick wraps; backtick is literal inside.
+    assert_eq!(normal_form_arg(&Arg::from("a `b` c")), "(a `b` c)");
 }
 
 // -- parenthesized literal arg in a pattern ----------------------------------

@@ -28,7 +28,7 @@ pub fn normal_form_arg(a: &Arg) -> String {
     if s.is_empty() {
         return "()".to_string();
     }
-    let needs = s.chars().any(|c| c.is_whitespace() || c == '(' || c == ')')
+    let needs = s.chars().any(|c| c.is_whitespace() || c == '(' || c == ')' || c == '`')
         || s.ends_with([';', '.', ':', '\'']);
     if !needs {
         return s.to_string();

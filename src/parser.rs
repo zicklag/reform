@@ -32,7 +32,7 @@ peg::parser! {
         // A fact is a list of parsed arguments
         rule fact() -> Fact =
             // Consume the current indentation level as the "base" indent.
-            base:measure_indent()
+            base:take_indent()
             // Parse the first line (a trailing comment is allowed).
             first_line:line_args() comment()? eol()
             // The fact may continue on following, more-indented lines.
@@ -58,33 +58,131 @@ peg::parser! {
             comment()?
             { args.into_iter().flat_map(|x| x.into_iter()).collect() }
         rule line_arg_batch() -> Vec<Arg> =
-            template_args() /
+            backtick_template() /
             args:template_curly_args() { args } /
             arg:literal_arg() { vec![arg] } /
             arg:plain_word() { vec![arg] }
 
-        // Parse a template arg, which is a special arg type delimited by square
-        // brackets that will expand to multiple args
-        rule template_args() -> Vec<Arg> =
-            // A template starts with a square bracket
-            "["
-                // Inside are one or more chunks
-                chunks:(
-                    // There could be strech of literal string
-                    arg:template_string_arg() { vec![arg] } /
-                    // Or it could be a curly-brace delimited section of word-split
-                    // args.
-                    template_curly_args()
-                )+
-            // And ends with a square bracket
-            "]"
+        // A template string delimited by backticks. Single backticks (`` `…` ``)
+        // hold a template string; triple backticks (`` ```…``` ``) open a fenced
+        // block whose interior is dedented to the fence's indentation and whose
+        // leading/trailing newlines are ignored. Both expand to the same `` ` ``
+        // marker args plus interior chunks (literal text runs and `{…}` curly-
+        // brace substitution sections).
+        rule backtick_template() -> Vec<Arg> =
+            f:fenced_template() { f } /
+            s:single_backtick_template() { s }
+
+        // A single-backtick template string. The interior is taken literally (it
+        // may span newlines) with `{…}` curly-brace substitutions and `` \` `` /
+        // `\{` / `\}` / `\\` escapes, until the closing backtick.
+        rule single_backtick_template() -> Vec<Arg> =
+            "`" chunks:single_bt_interior() "`"
             {
-                let mut args = Vec::new();
-                args.push("[".into());
-                args.extend(chunks.into_iter().flatten());
-                args.push("]".into());
+                let mut args = vec!["`".into()];
+                args.extend(chunks);
+                args.push("`".into());
                 args
             }
+
+        rule single_bt_interior() -> Vec<Arg> =
+            cs:(
+                t:bt_text() { TmplChunk::Text(t) }
+                / c:template_curly_args() { TmplChunk::Curly(c) }
+            )*
+            { merge_tmpl(cs) }
+
+        // A literal text run inside a single-backtick template: any character
+        // that is not a curly brace or backtick (newlines included), with escapes.
+        rule bt_text() -> Arg =
+            substrs:(
+                "\\`" { "`".to_string() } /
+                "\\{" { "{".to_string() } /
+                "\\}" { "}".to_string() } /
+                "\\\\" { "\\".to_string() } /
+                not_curlies() not_backtick() c:[_] { c.to_string() }
+            )+
+            { substrs.join("").as_str().into() }
+
+        // A triple-backtick fenced block. The column of the opening fence
+        // determines how many leading spaces are stripped from each interior
+        // line, so the block can be indented under its containing fact and the
+        // content still comes out flush-left. The leading newline (right after
+        // the opening fence) and the trailing newline (right before the closing
+        // fence) are ignored.
+        rule fenced_template() -> Vec<Arg> =
+            col:get_column() "```"
+            "\n"?
+            first:(fence_line_content(col - 1))?
+            rest:(fence_line_sep(col - 1))*
+            "\n"?
+            fence_close()
+            {
+                let mut chunks = Vec::new();
+                if let Some(f) = first { chunks.extend(f); }
+                for r in rest { chunks.extend(r); }
+                let mut args = vec!["`".into()];
+                args.extend(merge_tmpl(chunks));
+                args.push("`".into());
+                args
+            }
+
+        // One line of a fenced block's interior (the first line: no leading
+        // newline). Stops if the line is the closing fence.
+        rule fence_line_content(strip: usize) -> Vec<TmplChunk> =
+            !fence_close()
+            strip_line_indent(strip)
+            chunks:tmpl_line_chunks()
+            { chunks }
+
+        // A newline ending the previous line plus the next interior line. The
+        // newline becomes a `\n` text chunk so multi-line content stays one
+        // continuous literal run after merging.
+        rule fence_line_sep(strip: usize) -> Vec<TmplChunk> =
+            "\n"
+            !fence_close()
+            strip_line_indent(strip)
+            chunks:tmpl_line_chunks()
+            {
+                let mut v = vec![TmplChunk::Text("\n".into())];
+                v.extend(chunks);
+                v
+            }
+
+        // The chunks of a single fenced interior line: zero or more literal
+        // text runs and `{…}` curly-brace substitution sections.
+        rule tmpl_line_chunks() -> Vec<TmplChunk> =
+            cs:(
+                t:fence_text_line() { TmplChunk::Text(t) }
+                / c:template_curly_args() { TmplChunk::Curly(c) }
+            )*
+            { cs }
+
+        // A literal text run on a single fenced line: any character that is not a
+        // curly brace or newline (backticks are literal here, since the fence is
+        // closed by a dedicated `` ``` `` line), with brace/backslash escapes.
+        rule fence_text_line() -> Arg =
+            substrs:(
+                "\\{" { "{".to_string() } /
+                "\\}" { "}".to_string() } /
+                "\\\\" { "\\".to_string() } /
+                not_curlies() !("\n") c:[_] { c.to_string() }
+            )+
+            { substrs.join("").as_str().into() }
+
+        // The closing fence: a line of horizontal whitespace, three backticks,
+        // optional trailing whitespace, and an end of line / end of input.
+        rule fence_close() =
+            (" " / "\t")* "```" (" " / "\t")* (eol() / ![_])
+
+        // Strip up to `strip` leading spaces from the current line.
+        rule strip_line_indent(strip: usize) = #{|input, pos| {
+            let b = input.as_bytes();
+            let mut p = pos;
+            let mut n = 0;
+            while p < b.len() && b[p] == b' ' && n < strip { p += 1; n += 1; }
+            RuleResult::Matched(p, ())
+        }}
 
         // Parse a batch of arguments inside of a curly-brace delimited section in a
         // template string.
@@ -106,21 +204,6 @@ peg::parser! {
                 args.push("}".into());
                 args
             }
-
-        // Parse a contiguous literal string in a template literal
-        rule template_string_arg() -> Arg =
-            substrs:(
-                // Escaped braces
-                "\\{" { "{".to_string() } /
-                "\\}" { "}".to_string() } /
-                "\\[" { "[".to_string() } /
-                "\\]" { "]".to_string() } /
-                // Escaped backslash
-                "\\\\" { "\\".to_string() } /
-                // Anything that isn't a curly brace or square bracket
-                not_curlies() not_squares() char:[_] { char.into() }
-            )+
-            { substrs.join("").as_str().into() }
 
 
         // A literal arg is an arg with it's contents wrapped in parenthesis to make
@@ -165,9 +248,9 @@ peg::parser! {
         rule punctuation() -> &'input str = $( "," / ";" / "." / "'" / ":" )
 
         // Helpers for negative lookahead
-        rule not_brackets() = not_curlies() not_squares() not_parens()
+        rule not_brackets() = not_curlies() not_backtick() not_parens()
         rule not_curlies() = !("{" / "}")
-        rule not_squares() = !("[" / "]")
+        rule not_backtick() = !("`")
         rule not_parens() = !( "(" / ")" )
 
         // Parse a line that is continuing a previous fact indented at the provided
@@ -198,11 +281,18 @@ peg::parser! {
 
         // Match on all the leading spaces at the current position and return
         // the indent level.
-        rule measure_indent() -> usize = #{|input, pos| {
+        rule take_indent() -> usize = #{|input, pos| {
             let b = input.as_bytes();
             let mut p = pos;
             while p < b.len() && b[p] == b' ' { p += 1; }
             RuleResult::Matched(p, p - pos)
+        }}
+
+        // Get the current column in the file without consuming anything.
+        rule get_column() -> usize = #{|input, pos| {
+            let previous_newline_or_start = input[..pos].rfind('\n').unwrap_or(0);
+            let col = input[previous_newline_or_start..pos].chars().count() + 1;
+            RuleResult::Matched(pos, col)
         }}
 
         // -----------------------------------------------------------------------
@@ -325,4 +415,38 @@ fn merge_text(chunks: Vec<BodyChunk>) -> Vec<BodyChunk> {
         merged.push(chunk);
     }
     merged
+}
+
+/// A typed chunk of a template string's interior, used only during parsing so
+/// that adjacent literal text runs (e.g. across the line breaks of a fenced
+/// block) can be merged into a single argument before flattening to [`Arg`]s.
+/// Curly-brace substitution sections break the runs so their inner word-split
+/// arguments stay separate.
+enum TmplChunk {
+    Text(Arg),
+    Curly(Vec<Arg>),
+}
+
+/// Flatten typed template chunks into arguments, merging consecutive `Text`
+/// runs into one argument (so a fenced block's multi-line literal text becomes a
+/// single arg, just like a single-backtick template's char run would).
+fn merge_tmpl(chunks: Vec<TmplChunk>) -> Vec<Arg> {
+    let mut out: Vec<Arg> = Vec::new();
+    let mut text = String::new();
+    for ch in chunks {
+        match ch {
+            TmplChunk::Text(t) => text.push_str(&t),
+            TmplChunk::Curly(args) => {
+                if !text.is_empty() {
+                    out.push(text.as_str().into());
+                    text.clear();
+                }
+                out.extend(args);
+            }
+        }
+    }
+    if !text.is_empty() {
+        out.push(text.as_str().into());
+    }
+    out
 }

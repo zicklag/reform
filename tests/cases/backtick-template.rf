@@ -1,0 +1,8 @@
+# A single-backtick template string: literal text runs and {curly} substitution
+# sections, delimited by ` marker args. Escapes (\` \{ \} \\) produce literals.
+say `hello {name} world`
+say `escaped \{braces\} and \`backtick\``
+
+$ facts
+$ assert sentence say (`) (hello ) { name } ( world) (`)
+$ assert sentence say (`) (escaped {braces} and `backtick`) (`)

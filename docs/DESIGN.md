@@ -4,7 +4,7 @@
 
 The normal form of a fact is a space-separated list of arguments, each of which are a string.
 
-If one of the arguments contains whitespace, then it is wrapped in parenthesis.
+If one of the arguments contains whitespace, or a backtick (the template-string delimiter), then it is wrapped in parenthesis.
 
 ```rf
 (Grand Canyon) is big 
@@ -129,33 +129,52 @@ Notice how in `example.com` the `.` is included in the argument without splittin
 
 Template arguments are special syntax sugar for providing possibly multi-line strings with substitutions or other special arguments mixed in more easily.
 
-Template arguments are wrapped in square brackts and are allowed to span muliple lines, similarly to parenthesis-wrapped arguments.
+Template arguments are wrapped in backticks (`` ` ``) and are allowed to span multiple lines, similarly to parenthesis-wrapped arguments.
 
-Different from parenthesis-wrapped arguments, they may contain curly-brace delimited arguments that are split from the templte string as separate arguments.
+Different from parenthesis-wrapped arguments, they may contain curly-brace delimited arguments that are split from the template string as separate arguments.
 
 For example:
 
 ```rf
-The description is [There is a gate before you
+The description is `There is a gate before you
 
 It is {if open}open{else}closed{end if}
 
-It is ominous.]
+It is ominous.`
 ```
 
 In normal form, it would be:
 
 ```rf
-The description is ([) (There is a gate before you
+The description is (`) (There is a gate before you
 
 It is ) { if open } open { else } closed { end if } (
 
-It is ominous.) (])
+It is ominous.) (`)
 ```
 
-The square brackets get put into their own arguments in order to mark the start and the endof the template string. The curly braces are similarly split. The chunks of literal strings otherwise are joined into one continuous argument as long as neither a curly brace nor the last balanced square bracket are met.
+The backticks get put into their own arguments in order to mark the start and the end of the template string. The curly braces are similarly split. The chunks of literal strings otherwise are joined into one continuous argument as long as neither a curly brace nor the closing backtick is met.
 
-Notice that normal word splitting is done in between brackets such as with `if open` and they split into separate args until the closing curly brace resumes the string chunk parsing.
+Notice that normal word splitting is done in between backticks such as with `if open` and they split into separate args until the closing curly brace resumes the string chunk parsing.
+
+Inside a backtick template, a literal backtick is written `` \` ``, literal braces as `\{` and `\}`, and a literal backslash as `\\`.
+
+### Fenced blocks
+
+A triple backtick (`` ``` ``) opens a *fenced block*: a multi-line template string that is convenient for blocks of text indented under a fact. The interior is dedented to the column of the opening fence (the leading whitespace in front of `` ``` `` is stripped from every interior line, so content indented under the fence comes out flush-left), and the leading newline (right after the opening fence) and the trailing newline (right before the closing fence) are ignored. A fenced block expands to the same `` ` `` marker args plus interior chunks as a single-backtick template.
+
+The closing fence is a line consisting only of optional horizontal whitespace followed by `` ``` ``. For example:
+
+```rf
+Before starting first-time-look:
+    say ```
+        "Kion, wake up."
+
+        Kion stirs, and opens his eyes slowly, "Hmm, what?"
+        ```
+```
+
+dedents the interior to the `say ` column and drops the leading/trailing newlines, so the `say` fact receives one continuous template-string argument with the paragraph text. Backticks are literal inside a fenced block (the fence is closed by a dedicated `` ``` `` line, not by a single backtick); only `\{`, `\}`, and `\\` escapes apply.
 
 ## Loading Facts
 
@@ -282,7 +301,7 @@ $ rule example2
 
 ## Engine Commands
 
-There are some common commands that may be implemented by different engines, but are not guaranteed everywhere.
+These are some common commands that may be implemented by different engines, but are not guaranteed everywhere.
 
 These are triggered by just creating new facts, with the `$` syntax to prevent the `sentence` prefix.
 
@@ -300,9 +319,9 @@ These are triggered by just creating new facts, with the `$` syntax to prevent t
 
 The following clarifications were recorded during implementation and should be worked into the main document above.
 
-1. **Escaping `{` and `}` in templates** — Inside `[...]` template blocks, literal curly braces may be escaped with a backslash: `\{` and `\}`. Unescaped braces are always interpreted as substitution delimiters.
+1. **Escaping `{` and `}` in templates** — Inside `` `...` `` template blocks, literal curly braces may be escaped with a backslash: `\{` and `\}`. Unescaped braces are always interpreted as substitution delimiters.
 
-2. **Nested `[...]` in templates** — Square brackets follow the same balance-tracking rules as parentheses. Nested balanced brackets are valid; a lone `]` must be escaped with `\]`.
+2. **Escaping backticks in templates** — Inside a single-backtick `` `...` `` template, a literal backtick is written `` \` ``. (Inside a triple-backtick fenced block, backticks are literal already.)
 
 3. **Rule conflict resolution** — When multiple rules match the same facts, the rule with the highest specificity (most constrained pattern) fires first. Specificity is word-based: a literal argument scores 5, a placeholder (`$x`) scores 4 (it still fixes a position in the pattern's shape), and each required (non-negated) fact adds 1. Repetition blocks add nothing for the block itself but penalize the words inside them by the block's looseness — `?` subtracts 1, `+` subtracts 2, `*` subtracts 3 — with penalties stacking across nested blocks and saturating at zero. Negated facts contribute 0. This ranks literals above wildcards, structured rules above catch-alls, and patterns with more required repetitions above those with fewer. Ties preserve insertion order (stable sort).
 

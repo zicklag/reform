@@ -1,0 +1,22 @@
+# A triple-backtick fenced block dedents its interior to the fence's column,
+# ignores the leading and trailing newline, and still does {curly} substitution
+# with multi-line literal text merged into a single argument.
+
+# Simple fenced block: one line of content, dedented flush.
+say ```
+    Hello, world.
+    ```
+
+# Fenced block with a blank line and a {curly} substitution: the literal text
+# around the curly stays one continuous argument across the line breaks.
+say ```
+    Hello.
+
+    {name}
+    ```
+
+$ facts
+$ assert sentence say (`) (Hello, world.) (`)
+$ assert sentence say (`) (Hello.
+
+) { name } (`)

@@ -1,3 +1,4 @@
+$ load ./templates.rf
 $ load ./core.rf
 $ load ./conditions.rf
 $ load ./activities.rf

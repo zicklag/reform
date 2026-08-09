@@ -1,3 +1,16 @@
-this is a sentence
+$ rule replace_template_strings_with_strings
+    (
+        sentence $( $before )* (`) $string (`) $( $after )*
+    )
+    (
+        sentence $( $before )* $string $( $after )*
+    )
+
+The description is
+    ```
+    This is a test
+
+    Second line
+    ```
 
 $ facts
