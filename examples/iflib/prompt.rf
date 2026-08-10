@@ -10,15 +10,21 @@ Understand is understand-token
 understand is understand-token
 $ rule (parse understand statement)
     (
-        - statement $understand $word as $action
+        - queue stmt-start $understand $word as $action stmt-end $( $queue )*
         $understand is understand-token
     )
     (
         rule (understand $word as $action)
             (
                 - prompt $word
+                - queue $( $queue )*
             )
             (
-                enact $action
+                queue
+                    stmt-start
+                        enact $action
+                    stmt-end
+                    $( $queue )*
             )
+        queue $( $queue )*
     )

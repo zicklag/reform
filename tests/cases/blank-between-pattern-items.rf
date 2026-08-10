@@ -1,0 +1,19 @@
+# Regression: a blank line between two sibling pattern items (here a
+# fact-level repetition followed by a fact) must not break parsing. The
+# original parser had no `sep()` between items, so a blank line here trapped
+# the parser (the trailing `ws()` consumed the blank line plus the next item's
+# indent, leaving the item's content unconsumed -> parse error). The multi-
+# line parser change added `sep()*` between items, fixing this.
+
+a
+b
+
+$ rule two-items-blank
+    (
+        $( sentence a )?
+
+        sentence b
+    )
+    ( both )
+$ assert both
+$ quit

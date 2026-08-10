@@ -1,0 +1,110 @@
+
+$ rule (The x is a y)
+    (
+        - queue
+            stmt-start
+                $( $a1 )? $x is $( $a2 )? $y
+            stmt-end
+            $( $queue )*
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $x is $y
+        queue $( $queue )*
+    )
+
+$ rule (x is relation of y)
+    (
+        - queue
+            stmt-start
+                $( $a1 )? $x is $( $a2 )? $rel $( $prep )? $( $a3 )? $y
+            stmt-end
+            $( $queue )*
+            
+        $( $a1 is article )?
+        $( $a2 is article )?
+        $( $a3 is article )?
+        $( $prep is preposition )?
+        ! $rel is article
+        ! $rel is preposition
+    )
+    (
+        $x is $rel $( $prep )? $y
+        queue $( $queue )*
+    )
+
+$ rule (the prop of x is value)
+    (
+        - queue
+            stmt-start
+                $( $a1 )? $prop of $( $a2 )? $x is $value
+            stmt-end
+            $( $queue )*
+            
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $prop of $x is $value
+        queue $( $queue )*
+    )
+
+now is now-token
+Now is now-token
+$ rule (now the prop of x is value, when deleting previous value)
+    (
+        - queue
+            stmt-start
+                $nowToken $( $a1 )? $prop of $( $a2 )? $x is $value
+            stmt-end
+            $( $queue )*
+            
+        - $prop of $x is $oldValue
+        $nowToken is now-token
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $prop of $x is $value
+        queue $( $queue )*
+    )
+$ rule (now the prop of x is value, when there is no previous value)
+    (
+        - queue
+            stmt-start
+                $nowToken $( $a )? $prop of $( $a2 )? $x is $value
+            stmt-end
+            $( $queue )*
+            
+        $nowToken is now-token
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        $prop of $x is $value
+        queue $( $queue )*
+    )
+
+properties is properties-token
+Properties is properties-token
+# Properties of $x:
+#   $prop: $value
+#   $prop: $value
+$ rule (properties of x, separated by colons)
+    (
+        - queue
+            stmt-start
+                $prop-token of $( $a1 )? $x : $( $prop : $value )+
+            stmt-end
+            $( $queue )*
+            
+        $prop-token is properties-token
+        $( $a1 is article )?
+    )
+    (
+        $(
+            $prop of $x is $value
+        )+
+        queue $( $queue )*
+    )

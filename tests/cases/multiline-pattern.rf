@@ -1,0 +1,33 @@
+# A pattern fact may span multiple lines: a line indented more than the fact's
+# first line continues that fact (appending its args). Sibling facts sit at the
+# same indent. A `$( ... )` on a continuation line is an arg-level repetition;
+# at a fact's base indent it is a fact-level repetition.
+#
+# Bare input lines are ingested as `sentence <line>` facts, so the pattern's
+# facts begin with `sentence`. The pattern below is TWO facts: the
+# `- sentence queue ...` fact (continued by its indented lines, including the
+# arg-level `$( $queue )*`), and the `sentence $understand is understand-token`
+# fact. If the indented lines merged into one fact, or `$( $queue )*` parsed as
+# a fact-level sibling, the queue fact would not match and the rule would not
+# fire.
+
+queue stmt-start understand word as action stmt-end q1 q2 q3
+understand is understand-token
+
+$ rule process-queue
+    (
+        - sentence queue
+            stmt-start
+                $understand $word as $action
+            stmt-end
+            $( $queue )*
+
+        sentence $understand is understand-token
+    )
+    (
+        processed $understand $word $action $( $queue )*
+    )
+
+$ assert processed understand word action q1 q2 q3
+$ assert-not sentence queue stmt-start understand word as action stmt-end q1 q2 q3
+$ quit

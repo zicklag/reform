@@ -302,26 +302,54 @@ peg::parser! {
         // Rule pattern / body parsing
         // -----------------------------------------------------------------------
 
-        // Parse a rule pattern from its literal string content.
+        // Parse a rule pattern from its literal string content. Indentation is
+        // significant, mirroring file-level fact parsing: a pattern fact may
+        // span multiple lines, and a line indented more than the fact's first
+        // line continues that fact (appending its args). A `$( ... )` reached
+        // as a continuation arg is an arg-level repetition; a `$( ... )` at a
+        // fact's base indent (a sibling item) is a fact-level repetition.
         pub rule pattern() -> Pattern =
-            ws() items:(pattern_item())* ws() { Pattern(items) }
+            sep()*
+            items:(item:pattern_item() sep()* { item })*
+            ws()
+            { Pattern(items) }
 
         rule pattern_item() -> PatternItem =
             fact_repetition:pattern_fact_repetition() { PatternItem::FactRepetition(fact_repetition) } /
             fact:pattern_fact() { PatternItem::Fact(fact) }
 
         rule pattern_fact_repetition() -> PatternFactRepetition =
-            ws() "$("
-                ws() facts:(pattern_fact())*
+            (" " / "\t")* "$("
+                (" " / "\t")* comment()? eol()?
+                sep()*
+                facts:(f:pattern_fact() sep()* { f })*
             ws() ")"
             marker:repetition_marker()
-            (" " / "\t")* eol()
+            (" " / "\t")* comment()? eol()
             { let (kind, greedy) = marker; PatternFactRepetition { kind, greedy, facts } }
 
         pub rule pattern_fact() -> PatternFact =
-            " "* "-" args:arg_templates() fact_end() { PatternFact::new(true, false, args) } /
-            " "* "!" args:arg_templates() fact_end() { PatternFact::new(false, true, args) } /
-            " "* args:arg_templates() fact_end() { PatternFact::new(false, false, args) }
+            base:take_indent() p:pattern_fact_prefix() first:arg_templates() comment()? fact_end()
+            rest:(pattern_continued_line(base))*
+            {
+                let mut args = first;
+                for r in rest { args.extend(r); }
+                let (removed, negated) = p;
+                PatternFact::new(removed, negated, args)
+            }
+
+        // The `-` (remove) / `!` (negate) / none prefix of a pattern fact.
+        rule pattern_fact_prefix() -> (bool, bool) =
+            "-" { (true, false) } /
+            "!" { (false, true) } /
+            "" { (false, false) }
+
+        // A continuation line of a pattern fact: indented more than `base`, it
+        // appends its args to the fact. A blank line, or a comment-only line at
+        // greater indent, is a no-op continuation (mirrors `continued_line`).
+        rule pattern_continued_line(base: usize) -> Vec<ArgTemplate> =
+            (blank_line() / (greater_indent_than(base) comment() eol())) { vec![] } /
+            greater_indent_than(base) args:arg_templates() comment()? fact_end() { args }
 
         // Parse a rule body as a substitution template. The body is a flat
         // sequence of chunks: literal text, `$name` placeholders (substituted

@@ -1,0 +1,62 @@
+# The queue is like the "stack" of a typical programing language. Rules will add
+# statements to the queue which will be executed in order, but which may also
+# call "functions" so-to-speak that replace the statement with a list of other
+# statements at it's location in the queue. This lets us emulate something like
+# a call stack to reliably execute things in order, where reform doesn't
+# natively have any direct mechanism for executing a series of steps in a line.
+
+# Create the empty queue.
+$ queue
+
+# The queue will have "statements" added to it like:
+# 
+# queue
+#   stmt-start say (hello world) stmt-end
+#   stmt-start say (goodbye world) stmt-end
+#   stmt-start now hat is green stmt-end
+# 
+# Rules that operate on the `say` statement will look for a fact starting with
+# `queue stmt-start say` and it will know at that point that it should start
+# processing the statement.
+# 
+# The statement should remove the queue fact and create a new queue, which may
+# have either modified the say statement, removed it so the next one can process
+# or even added new ones to the beginning of the queue as a prt of it's "call
+# stack".
+
+# These three rules split sentences into "statements" which are split
+# up by periods and had trailing periods removed. This lets the rest
+# of the parser operate on statements in the queue instead of sentences directly
+# and it means we can automatically support having multiple statements on one
+# line, separated by periods.
+$ rule (split sentences by periods 1)
+    (
+        - sentence $( $words1 )+ . $( $words2 )+
+        - queue $( $queue )*
+    )
+    (
+        queue stmt-start $( $words1 )+ stmt-end $( $queue )*
+        sentence $( $words2 )+
+    )
+$ rule (split sentences by periods 2)
+    (
+        - sentence $( $words )+ $( . )?
+        - queue $( $queue )*
+    )
+    (
+        queue stmt-start $( $words )+ stmt-end $( $queue )*
+    )
+    
+
+# This rule will print a warning if any statement was not understood.
+$ rule (warn about statements not understood)
+    (
+        - queue stmt-start $( $arg )* stmt-end $( $queue )*
+    )
+    (
+        $ println (Warning: I did not understand this statement:
+
+    ) ($($arg )*) (
+)
+        queue $( $queue )*
+    )

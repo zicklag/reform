@@ -1,16 +1,22 @@
-$ rule replace_template_strings_with_strings
+$ rule (parse after rule statement)
     (
-        sentence $( $before )* (`) $string (`) $( $after )*
+        - sentence $after $action : $( $( $first_words )+ ;  )** $( $last_words )+
     )
     (
-        sentence $( $before )* $string $( $after )*
+        rule (after $action rule)
+            (
+                after enacting $action
+            )
+            (
+                $(
+                    sentence $( $first_words )+
+                )**
+                sentence $( $last_words )+
+            )
     )
 
-The description is
-    ```
-    This is a test
-
-    Second line
-    ```
+Carry-out test:
+    say `hi`;
+    say `bye`
 
 $ facts

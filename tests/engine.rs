@@ -958,8 +958,10 @@ fn specificity_more_facts_fire_first() {
 $ a is 1
 $ b is 2
 $ rule multi
-    ( a is 1
-      b is 2 )
+    (
+        a is 1
+        b is 2
+    )
     ( multi-result )
 $ rule single
     ( a is 1 )

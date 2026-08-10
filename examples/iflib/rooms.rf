@@ -4,10 +4,19 @@ Understand look as looking.
 Understand l as looking.
 $ rule (carry-out looking)
     (
-        carry-out enacting looking
+        - queue
+            stmt-start
+                carry-out-enacting looking
+            stmt-end
+            $( $queue )*
+            
         location of player is $here
         description of $here is $description
     )
     (
-        sentence say $description
+        queue
+            stmt-start
+                say $description
+            stmt-end
+            $( $queue )*
     )

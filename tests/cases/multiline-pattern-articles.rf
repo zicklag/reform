@@ -1,0 +1,32 @@
+# Faithful reproduction of an iflib-style multi-line pattern using RAW facts
+# (added via `$`-prefix, so no `sentence` wrapping). The pattern combines:
+#  - a removal fact continued across indented lines, with arg-level
+#    `$( $a )?` / `$( $a2 )?` / `$( $queue )*` on continuation lines,
+#  - a sibling fact `$nowToken is now-token`,
+#  - sibling fact-level repetitions `$( $a1 is article )?` and
+#    `$( $a2 is article )?` sharing placeholders ($a2) with the arg-level
+#    repetitions above (the cross-fact article constraint).
+
+$ queue stmt-start now the brightness of the room is light stmt-end
+$ now is now-token
+$ the is article
+
+$ rule parse-now
+    (
+        - queue
+            stmt-start
+                $nowToken $( $a )? $prop of $( $a2 )? $x is $value
+            stmt-end
+            $( $queue )*
+
+        $nowToken is now-token
+        $( $a1 is article )?
+        $( $a2 is article )?
+    )
+    (
+        parsed $nowToken $prop $x $value
+    )
+
+$ assert parsed now brightness room light
+$ assert-not queue stmt-start now the brightness of the room is light stmt-end
+$ quit

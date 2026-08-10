@@ -14,82 +14,133 @@
 # 4. Carry out - carry-out enacting $action
 # 5. After - after enacting $action
 
-$ rule (transition action enact to before phase)
+$ rule (parse enact action statement)
     (
-        - enact $action
+        - queue
+            stmt-start
+                enact $action
+            stmt-end
+            $( $queue )*
     )
     (
-        before enacting $action
-    )
-    
-$ rule (transition action from before to instead phase)
-    (
-        - before enacting $action
-    )
-    (
-        instead-of enacting $action
-    )
-    
-$ rule (transition action from instead-of to check phase)
-    (
-        - instead-of enacting $action
-    )
-    (
-        check enacting $action
-    )
-    
-$ rule (transition action from check to carry-out phase)
-    (
-        - check enacting $action
-    )
-    (
-        carry-out enacting $action
-    )
-    
-$ rule (transition action from carry-out to after phase)
-    (
-        - carry-out enacting $action
-    )
-    (
-        after enacting $action
+        queue
+            stmt-start
+                before-enacting $action
+            stmt-end
+            $( $queue )*
     )
 
-$ rule (clean up after enacting phase)
+$ rule (transition from before to instead phase)
     (
-        - after enacting $action
+        - queue
+            stmt-start
+                before-enacting $action
+            stmt-end
+            $( $queue )*
     )
-    ()
+    (
+        queue
+            stmt-start
+                instead-of-enacting $action
+            stmt-end
+            $( $queue )*
+    )
+    
+$ rule (transition from instead to check phase)
+    (
+        - queue
+            stmt-start
+                instead-of-enacting $action
+            stmt-end
+            $( $queue )*
+    )
+    (
+        queue
+            stmt-start
+                check-enacting $action
+            stmt-end
+            $( $queue )*
+    )
+    
+$ rule (transition from check to carry-out phase)
+    (
+        - queue
+            stmt-start
+                check-enacting $action
+            stmt-end
+            $( $queue )*
+    )
+    (
+        queue
+            stmt-start
+                carry-out-enacting $action
+            stmt-end
+            $( $queue )*
+    )
+    
+$ rule (transition from carry-out to after phase)
+    (
+        - queue
+            stmt-start
+                carry-out-enacting $action
+            stmt-end
+            $( $queue )*
+    )
+    (
+        queue
+            stmt-start
+                after-enacting $action
+            stmt-end
+            $( $queue )*
+    )
+    
+$ rule (clean up after phase)
+    (
+        - queue
+            stmt-start
+                after-enacting $action
+            stmt-end
+            $( $queue )*
+    )
+    (
+        queue $( $queue )*
+    )
 
 #
 # Add some sentence parsers for creating rules rules for the
 # actions
 # 
 
-$ rule (parse enact action statement)
-    (
-        - statement enact $action
-    )
-    (
-        enact $action
-    )
-
 before is before-token
 Before is before-token
 $ rule (parse before rule statement)
     (
-        - statement $before $action $( cond-rule $( $rule )+ end-cond )* : $( $words )+
+        - queue
+            stmt-start
+                $before $action $( cond-rule $( $rule )+ end-cond )* : $( $words )+
+            stmt-end
+            $( $queue )*
         $before is before-token
     )
     (
         rule (before $action rule)
             (
-                - before enacting $action
+                - queue
+                    stmt-start
+                        before-enacting $action
+                    stmt-end
+                    $$( $$queue )*
                 $($($rule )+
                 )*
             )
             (
-                sentence $( $words )+
+                queue
+                    stmt-start
+                        $( $words )+
+                    stmt-end
+                    $$( $$queue )*
             )
+        queue $( $queue )*
     )
     
 
@@ -97,24 +148,48 @@ carry-out is carry-out-token
 Carry-out is carry-out-token
 $ rule (parse carry-out rule statement)
     (
-        - statement $carry-out $action : $( $words )+
+        - queue
+            stmt-start
+                $carry-out $action : $( $( $first_words )+ ;  )** $( $( $last_words )* )?
+            stmt-end
+            $( $queue )*
         $carry-out is carry-out-token
     )
     (
         rule (carry-out $action rule)
             (
-                carry-out enacting $action
+                - queue
+                    stmt-start
+                        carry-out-enacting $action
+                    stmt-end
+                    $$( $$queue )*
             )
             (
-                sentence $( $words )+
+                queue
+                    $(
+                        stmt-start
+                            $( $first_words )+
+                        stmt-end
+                    )**
+                    $(
+                        stmt-start
+                            $( $last_words )*
+                        stmt-end
+                    )?
+                    $$( $$queue )*
             )
+        queue $( $queue )*
     )
     
 after is after-token
 After is after-token
 $ rule (parse after rule statement)
     (
-        - statement $after $action : $( $words )+
+        - queue
+            stmt-start
+                $after $action : $( $( $first_words )+ ;  )** $( $( $last_words )* )?
+            stmt-end
+            $( $queue )*
         $after is after-token
     )
     (
@@ -123,6 +198,12 @@ $ rule (parse after rule statement)
                 after enacting $action
             )
             (
-                sentence $( $words )+
+                $(
+                    sentence $( $first_words )+
+                )**
+                $(
+                    sentence $( $last_words )*
+                )?
             )
+        queue $( $queue )*
     )

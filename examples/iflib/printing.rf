@@ -1,0 +1,20 @@
+$ rule (replace template strings with a single string with normal strings)
+    (
+        - $( $before )* (`) $string (`) $( $after )*
+    )
+    (
+        $( $before )* $string $( $after )*
+    )
+    # This rule runs with a very high priority so that all the other rules can
+    # just reliably dependon the fact that a template string with one arg will
+    # be reduced to a single string automatically for them.
+    +1000
+
+$ rule (parse say statement)
+    (
+        - queue stmt-start say $( $args )* stmt-end $( $queue )*
+    )
+    (
+        println $( $args )*
+        queue $( $queue )*
+    )

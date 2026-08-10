@@ -1,7 +1,0 @@
-$ rule (replace template strings with a single string with normal strings)
-    (
-        - $( $before )* (`) $string (`) $( $after )*
-    )
-    (
-        $( $before )* $string $( $after )*
-    )

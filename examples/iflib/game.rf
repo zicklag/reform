@@ -2,58 +2,46 @@
 
 $ rule (parse start the game)
     (
-        - statement Start the game
+        - queue stmt-start Start the game stmt-end $( $queue )*
     )
     (
-        start starting-game
-    )
-
-$ rule (print game credits)
-    (
-        started starting-game
-    )
-    (
-        start printing-game-credits
+        queue
+            stmt-start
+                enact starting-game
+            stmt-end
+            $( $queue )*
     )
 
+The status of the game is starting.
 
-$ rule (started printing game credits activity)
-    (
-        started printing-game-credits
-        title of game is $title
-        author of game is $author
-    )
-    (
-        sentence say (
-  ") $title (" by ) $author (
-        )
-        stop printing-game-credits
-    )
+# Carry-out staring-game:
+#     say ```
+#         Game by Author
+        
+#         ```;
+#     enact printing-prelude;
+#     enact looking
 
-After stopping printing-game-credits:
-    start first-time-look
+$ rule (carry out enacting start of game)
+    (
+        - queue
+            stmt-start
+                enact starting-game
+            stmt-end
+            $( $queue )*
+    )
+    (
+        queue
+            stmt-start
+                say ```
+                    Game by Author
 
-$ rule (first time look)
-    (
-        started first-time-look
-    )
-    (
-        enact looking
-    )
-
-$ rule (stop first time look)
-    (
-        during first-time-look
-        after looking
-    )
-    (
-        stop first-time-look
-    )
-    
-$ rule (stop starting game)
-    (
-        after stopping first-time-look
-    )
-    (
-        stop starting-game
+                    ```
+            stmt-end
+            stmt-start
+                enact printing-prelude
+            stmt-end
+            stmt-start
+                enact looking
+            stmt-end
     )

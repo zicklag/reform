@@ -1,15 +1,7 @@
-$ load ./templates.rf
-$ load ./core.rf
-$ load ./conditions.rf
-$ load ./activities.rf
-$ load ./actions.rf
-$ load ./noun-phrases.rf
-$ load ./prompt.rf
-$ load ./rooms.rf
-$ load ./game.rf
+$ load ./queue.rf
+$ load ./properties.rf
 
 # Define the articles and prepositions
-
 an is article
 a is article
 the is an article
@@ -19,3 +11,12 @@ The is an article
 
 of is a preposition
 to is a preposition
+
+$ load ./printing.rf
+$ load ./conditions.rf
+$ load ./actions.rf
+$ load ./noun-phrases.rf
+$ load ./prompt.rf
+$ load ./rooms.rf
+
+$ load ./game.rf
