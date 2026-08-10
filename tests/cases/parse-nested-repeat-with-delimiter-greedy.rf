@@ -1,0 +1,20 @@
+$ rule (parse example)
+    (
+        - sentence Example $( $( $words )+ ; )** $( $last_words )+
+    )
+    (
+        $(
+            parsed $( $words )+
+        )**
+        parsed $( $last_words )+
+    )
+
+Example
+    hello world;
+    goodbye world;
+    testing delimiter
+
+$ facts
+$ assert parsed hello world
+$ assert parsed goodbye world
+$ assert parsed testing delimiter

@@ -23,7 +23,7 @@ fn ph(s: &str) -> ArgTemplate {
 
 /// Wrap `items` in a repetition of the given kind.
 fn rep(kind: RepetitionKind, items: Vec<ArgTemplate>) -> ArgTemplate {
-    ArgTemplate::RepeatedArgs(RepeatedArgs::new(kind, items))
+    ArgTemplate::RepeatedArgs(RepeatedArgs::new(kind, false, items))
 }
 
 /// Sorted, deduped view of a position set, for order-independent comparison.

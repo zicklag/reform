@@ -145,10 +145,7 @@ fn render_chunks_many_binding() {
 #[test]
 fn render_repeat_empty_drivers() {
     // A repeat block with no list-bound placeholders should render nothing.
-    let r = RepeatBlock {
-        kind: RepetitionKind::ZeroOrMore,
-        chunks: vec![BodyChunk::Text("x".to_string())],
-    };
+    let r = RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![BodyChunk::Text("x".to_string())] };
     let b = Body(vec![BodyChunk::Repeat(r)]);
     let bindings = Bindings::new();
     let s = b.render(&bindings);
@@ -161,14 +158,8 @@ fn render_repeat_empty_drivers() {
 
 #[test]
 fn collect_ph_names_nested_repeat() {
-    let inner = BodyChunk::Repeat(RepeatBlock {
-        kind: RepetitionKind::ZeroOrMore,
-        chunks: vec![BodyChunk::Placeholder("y".to_string())],
-    });
-    let outer = BodyChunk::Repeat(RepeatBlock {
-        kind: RepetitionKind::ZeroOrMore,
-        chunks: vec![BodyChunk::Placeholder("x".to_string()), inner],
-    });
+    let inner = BodyChunk::Repeat(RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![BodyChunk::Placeholder("y".to_string())] });
+    let outer = BodyChunk::Repeat(RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![BodyChunk::Placeholder("x".to_string()), inner] });
     let b = Body(vec![outer]);
     let s = b.render(&Bindings::new());
     assert_eq!(s, "");
@@ -215,13 +206,10 @@ fn render_chunks_placeholder_no_binding() {
 
 #[test]
 fn render_repeat_mismatched_drivers() {
-    let r = RepeatBlock {
-        kind: RepetitionKind::ZeroOrMore,
-        chunks: vec![
-            BodyChunk::Placeholder("x".to_string()),
-            BodyChunk::Placeholder("y".to_string()),
-        ],
-    };
+    let r = RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![
+        BodyChunk::Placeholder("x".to_string()),
+        BodyChunk::Placeholder("y".to_string()),
+    ] };
     let b = Body(vec![BodyChunk::Repeat(r)]);
     let mut bindings = Bindings::new();
     bindings.map.insert(
@@ -297,10 +285,7 @@ fn match_fact_repetition_filter_map_none() {
 #[test]
 fn render_repeat_empty_driver_fallback() {
     // When the first driver's binding is not a Many list, n defaults to 0.
-    let r = RepeatBlock {
-        kind: RepetitionKind::ZeroOrMore,
-        chunks: vec![BodyChunk::Placeholder("x".to_string())],
-    };
+    let r = RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![BodyChunk::Placeholder("x".to_string())] };
     let b = Body(vec![BodyChunk::Repeat(r)]);
     let mut bindings = Bindings::new();
     bindings.bind_scalar("x", Arg::from("val"));
@@ -375,10 +360,7 @@ fn match_fact_repetition_filter_map_none_line_660() {
 #[test]
 fn render_repeat_driver_not_many_fallback() {
     // When the first driver's binding is not a Many list, n defaults to 0.
-    let r = RepeatBlock {
-        kind: RepetitionKind::ZeroOrMore,
-        chunks: vec![BodyChunk::Placeholder("x".to_string())],
-    };
+    let r = RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![BodyChunk::Placeholder("x".to_string())] };
     let b = Body(vec![BodyChunk::Repeat(r)]);
     let mut bindings = Bindings::new();
     bindings.bind_scalar("x", Arg::from("val"));
@@ -641,4 +623,143 @@ fn rule_find_matches_delegates() {
         matches[0].get("words"),
         Some(&BindValue::Many(vec![BindValue::One(Arg::from("alpha"))]))
     );
+}
+
+// ---------------------------------------------------------------------------
+// Greedy vs lazy repetition ordering
+// ---------------------------------------------------------------------------
+
+/// `$( $x )?? $y $( $z )?` against `[hello, world]`: greedy `??` prefers one
+/// iteration of the first block, so `x=[hello], y=world, z=[]`. Contrast with
+/// the lazy `?` version below.
+#[test]
+fn greedy_optional_prefers_one_iteration() {
+    let p = reform::parser::pattern("$( $x )?? $y $( $z )?").unwrap();
+    let facts = vec![fact(&["hello", "world"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(
+        matches[0].get("x"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("hello"))]))
+    );
+    assert_eq!(matches[0].get("y"), Some(&BindValue::One(Arg::from("world"))));
+    assert_eq!(
+        matches[0].get("z"),
+        Some(&BindValue::Many(vec![]))
+    );
+}
+
+/// Same pattern with lazy `?`: the first `?` prefers zero iterations, so
+/// `x=[], y=hello, z=[world]`.
+#[test]
+fn lazy_optional_prefers_zero_iterations() {
+    let p = reform::parser::pattern("$( $x )? $y $( $z )?").unwrap();
+    let facts = vec![fact(&["hello", "world"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(
+        matches[0].get("x"),
+        Some(&BindValue::Many(vec![]))
+    );
+    assert_eq!(matches[0].get("y"), Some(&BindValue::One(Arg::from("hello"))));
+    assert_eq!(
+        matches[0].get("z"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("world"))]))
+    );
+}
+
+/// `$( $x )++ $( $y )+` against `[a, b, c]`: greedy `++` takes as many words
+/// as possible for `x` while leaving at least one for `y`, so `x=[a, b],
+/// y=[c]`.
+#[test]
+fn greedy_plus_takes_max_iterations() {
+    let p = reform::parser::pattern("$( $x )++ $( $y )+").unwrap();
+    let facts = vec![fact(&["a", "b", "c"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(
+        matches[0].get("x"),
+        Some(&BindValue::Many(vec![
+            BindValue::One(Arg::from("a")),
+            BindValue::One(Arg::from("b")),
+        ]))
+    );
+    assert_eq!(
+        matches[0].get("y"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("c"))]))
+    );
+}
+
+/// `$( $x )+ $( $y )+` against `[a, b, c]`: lazy `+` takes as few words as
+/// possible for `x`, so `x=[a], y=[b, c]`.
+#[test]
+fn lazy_plus_takes_min_iterations() {
+    let p = reform::parser::pattern("$( $x )+ $( $y )+").unwrap();
+    let facts = vec![fact(&["a", "b", "c"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(
+        matches[0].get("x"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("a"))]))
+    );
+    assert_eq!(
+        matches[0].get("y"),
+        Some(&BindValue::Many(vec![
+            BindValue::One(Arg::from("b")),
+            BindValue::One(Arg::from("c")),
+        ]))
+    );
+}
+
+/// `$( $( $x )* )++` (greedy one-or-more with zero-width inner `*`) against
+/// `prefix`: the inner `*` matches zero args, satisfying the `+` requirement.
+/// Exercises the greedy `at_least_one` + `mid == start` path in `match_reps`.
+#[test]
+fn greedy_plus_with_zero_width_inner() {
+    let p = reform::parser::pattern("prefix $( $( $x )* )++").unwrap();
+    let facts = vec![fact(&["prefix"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+}
+
+/// Fact-level `??` (greedy optional) with a matching fact present: takes the
+/// fact (present path), unlike lazy `?` which prefers not taking it.
+#[test]
+fn fact_level_greedy_optional_takes_fact() {
+    let p = reform::parser::pattern("$( a )??\nb").unwrap();
+    let facts = vec![fact(&["a"]), fact(&["b"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+}
+
+/// Fact-level `?` (lazy optional) with a matching fact present: prefers not
+/// taking the fact (absent path succeeds first).
+#[test]
+fn fact_level_lazy_optional_skips_fact() {
+    let p = reform::parser::pattern("$( a )?\nb").unwrap();
+    let facts = vec![fact(&["a"]), fact(&["b"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+}
+
+/// `$( $( $x )* )**` (greedy zero-or-more with zero-width inner `*`) against
+/// `prefix`: the inner `*` matches zero args (mid == start) with
+/// `at_least_one == false`, exercising the greedy skip path in `match_reps`.
+#[test]
+fn greedy_star_with_zero_width_inner() {
+    let p = reform::parser::pattern("prefix $( $( $x )* )**").unwrap();
+    let facts = vec![fact(&["prefix"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+}
+
+/// `$( a )??\na` (greedy fact-level optional) with a single `a` fact: the
+/// present path consumes `a`, leaving nothing for the required `a` — it
+/// fails, so the absent path is used as fallback.
+#[test]
+fn fact_level_greedy_optional_fallback_to_absent() {
+    let p = reform::parser::pattern("$( a )??\na").unwrap();
+    let facts = vec![fact(&["a"])];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
 }

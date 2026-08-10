@@ -1,0 +1,28 @@
+$ rule (parse example)
+    (
+        - sentence Example $( $chunk )+ ; $( $rest )+
+    )
+    (
+        parsed $( $chunk )+
+        sentence Example $( $rest )+
+    )
+
+$ rule (parse final example)
+    (
+        - sentence Example $( $last )+
+    )
+    (
+        parsed $( $last )+
+    )
+
+Example
+    hello world;
+    goodbye world;
+    testing delimiter
+
+$ facts
+$ assert parsed hello world
+$ assert parsed goodbye world
+$ assert parsed testing delimiter
+$ assert-not sentence Example
+$ assert-not parsed hello world (;) goodbye world

@@ -202,6 +202,9 @@ pub enum BodyChunk {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub struct RepeatBlock {
     pub kind: RepetitionKind,
+    /// When true, this block matches greedily (prefers more iterations).
+    /// Doubled syntax: `??`, `++`, `**`. Defaults to `false` (lazy).
+    pub greedy: bool,
     pub chunks: Vec<BodyChunk>,
 }
 
@@ -250,6 +253,9 @@ impl PatternFact {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub struct PatternFactRepetition {
     pub kind: RepetitionKind,
+    /// When true, this block matches greedily (prefers more iterations).
+    /// Doubled syntax: `??`, `++`, `**`. Defaults to `false` (lazy).
+    pub greedy: bool,
     pub facts: Vec<PatternFact>,
 }
 
@@ -265,6 +271,9 @@ pub enum ArgTemplate {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub struct RepeatedArgs {
     pub kind: RepetitionKind,
+    /// When true, this block matches greedily (prefers more iterations).
+    /// Doubled syntax: `??`, `++`, `**`. Defaults to `false` (lazy).
+    pub greedy: bool,
     pub args: Vec<ArgTemplate>,
     /// Precomputed placeholder names appearing at any depth inside this
     /// repetition (including nested repetitions). Used to seed a repetition
@@ -276,9 +285,9 @@ pub struct RepeatedArgs {
 impl RepeatedArgs {
     /// Construct a repeated-arg block, precomputing its `top_ph` placeholder
     /// set (every placeholder at any depth inside `args`).
-    pub fn new(kind: RepetitionKind, args: Vec<ArgTemplate>) -> Self {
+    pub fn new(kind: RepetitionKind, greedy: bool, args: Vec<ArgTemplate>) -> Self {
         let top_ph = top_placeholders(&args);
-        RepeatedArgs { kind, args, top_ph }
+        RepeatedArgs { kind, greedy, args, top_ph }
     }
 }
 
@@ -714,22 +723,32 @@ fn match_rep(
     s.push_frame(r);
     let mut out = Vec::new();
     match r.kind {
-        // Greedy: one iteration preferred, zero as fallback.
         RepetitionKind::Optional => {
-            for (mid, s2) in match_args(&r.args, args, start, &s) {
-                let mut s3 = s2;
-                s3.promote();
-                out.extend(match_args(rest, args, mid, &s3));
+            let one = |out: &mut Vec<_>, s: &State| {
+                for (mid, s2) in match_args(&r.args, args, start, s) {
+                    let mut s3 = s2;
+                    s3.promote();
+                    out.extend(match_args(rest, args, mid, &s3));
+                }
+            };
+            let zero = |out: &mut Vec<_>, s: State| {
+                let mut s0 = s;
+                s0.promote();
+                out.extend(match_args(rest, args, start, &s0));
+            };
+            if r.greedy {
+                one(&mut out, &s);
+                zero(&mut out, s);
+            } else {
+                zero(&mut out, s.clone());
+                one(&mut out, &s);
             }
-            let mut s0 = s;
-            s0.promote();
-            out.extend(match_args(rest, args, start, &s0));
         }
         RepetitionKind::ZeroOrMore => {
-            out.extend(match_reps(&r.args, args, start, &s, false, rest));
+            out.extend(match_reps(&r.args, args, start, &s, false, r.greedy, rest));
         }
         RepetitionKind::OneOrMore => {
-            out.extend(match_reps(&r.args, args, start, &s, true, rest));
+            out.extend(match_reps(&r.args, args, start, &s, true, r.greedy, rest));
         }
     }
     out
@@ -746,27 +765,43 @@ fn match_reps(
     start: usize,
     st: &State,
     at_least_one: bool,
+    greedy: bool,
     rest: &[ArgTemplate],
 ) -> Vec<(usize, State)> {
     let mut out = Vec::new();
-    if !at_least_one {
-        let mut s0 = st.clone();
-        s0.promote();
-        out.extend(match_args(rest, args, start, &s0));
-    }
-    for (mid, s2) in match_args(inner, args, start, st) {
-        if mid == start {
-            // Zero-width iteration: would loop forever if recursed. For `+`
-            // it satisfies the one-iteration requirement; promote and stop
-            // (match `rest`). For `*` the zero-iterations branch above already
-            // covered stopping, so skip to avoid the loop.
-            if at_least_one {
-                let mut s3 = s2;
-                s3.promote();
-                out.extend(match_args(rest, args, mid, &s3));
+    if greedy {
+        for (mid, s2) in match_args(inner, args, start, st) {
+            if mid == start {
+                if at_least_one {
+                    let mut s3 = s2;
+                    s3.promote();
+                    out.extend(match_args(rest, args, mid, &s3));
+                }
+            } else {
+                out.extend(match_reps(inner, args, mid, &s2, false, greedy, rest));
             }
-        } else {
-            out.extend(match_reps(inner, args, mid, &s2, false, rest));
+        }
+        if !at_least_one {
+            let mut s0 = st.clone();
+            s0.promote();
+            out.extend(match_args(rest, args, start, &s0));
+        }
+    } else {
+        if !at_least_one {
+            let mut s0 = st.clone();
+            s0.promote();
+            out.extend(match_args(rest, args, start, &s0));
+        }
+        for (mid, s2) in match_args(inner, args, start, st) {
+            if mid == start {
+                if at_least_one {
+                    let mut s3 = s2;
+                    s3.promote();
+                    out.extend(match_args(rest, args, mid, &s3));
+                }
+            } else {
+                out.extend(match_reps(inner, args, mid, &s2, false, greedy, rest));
+            }
         }
     }
     out
@@ -941,11 +976,17 @@ fn match_fact_repetition_detailed(
         RepetitionKind::Optional => vec![],
     };
     let want_present = !take.is_empty();
-    let want_absent = matches!(
+    let free_optional = is_optional && !disabled && !must_match;
+    let can_absent = matches!(
         rep.kind,
         RepetitionKind::Optional | RepetitionKind::ZeroOrMore
-    ) && !want_present;
-    if want_present {
+    ) && !must_match;
+    // A free optional with matched facts tries both taking and not taking,
+    // ordered by the greedy flag. Other optionals / `*` only try absent when
+    // there is nothing to take.
+    let want_absent = can_absent && (!want_present || (free_optional && !matched_idx.is_empty()));
+
+    let present_results: Vec<(Bindings, Vec<usize>)> = if want_present {
         let mut used2 = used.to_vec();
         let mut b3 = b.clone();
         if !must_match {
@@ -985,21 +1026,50 @@ fn match_fact_repetition_detailed(
         // would append into the already-bound list (corrupting it) and the
         // filter only collects `One` values, which a list-bound placeholder
         // never produces, so it was a no-op anyway.
-        for (b_rest, idxs) in match_items_detailed(rest, facts, &used2, &b3) {
-            let all_idxs = if must_match {
-                // `?` constraint: the fact is verified but NOT consumed, so
-                // don't include its index in the result.
-                idxs
-            } else {
-                let mut all = take.clone();
-                all.extend(idxs);
-                all
-            };
-            out.push((b_rest, all_idxs));
-        }
-    } else if want_absent && !must_match {
+        match_items_detailed(rest, facts, &used2, &b3)
+            .into_iter()
+            .map(|(b_rest, idxs)| {
+                let all_idxs = if must_match {
+                    // `?` constraint: the fact is verified but NOT consumed, so
+                    // don't include its index in the result.
+                    idxs
+                } else {
+                    let mut all = take.clone();
+                    all.extend(idxs);
+                    all
+                };
+                (b_rest, all_idxs)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let absent_results: Vec<(Bindings, Vec<usize>)> = if want_absent {
         // No matching facts (or `?` with nothing to take): match zero facts.
-        out.extend(match_items_detailed(rest, facts, used, b));
+        match_items_detailed(rest, facts, used, b)
+    } else {
+        Vec::new()
+    };
+
+    if free_optional && !matched_idx.is_empty() {
+        // Free optional with matched facts: try the preferred path first
+        // (absent for lazy, present for greedy), falling back to the other
+        // only if the preferred path yields no complete matches — mirroring
+        // the `break`-on-first-success semantics of the `Fact` case.
+        let (first, second) = if rep.greedy {
+            (present_results, absent_results)
+        } else {
+            (absent_results, present_results)
+        };
+        if !first.is_empty() {
+            out.extend(first);
+        } else {
+            out.extend(second);
+        }
+    } else {
+        out.extend(present_results);
+        out.extend(absent_results);
     }
     out
 }

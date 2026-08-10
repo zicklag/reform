@@ -1,0 +1,19 @@
+Example
+    - hello world
+    - goodbye world
+    - testing delimiter
+
+$ rule (parse example)
+    (
+        sentence Example $( - $( $words )+ )+
+    )
+    (
+        $(
+            parsed $( $words )+
+        )+
+    )
+
+$ facts
+$ assert parsed hello world
+$ assert parsed goodbye world
+$ assert parsed testing delimiter

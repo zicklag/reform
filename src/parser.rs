@@ -311,9 +311,9 @@ peg::parser! {
             ws() "$("
                 ws() facts:(pattern_fact())*
             ws() ")"
-            kind:repetition_kind()
+            marker:repetition_marker()
             (" " / "\t")* eol()
-            { PatternFactRepetition { kind, facts } }
+            { let (kind, greedy) = marker; PatternFactRepetition { kind, greedy, facts } }
 
         pub rule pattern_fact() -> PatternFact =
             " "* "-" args:arg_templates() fact_end() { PatternFact::new(true, false, args) } /
@@ -355,15 +355,18 @@ peg::parser! {
             "$("
                 chunks:body_chunk_in_repeat()*
             ")"
-            kind:repetition_kind()
-            { RepeatBlock { kind, chunks: merge_text(chunks) } }
+            marker:repetition_marker()
+            { let (kind, greedy) = marker; RepeatBlock { kind, greedy, chunks: merge_text(chunks) } }
 
 
 
-        rule repetition_kind() -> RepetitionKind =
-            "?" { RepetitionKind::Optional } /
-            "+" { RepetitionKind::OneOrMore } /
-            "*" { RepetitionKind::ZeroOrMore }
+        rule repetition_marker() -> (RepetitionKind, bool) =
+            "??" { (RepetitionKind::Optional, true) } /
+            "++" { (RepetitionKind::OneOrMore, true) } /
+            "**" { (RepetitionKind::ZeroOrMore, true) } /
+            "?" { (RepetitionKind::Optional, false) } /
+            "+" { (RepetitionKind::OneOrMore, false) } /
+            "*" { (RepetitionKind::ZeroOrMore, false) }
         // Parse a sequence of arg templates on a single line. Requires at least
         // one arg template; spaces between (and around) args are skipped.
         rule arg_templates() -> Vec<ArgTemplate> =
@@ -379,9 +382,10 @@ peg::parser! {
             "$("
                 args:arg_templates()
             ")"
-            kind:repetition_kind()
+            marker:repetition_marker()
             {
-                RepeatedArgs::new(kind, args)
+                let (kind, greedy) = marker;
+                RepeatedArgs::new(kind, greedy, args)
             }
 
         rule placeholder() -> String =

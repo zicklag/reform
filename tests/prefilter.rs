@@ -22,7 +22,7 @@ fn ph(s: &str) -> ArgTemplate {
 }
 
 fn rep(kind: RepetitionKind, items: Vec<ArgTemplate>) -> ArgTemplate {
-    ArgTemplate::RepeatedArgs(RepeatedArgs::new(kind, items))
+    ArgTemplate::RepeatedArgs(RepeatedArgs::new(kind, false, items))
 }
 
 fn prefilter(items: Vec<ArgTemplate>) -> NfaPrefilter {
