@@ -129,6 +129,30 @@ fn fenced_block_escapes() {
     assert_eq!(&*f[2], "`");
 }
 
+/// Escaped triple backtick `` \``` `` inside a fenced block produces a literal
+/// `` ``` `` in the content, preventing the fence from closing there.
+#[test]
+fn fenced_block_escaped_triple_backtick() {
+    let f = fact("    ```\n    hello \\``` world\n    ```\n");
+    assert_eq!(f.len(), 3);
+    assert_eq!(&*f[0], "`");
+    assert_eq!(&*f[1], "hello ``` world");
+    assert_eq!(&*f[2], "`");
+}
+
+/// Content after the closing `` ``` `` fence on the same line is parsed as
+/// regular arguments following the fenced block's template args.
+#[test]
+fn fenced_block_content_after_close() {
+    let f = fact("say ```\n    hello\n    ``` and\n");
+    assert_eq!(f.len(), 5);
+    assert_eq!(&*f[0], "say");
+    assert_eq!(&*f[1], "`");
+    assert_eq!(&*f[2], "hello");
+    assert_eq!(&*f[3], "`");
+    assert_eq!(&*f[4], "and");
+}
+
 /// A template whose interior starts with a `{…}` curly section (no leading
 /// text) still emits the ` marker, the curly args, and the closing marker.
 #[test]

@@ -159,21 +159,24 @@ peg::parser! {
             { cs }
 
         // A literal text run on a single fenced line: any character that is not a
-        // curly brace or newline (backticks are literal here, since the fence is
-        // closed by a dedicated `` ``` `` line), with brace/backslash escapes.
+        // curly brace or newline, stopping at an un-escaped `` ``` `` (which
+        // closes the fence wherever it appears). Single/double backticks are
+        // literal; escape `` ``` `` as `` \``` `` to include it veritably.
         rule fence_text_line() -> Arg =
             substrs:(
                 "\\{" { "{".to_string() } /
                 "\\}" { "}".to_string() } /
+                "\\```" { "```".to_string() } /
                 "\\\\" { "\\".to_string() } /
-                not_curlies() !("\n") c:[_] { c.to_string() }
+                not_curlies() !("\n") !("```") c:[_] { c.to_string() }
             )+
             { substrs.join("").as_str().into() }
 
-        // The closing fence: a line of horizontal whitespace, three backticks,
-        // optional trailing whitespace, and an end of line / end of input.
+        // The closing fence: optional horizontal whitespace then `` ``` ``.
+        // Unlike the old rule, the line need not end here — content after the
+        // closing fence is parsed as regular arguments by the caller.
         rule fence_close() =
-            (" " / "\t")* "```" (" " / "\t")* (eol() / ![_])
+            (" " / "\t")* "```"
 
         // Strip up to `strip` leading spaces from the current line.
         rule strip_line_indent(strip: usize) = #{|input, pos| {
