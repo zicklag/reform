@@ -1,0 +1,76 @@
+name: Deploy Web Demo
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+# Grants the GITHUB_TOKEN the permissions needed to deploy to GitHub Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time; supersede queued runs.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust target
+        run: rustup target add wasm32-unknown-unknown
+
+      # The wasm-bindgen CLI version must exactly match the wasm-bindgen crate
+      # version that Cargo resolved (see Cargo.lock), or the generated JS glue
+      # won't line up with the compiled .wasm.
+      - name: Install matching wasm-bindgen-cli
+        run: |
+          WASM_BINDGEN_VERSION=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock \
+            | grep '^version = ' | head -n1 | sed 's/version = "\(.*\)"/\1/')
+          cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
+
+      - name: Build wasm bindings
+        run: |
+          cargo build --release --target wasm32-unknown-unknown -p reform-wasm
+          cd reform-wasm
+          wasm-bindgen --target web --out-dir pkg \
+            ../target/wasm32-unknown-unknown/release/reform_wasm.wasm
+          # The bindings dir is gitignored (generated artifact), so create it
+          # before copying.
+          mkdir -p ../demo/src/lib/reform-wasm
+          cp pkg/reform_wasm.js pkg/reform_wasm_bg.wasm pkg/reform_wasm.d.ts \
+            ../demo/src/lib/reform-wasm/
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install demo dependencies
+        working-directory: demo
+        run: npm ci
+
+      - name: Build static site
+        working-directory: demo
+        run: npm run build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: demo/build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

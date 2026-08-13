@@ -14,6 +14,28 @@ use std::sync::Arc;
 /// find itself still in the map and can be cloned again.
 pub type CommandHandler = Arc<dyn Fn(&mut Engine, &[Arg]) -> Result<()>>;
 
+/// A destination for engine text output. Each sink receives exactly the
+/// characters to emit — callers add their own newline — so a sink can
+/// distinguish `println` (line + `\n`) from `print` (no newline).
+///
+/// The default routes to the process stdout/stderr. WASM replaces these with
+/// callbacks into JS so commands like `println`, `find`, and `facts`, plus
+/// trace events, can be rendered into a virtual terminal.
+#[derive(Clone)]
+pub struct Output {
+    pub stdout: Arc<dyn Fn(&str)>,
+    pub stderr: Arc<dyn Fn(&str)>,
+}
+
+impl Default for Output {
+    fn default() -> Self {
+        Self {
+            stdout: Arc::new(|s| print!("{s}")),
+            stderr: Arc::new(|s| eprint!("{s}")),
+        }
+    }
+}
+
 /// The Reform rule engine: a fact store plus the registered rules that fire
 /// against it each turn.
 pub struct Engine {
@@ -39,6 +61,9 @@ pub struct Engine {
     /// `"load"`, `"-"`). All commands are registered handlers — there are no
     /// special-cased built-ins.
     commands: HashMap<String, CommandHandler>,
+    /// Where stdout-style output (print/println/find/facts) and trace events
+    /// go. Defaults to the process stdout/stderr; WASM swaps in JS callbacks.
+    output: Output,
 }
 
 impl std::fmt::Debug for Engine {
@@ -69,6 +94,7 @@ impl Default for Engine {
             fired: Vec::new(),
             max_iterations: 100_000,
             commands: HashMap::new(),
+            output: Output::default(),
         };
         engine.register_default_commands();
         engine
@@ -94,6 +120,18 @@ impl Engine {
 
     pub fn set_trace(&mut self, on: bool) {
         self.trace = on;
+    }
+
+    /// Replace the stdout/stderr sinks. Callbacks receive the exact characters
+    /// to emit (callers append their own newline). Defaults to the process
+    /// stdout/stderr.
+    pub fn set_output(&mut self, output: Output) {
+        self.output = output;
+    }
+
+    /// The current output sinks.
+    pub fn output(&self) -> &Output {
+        &self.output
     }
 
     /// Set the maximum iterations per `turn()` call. Lower values are useful
@@ -188,18 +226,19 @@ impl Engine {
         // println
         self.register_command(
             "println",
-            Arc::new(|_engine, args| {
+            Arc::new(|engine, args| {
                 let s: String = args.iter().map(|a| &**a).collect();
-                println!("{s}");
+                let line = format!("{s}\n");
+                (engine.output.stdout)(&line);
                 Ok(())
             }),
         );
         // print
         self.register_command(
             "print",
-            Arc::new(|_engine, args| {
+            Arc::new(|engine, args| {
                 let s: String = args.iter().map(|a| &**a).collect::<Vec<_>>().join(" ");
-                print!("{s}");
+                (engine.output.stdout)(&s);
                 Ok(())
             }),
         );
@@ -254,7 +293,8 @@ impl Engine {
                 };
                 let pat = parser::pattern(&pattern_str)?;
                 for f in engine.find_matching_facts(&pat)? {
-                    println!("{}", normal_form_fact(&f));
+                    let line = normal_form_fact(&f);
+                    (engine.output.stdout)(&format!("{line}\n"));
                 }
                 Ok(())
             }),
@@ -264,7 +304,8 @@ impl Engine {
             "facts",
             Arc::new(|engine, _args| {
                 for f in &engine.facts {
-                    println!("{}", normal_form_fact(f));
+                    let line = normal_form_fact(f);
+                    (engine.output.stdout)(&format!("{line}\n"));
                 }
                 Ok(())
             }),
@@ -276,7 +317,7 @@ impl Engine {
             false
         } else {
             if self.trace {
-                eprintln!("\x1b[2m[trace] + {}\x1b[0m", normal_form_fact(&fact));
+                (self.output.stderr)(&format!("\x1b[2m[trace] + {}\x1b[0m\n", normal_form_fact(&fact)));
             }
             self.facts.push(fact);
             self.changed = true;
@@ -290,7 +331,7 @@ impl Engine {
         let removed = self.facts.len() != before;
         if removed {
             if self.trace {
-                eprintln!("\x1b[2m[trace] - {}\x1b[0m", normal_form_fact(fact));
+                (self.output.stderr)(&format!("\x1b[2m[trace] - {}\x1b[0m\n", normal_form_fact(fact)));
             }
             self.changed = true;
             // If the removed fact is a rule fact, also remove the rule.
@@ -304,10 +345,10 @@ impl Engine {
 
     pub fn add_rule(&mut self, rule: Rule) {
         if self.trace {
-            eprintln!(
-                "\x1b[2m[trace] rule {} (specificity {})\x1b[0m",
+            (self.output.stderr)(&format!(
+                "\x1b[2m[trace] rule {} (specificity {})\x1b[0m\n",
                 rule.name, rule.specificity
-            );
+            ));
         }
         self.rules.push(rule);
         // Sort by specificity descending so more specific rules fire first.
@@ -506,7 +547,7 @@ impl Engine {
                 let text = rule.body.render(&bindings);
                 if self.trace {
                     let rendered = text.trim_end();
-                    eprintln!("\x1b[2m[trace] fire {} -> {}\x1b[0m", rule.name, rendered);
+                    (self.output.stderr)(&format!("\x1b[2m[trace] fire {} -> {}\x1b[0m\n", rule.name, rendered));
                 }
                 if text.trim().is_empty() {
                     continue;

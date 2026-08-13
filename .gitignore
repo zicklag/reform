@@ -4,3 +4,8 @@
 !.pixi/config.toml
 stanza_resources
 data
+
+# Generated wasm-bindgen output for reform-wasm
+/reform-wasm/pkg
+# Copied wasm bindings in the demo (regenerate from reform-wasm/pkg)
+/demo/src/lib/reform-wasm

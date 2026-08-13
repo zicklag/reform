@@ -1,4 +1,5 @@
 use reform::engine::Engine;
+use std::sync::Arc;
 
 fn load(src: &str) -> Engine {
     let mut e = Engine::new();
@@ -1302,6 +1303,40 @@ fn trace_emits_events() {
         .unwrap();
     assert!(e.contains(&fact("b")));
     assert!(!e.contains(&fact("a")));
+}
+
+// -- output sink ------------------------------------------------------------
+
+/// Replacing the output sink routes `println`/`print`/`find`/`facts` to the
+/// configured stdout callback and trace events to the stderr callback. This is
+/// what lets the wasm bindings render engine output into a virtual terminal.
+#[test]
+fn output_sink_captures_stdout_and_trace() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let mut e = Engine::new();
+    let out = Rc::new(RefCell::new(String::new()));
+    let err = Rc::new(RefCell::new(String::new()));
+    let out_cb = Rc::clone(&out);
+    let err_cb = Rc::clone(&err);
+    e.set_output(reform::engine::Output {
+        stdout: Arc::new(move |s| out_cb.borrow_mut().push_str(s)),
+        stderr: Arc::new(move |s| err_cb.borrow_mut().push_str(s)),
+    });
+    e.set_trace(true);
+    e.load_str("$ println hi\n$ print there \n$ a\n$ b\n$ facts\n$ find a\n$ quit\n")
+        .unwrap();
+    // println appends a newline; print does not; `$ a`/`$ b` store bare facts
+    // (no `sentence` prefix); facts lists every fact; find lists only matches.
+    assert_eq!(out.borrow().as_str(), "hi\ntherea\nb\na\n");
+    // Trace events go to the stderr sink.
+    let errs = err.borrow();
+    assert!(errs.contains("[trace] + a"), "stderr: {errs}");
+    assert!(errs.contains("[trace] + b"), "stderr: {errs}");
+    // The `output()` getter returns the same sinks that were set.
+    (e.output().stdout)("via getter");
+    assert_eq!(out.borrow().as_str(), "hi\ntherea\nb\na\nvia getter");
 }
 
 // -- matched_facts coverage -------------------------------------------------

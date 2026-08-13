@@ -1,5 +1,5 @@
 [workspace]
-members = ["reform-cli"]
+members = ["reform-cli", "reform-wasm"]
 default-members = ["reform-cli"]
 
 [package]
