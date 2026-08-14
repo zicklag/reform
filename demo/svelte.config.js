@@ -6,6 +6,9 @@ const config = {
 		adapter: adapter({
 			fallback: null
 		}),
+		paths: {
+			base: '/ide'
+		},
 		prerender: {
 			entries: ['*']
 		}

@@ -1,4 +1,4 @@
-name: Deploy Web Demo
+name: Deploy Site
 
 on:
   push:
@@ -59,10 +59,25 @@ jobs:
         working-directory: demo
         run: npm run build
 
+      - name: Install mdbook
+        run: cargo install mdbook --locked
+
+      - name: Build mdbook docs
+        run: mdbook build
+
+      # Merge the docs site (root) with the demo (under /ide) into a single
+      # artifact so the docs are the GitHub Pages root and the demo lives at
+      # /ide.
+      - name: Assemble site
+        run: |
+          mkdir -p site/ide
+          cp -r book/. site/
+          cp -r demo/build/. site/ide/
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: demo/build
+          path: site
 
   deploy:
     needs: build

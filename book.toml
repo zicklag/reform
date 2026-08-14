@@ -1,0 +1,9 @@
+[book]
+title = "Reform"
+authors = ["Zicklag"]
+description = "A programming language based on an Expert System"
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "book"

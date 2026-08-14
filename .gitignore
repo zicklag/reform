@@ -1,4 +1,6 @@
 /target
+# mdbook build output
+/book
 # pixi environments
 .pixi/*
 !.pixi/config.toml
