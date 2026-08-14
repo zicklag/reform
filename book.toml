@@ -7,3 +7,7 @@ src = "docs"
 
 [build]
 build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/zicklag/reform/docs"
+

@@ -3,6 +3,20 @@
 > ℹ️ **Note:** This documentation is work-in-progress. I hope to expand this in
 the near future along with a more sophisticated web IDE.
 
+```
+reform is a language.
+
+properties of reform:
+    size: tiny
+    design: simple
+    goal: fun
+
+instead of taking my word for it, because there is a web demo:
+    try out reform
+```
+
+---
+
 Reform is a very simple, work-in-progress programming language built on just two
 main concepts:
 
@@ -11,7 +25,8 @@ main concepts:
   exist in the world.
 
 A unique feature of reform is that it allows you, with rules, to create custom
-syntaxes that read like plain English, or other languages.
+syntaxes that read like plain English, or other languages, such as the snippet
+above.
 
 It was inspired by [Inform][i7]'s plain English syntax and was an attempt to
 find the simplest way to allow you to make your own syntaxes without needing
@@ -19,13 +34,11 @@ modifications to the engine itself. These custom syntaxes can then be included
 as libraries in reform projects.
 
 Reform's first use-case was interactive fiction, and it works well for world
-modeling, but it is very different from most programming languages and notably
-lacks a mechanism for arithmatic.
+modeling, but it is very different from most programming languages and is not
+going to be a good fit for many things.
 
-While arithmatic will almost surely be added later, I'm not sure about the exact
-way it will be integrated into the language. The language is an active
-experiment and I am still learning how to make certain things work within its
-particular method of computation.
+The language is an active experiment and we are still learning how to make
+certain things work within its particular method of computation.
 
 > **For example:** making sure operations execute in a sequential order, which
 is normally the default way that programming languages work, is slightly tricky

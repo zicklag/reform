@@ -6,22 +6,22 @@ We are still figuring out what Reform can do, and what it is good for. It is a v
 
 That said, here are some of the idea's we've had for where it might be useful:
 
-  - **Making interactive fiction:** This was main use-case that Reform was
+  - **Interactive fiction:** This was main use-case that Reform was
     created for.
-  - **High level scripting for games:** We may end up using this in our [Bones]
+  - **High level scripting language for games:** We may end up using this in our [Bones]
     games as a DSL for scripting out things like cut scenes, CPU controlled
     players, state machines, or other high level game elements.
   - **Readable democratic policies for community online spaces:** We've
     considered using it as a language for defining democratic process as
     executable contracts that could integrate with community spaces such as
     [Roomy].
-  - **User experience journeys:** We've run into the need to specify user
+  - **Specification for user experience journeys:** We've run into the need to specify user
     journeys which are conceptually similar to interactive fiction scenarios.
     Reform could serve as a useful format for *executable specifications* in the
     realm of user experience design. It can be a kind of "interactive
     storyboard".
   - Anywhere you want to allow a subset of "plain language" to be used to modify
-    a computer program **deterministically** ( i.e. without embedding an LLM ).
+    a computer program *deterministically* ( i.e. without embedding an LLM ).
 
 [Bones]: https://github.com/fishfolk/bones
 [Roomy]: https://a.roomy.space
