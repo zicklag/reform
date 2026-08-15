@@ -5,6 +5,6 @@
   - [Web Demo](web-demo.md)
   - [Installation](installation.md)
 - [Language Guide](language/index.md)
-  - [Fact Fundamentals](language/fact-fundamentals.md)
+  - [Facts](language/facts.md)
 - [Language Reference](language/reference.md)
 - [Interactive Fiction Guide](iflib/index.md)
