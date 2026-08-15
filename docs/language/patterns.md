@@ -152,7 +152,7 @@ that were not understood by a more specific rule.
 
 For example we can add this to `simple-rooms.rf`:
 
-```
+```rf
 $ rule (apologies for not understanding prompt)
   (
     - prompt $command
@@ -161,3 +161,21 @@ $ rule (apologies for not understanding prompt)
     println (I'm sorry, I didn't understand that command.)
   )
 ```
+
+And running it:
+
+```
+reform simple-rooms.rf
+> hi
+I'm sorry, I didn't understand that command.
+> look
+You are in the living-room.
+
+A cozy room with a nice sofa.
+>
+```
+
+Note that we didn't have to think about priorities in this case at all. Even
+though `prompt $command` technically matches the `prompt look` fact that we use
+for looking, the fact that the `prompt look` pattern is more specific means that
+it ran first.

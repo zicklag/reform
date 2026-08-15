@@ -33,35 +33,44 @@
       contains: [
         // Comments run from `#` to end of line.
         { className: 'comment', begin: /#.*$/ },
-        // `$ rule` — enter a rule context so the pattern and body blocks are
-        // highlighted specially (placeholders, `-`/`!` prefixes, repetition).
+        // `$ rule` — a self-contained rule fact. The whole fact (name, pattern,
+        // body, optional priority) is one mode so the pattern and body blocks
+        // highlight placeholders, `-`/`!` prefixes, and repetition specially.
+        // `returnBegin` lets the inner keyword rule color the `$ rule` prefix;
+        // `returnEnd` leaves the next `$`/`>` line in the stream so the
+        // top-level prefix rule highlights it.
         {
-          className: 'keyword',
           begin: /^[ \t]*\$ rule\b/,
-          starts: {
-            // The rule is a single fact; the next `$`/`>` line starts a new
-            // fact and ends the rule context.
-            end: /^[ \t]*[$>]/,
-            contains: [
-              // A rule block: the name, pattern, or body — `( ... )` with
-              // rule syntax highlighted inside.
-              {
-                className: 'string',
-                begin: /\(/,
-                end: /\)/,
-                contains: [
-                  PLACEHOLDER,
-                  REPEAT,
-                  NEGATE,
-                  // Nested literal, e.g. `(Hello )` inside a body.
-                  { begin: /\(/, end: /\)/, contains: [hljs.BACKSLASH_ESCAPE] },
-                  hljs.BACKSLASH_ESCAPE,
-                ],
-              },
-              // Plain words between blocks.
-              { begin: /[^\s(){}`$#]+/ },
-            ],
-          },
+          returnBegin: true,
+          end: /^[ \t]*[$>]/,
+          returnEnd: true,
+          contains: [
+            { className: 'keyword', begin: /^[ \t]*\$ rule\b/ },
+            // The rule name — the first `( ... )` block, on the same line as
+            // `$ rule`. Rendered green like a literal arg.
+            {
+              className: 'string',
+              begin: /\(/,
+              end: /\)/,
+              contains: [hljs.BACKSLASH_ESCAPE],
+            },
+            // The pattern and body blocks — `( ... )` at the start of a line,
+            // rendered as plain text with rule syntax highlighted inside.
+            {
+              begin: /^[ \t]*\(/,
+              end: /\)/,
+              contains: [
+                PLACEHOLDER,
+                REPEAT,
+                NEGATE,
+                // Nested literal, e.g. `(Hello )` inside a body.
+                { begin: /\(/, end: /\)/, contains: [hljs.BACKSLASH_ESCAPE] },
+                hljs.BACKSLASH_ESCAPE,
+              ],
+            },
+            // Plain words between blocks.
+            { begin: /[^\s(){}`$#]+/ },
+          ],
         },
         // CLI built-in fact conventions.
         {
