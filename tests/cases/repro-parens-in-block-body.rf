@@ -1,0 +1,7 @@
+$ rule (example)
+  (
+    prompt $( $command )+
+  )
+  (
+    (Your command was: ) $( ( ) $command )+
+  )

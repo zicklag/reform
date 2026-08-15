@@ -373,14 +373,19 @@ peg::parser! {
             "$" { BodyChunk::Text("$".to_string()) } /
             text:$((!"$" [_])+) { BodyChunk::Text(text.to_string()) }
 
-        // A chunk inside a `$( ... )` repetition. Here a bare `)` closes the
-        // repetition, so it is not consumed as text.
+        // A chunk inside a `$( ... )` repetition. Here a `)` closes the
+        // repetition only when it is followed by a repetition marker
+        // (`)`, `)+`, `)?`, `)*`, …); otherwise it is literal text, so a
+        // parenthesized arg like `( )` stays inside the block.
         rule body_chunk_in_repeat() -> BodyChunk =
             "$$" { BodyChunk::Text("$".to_string()) } /
             rep:body_repeat() { BodyChunk::Repeat(rep) } /
             ph:placeholder() { BodyChunk::Placeholder(ph) } /
             "$" { BodyChunk::Text("$".to_string()) } /
-            text:$((!")" !"$" [_])+) { BodyChunk::Text(text.to_string()) }
+            text:$((
+                !")" !"$" [_] /
+                ")" !repetition_marker()
+            )+) { BodyChunk::Text(text.to_string()) }
 
         rule body_repeat() -> RepeatBlock =
             "$("
