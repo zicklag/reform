@@ -1169,7 +1169,68 @@ $ quit
     assert!(e.contains(&fact("literal-result")));
 }
 
-/// The 5th argument must start with + or -.
+/// A rule with `=N` has its specificity set to exactly N, ignoring the
+/// computed base, so it can be forced to fire after a rule with a much lower
+/// computed specificity. Both rules match the same fact; only the higher-
+/// specificity one fires first and removes it, so the other never fires.
+#[test]
+fn specificity_adjustment_set_overrides_computed() {
+    let e = load(
+        r#"
+$ x is a thing
+$ rule literal
+    ( - x is a thing )
+    ( literal-result )
+$ rule forced_low
+    ( - x is a thing )
+    ( forced-result )
+    =0
+$ assert literal-result
+$ assert-not forced-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("literal-result")));
+    assert!(!e.contains(&fact("forced-result")));
+}
+
+/// `=N` can also force a rule to outrank a more specific pattern.
+#[test]
+fn specificity_adjustment_set_can_boost() {
+    let e = load(
+        r#"
+$ x is a thing
+$ rule forced_high
+    ( - $x is a thing )
+    ( boosted-result )
+    =1000
+$ rule literal
+    ( - x is a thing )
+    ( literal-result )
+$ assert boosted-result
+$ assert-not literal-result
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("boosted-result")));
+    assert!(!e.contains(&fact("literal-result")));
+}
+
+/// `=N` must be parsed as an absolute specificity (not added to the base).
+#[test]
+fn specificity_adjustment_set_is_absolute() {
+    use reform::rule::Rule;
+    // `a is b` computes a base specificity of 1 + 3*5 = 16. With `=5` the
+    // effective specificity must be exactly 5, not 16 + 5 = 21.
+    let rule = Rule::parse(&["rule", "r", "a is b", "( c )", "=5"]).unwrap();
+    assert_eq!(rule.specificity, 5);
+    assert_eq!(
+        rule.specificity_adjustment,
+        reform::rule::SpecificityAdjustment::Set(5)
+    );
+}
+
+/// The 5th argument must start with +, -, or =.
 #[test]
 fn specificity_adjustment_must_be_signed() {
     let mut e = Engine::new();
@@ -1182,7 +1243,7 @@ fn specificity_adjustment_must_be_signed() {
     );
     let err = format!("{}", res.unwrap_err());
     assert!(
-        err.contains("must start with + or -"),
+        err.contains("must start with +, -, or ="),
         "error: {err}"
     );
 }
@@ -1230,7 +1291,7 @@ fn specificity_adjustment_empty_via_direct_parse() {
     let err = Rule::parse(&["rule", "r", "a is b", "( c )", ""]).unwrap_err();
     let msg = format!("{err}");
     assert!(
-        msg.contains("must be a signed integer"),
+        msg.contains("got empty string"),
         "error: {msg}"
     );
 }

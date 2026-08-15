@@ -2,6 +2,17 @@ use crate::Arg;
 pub use crate::regex::{Nfa, NfaPrefilter, RepetitionKind};
 use anyhow::{Context, Result, bail};
 
+/// How the optional 5th rule argument modifies the computed specificity.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
+pub enum SpecificityAdjustment {
+    /// No 5th argument: use the pattern's computed specificity as-is.
+    None,
+    /// `+N` / `-N`: add or subtract N from the computed specificity.
+    Add(i64),
+    /// `=N`: set the specificity to exactly N, ignoring the computed base.
+    Set(i64),
+}
+
 /// A parsed rule with its name, pattern, body, and optional specificity adjustment.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub struct Rule {
@@ -11,19 +22,18 @@ pub struct Rule {
     pub pattern: Pattern,
     /// The body to execute when the pattern matches.
     pub body: Body,
-    /// Effective specificity score: computed base + optional adjustment.
-    /// Higher = more specific. Rules are sorted by this so that more specific
-    /// rules fire first.
+    /// Effective specificity score. Higher = more specific. Rules are sorted
+    /// by this so that more specific rules fire first.
     pub specificity: i64,
-    /// Optional signed integer added to the computed specificity.
-    /// Positive values make the rule more specific; negative values make it
-    /// less specific. Parsed from the optional 5th argument of the `rule` fact.
-    pub specificity_adjustment: i64,
+    /// Optional modification to the computed specificity, parsed from the
+    /// optional 5th argument of the `rule` fact. `+N`/`-N` add or subtract
+    /// N; `=N` sets the specificity to exactly N.
+    pub specificity_adjustment: SpecificityAdjustment,
 }
 
 impl Rule {
     /// Parse a `rule` fact (4 or 5 arguments: `rule`, name, pattern, body,
-    /// and optionally a signed integer specificity adjustment) into a [`Rule`].
+    /// and optionally a specificity adjustment) into a [`Rule`].
     pub fn parse(fact: &[&str]) -> Result<Self> {
         if fact.len() < 4 || fact.len() > 5 {
             bail!("rule fact must have 4 or 5 arguments, got {}", fact.len());
@@ -36,19 +46,35 @@ impl Rule {
         let specificity_adjustment = if fact.len() == 5 {
             let s = fact[4].trim();
             if s.is_empty() {
-                bail!("specificity adjustment must be a signed integer, got empty string");
+                bail!("specificity adjustment must be an integer (optionally prefixed with +, -, or =), got empty string");
             }
-            if !s.starts_with('-') && !s.starts_with('+') {
-                bail!("specificity adjustment must start with + or -, got {s:?}");
+            let (sign, digits) = match s.as_bytes()[0] {
+                b'+' => ('+', &s[1..]),
+                b'-' => ('-', &s[1..]),
+                b'=' => ('=', &s[1..]),
+                _ => {
+                    bail!("specificity adjustment must start with +, -, or =, got {s:?}");
+                }
             };
-            let n: i64 = s
+            if digits.is_empty() {
+                bail!("invalid specificity adjustment: {s:?}");
+            }
+            let n: i64 = digits
                 .parse()
                 .with_context(|| format!("invalid specificity adjustment: {s:?}"))?;
-            n
+            match sign {
+                '+' => SpecificityAdjustment::Add(n),
+                '-' => SpecificityAdjustment::Add(-n),
+                _ => SpecificityAdjustment::Set(n),
+            }
         } else {
-            0
+            SpecificityAdjustment::None
         };
-        let specificity = base_specificity as i64 + specificity_adjustment;
+        let specificity = match specificity_adjustment {
+            SpecificityAdjustment::None => base_specificity as i64,
+            SpecificityAdjustment::Add(d) => base_specificity as i64 + d,
+            SpecificityAdjustment::Set(n) => n,
+        };
         let rule = Rule {
             name,
             pattern,

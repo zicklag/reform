@@ -1,7 +1,7 @@
 [book]
 title = "Reform"
 authors = ["Zicklag"]
-description = "A programming language based on an Expert System"
+description = "A unique programming language for letting you program with \"natural language\" DSLs."
 language = "en"
 src = "docs"
 
@@ -9,5 +9,6 @@ src = "docs"
 build-dir = "book"
 
 [output.html]
+default-theme = "Rust"
 git-repository-url = "https://github.com/zicklag/reform/docs"
 

@@ -234,7 +234,7 @@ A rule fact has 4 or 5 arguments:
 2. name - any name you want for the rule
 3. pattern - a rule _pattern_ that will try to match on other facts existing in the engine
 4. body - an effect body defining the new facts to create when this rule's pattern is matched
-5. specificity adjustment (optional) - a signed integer (`+N` or `-N`) that adds to or subtracts from the rule's computed specificity. Positive values make the rule fire before other rules that would otherwise match the same facts; negative values make it fire after. This is useful for overriding the default specificity ordering without changing the pattern.
+5. specificity adjustment (optional) - an integer optionally prefixed with `+`, `-`, or `=`. `+N` adds N to the rule's computed specificity, `-N` subtracts N, and `=N` sets the specificity to exactly N (ignoring the computed value). Higher specificity fires first. This is useful for overriding the default specificity ordering without changing the pattern.
 
 Because the pattern and body of a rule need to contain facts themselves, they will almost always need to be wrapped in parenthesis.
 

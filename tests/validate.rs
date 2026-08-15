@@ -107,7 +107,7 @@ $ rule r extra
     ( b )
 "#;
     let err = parse_rule(src).expect_err("should reject");
-    assert!(err.contains("must start with + or -"), "got: {err}");
+    assert!(err.contains("must start with +, -, or ="), "got: {err}");
 }
 
 
