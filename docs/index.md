@@ -3,7 +3,7 @@
 > ℹ️ **Note:** This documentation is work-in-progress. I hope to expand this in
 the near future along with a more sophisticated web IDE.
 
-```
+```rf
 reform is a language.
 
 properties of reform:

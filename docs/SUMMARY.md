@@ -7,5 +7,6 @@
 - [Language Guide](language/index.md)
   - [Facts](language/facts.md)
   - [Rules](language/rules.md)
+  - [Patterns](language/patterns.md)
 - [Language Reference](language/reference.md)
 - [Interactive Fiction Guide](iflib/index.md)

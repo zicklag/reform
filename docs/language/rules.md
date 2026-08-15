@@ -8,7 +8,7 @@ prompt.
 
 **hello.rf:**
 
-```
+```rf
 $ rule (say hello when user says hi)
   (
     - prompt hi
@@ -33,14 +33,14 @@ Lets break down each of the arguments in a rule.
 
 #### 1. Rule Marker
 
-```
+```rf
 rule
 ```
 All rules start off with the first argument set exactly to `rule`.
 
 #### 2. Rule Name
 
-```
+```rf
 (say hello when user says hi)
 ```
 
@@ -56,7 +56,7 @@ if you ever need to be able to remove the rule later, and also for debugging.
 
 #### 3. The Pattern
 
-```
+```rf
 (
   - prompt hi
 )
@@ -80,7 +80,7 @@ still there.
 
 #### 4. The Body
 
-```
+```rf
 (
   println Hello!
 )
@@ -127,4 +127,7 @@ _All_ of the computation in Reform is built on this design of:
 4. handle any engine integration facts such as `println` that need to interact
    with the outside world.
 
+Despite its simplicity, this is very powerful! But to really get the most out of
+it, you've got to learn some of the more powerful features that **patterns**
+have.
 

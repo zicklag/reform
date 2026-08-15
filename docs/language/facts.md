@@ -8,7 +8,7 @@ list of strings called arguments.
 Facts can be created directly by writing a line that starts with a `$` with the
 fact's arguments separated by spaces.
 
-```
+```rf
 $ Alice is happy.
 ```
 
@@ -31,7 +31,7 @@ reform engine, but can be handy for documenting your code.
 
 Multiple facts can be added each on their own line.
 
-```
+```rf
 $ Bob is smiling.
 $ Carol is fun.
 ```
@@ -41,7 +41,7 @@ the first character line of the fact.
 
 This example is equivalent to the one above:
 
-```
+```rf
 $ Bob
   is smiling.
 $ Carol
@@ -57,7 +57,7 @@ indented than the line that started the fact.
 Sometimes you want to make Reform to put multiple words into a single argument,
 you can do this by wrapping the argument in parenthesis:
 
-```
+```rf
 $ the full name of Alice is (Alice Von Schmidt)
 ```
 
@@ -85,7 +85,7 @@ have a `prompt` argument added to the beginning of them.
 
 For example, these two lines create the exact same fact in a reform file:
 
-```
+```rf
 > Hello World
 $ prompt Hello World
 ```
@@ -99,7 +99,7 @@ start with a `parse` argument.
 Parse facts are created when you type a line in a reform file _without_ starting
 the line with a `$`. For example, these two facts are identical:
 
-```
+```rf
 Hello World
 $ parse Hello World
 ```

@@ -27,7 +27,7 @@ will try to load the reform file specified in the second argument.
 
 This allows you to orgnize your reform program across multiple files:
 
-```
+```rf
 # Load the interactive fiction library
 $ load ./iflb/lib.rf
 

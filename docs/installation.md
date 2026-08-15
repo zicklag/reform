@@ -17,7 +17,7 @@ These files conventionally end in `.rf`. For example you can create a file:
 
 **hello.rf:**
 
-```
+```rf
 $ println (Hello reform!)
 ```
 

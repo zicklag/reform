@@ -1,0 +1,7 @@
+$ rule (say hello to user by name)
+  (
+    - prompt my name is $name
+  )
+  (
+    println (Hello ) $name !
+  )
