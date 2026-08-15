@@ -4,7 +4,7 @@ import init, { ReformEngine } from '$lib/reform-wasm/reform_wasm.js';
 export interface EngineOptions {
   /** Enable trace logging (engine `--trace`). */
   trace: boolean;
-  /** Allow `$`-prefixed lines typed at the terminal as direct facts (CLI `-A`). */
+  /** Allow `$`-prefixed lines typed at the terminal as direct facts (CLI `-s`/`--safe` disables). */
   allowDirect: boolean;
   /** Terminal to render engine stdout/stderr output into. */
   terminal: Terminal;

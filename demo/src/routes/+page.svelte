@@ -101,7 +101,7 @@ $ facts
 	let reform: ReformTerminal | null = null;
 
 	let trace = $state(false);
-	// Default to allowing `$` commands at the terminal (CLI `-A`).
+	// Default to allowing `$` commands at the terminal (CLI `-s`/`--safe` disables).
 	let allowDirect = $state(true);
 	let selectedExample = $state('hello');
 	let source = $state(examples['hello'].content);

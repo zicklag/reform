@@ -41,25 +41,25 @@ mod cli_tests {
         assert!(out.contains("youseeacave"), "stdout was: {out:?}");
     }
 
-    /// Without `-A`, a `$`-prefixed line is just part of the prompt (not a command).
+    /// By default, a `$`-prefixed line is inserted as a direct command.
     #[test]
-    fn default_mode_treats_dollar_as_prompt_text() {
+    fn default_mode_runs_dollar_commands() {
         let (out, _err) = run("$ println hi\n", &[]);
+        assert!(out.contains("hi"), "stdout was: {out:?}");
+    }
+
+    /// With `-s`, a `$`-prefixed line is just part of the prompt (not a command).
+    #[test]
+    fn safe_mode_treats_dollar_as_prompt_text() {
+        let (out, _err) = run("$ println hi\n", &["-s"]);
         // No "hi" printed: it became a prompt fact `$ println hi`, not a command.
         assert!(!out.contains("hi"), "stdout was: {out:?}");
     }
 
-    /// With `-A`, a `$`-prefixed line is inserted as a direct command.
+    /// With `-s`, a non-`$` line is still a prompt.
     #[test]
-    fn allow_direct_runs_dollar_commands() {
-        let (out, _err) = run("$ println hi\n", &["-A"]);
-        assert!(out.contains("hi"), "stdout was: {out:?}");
-    }
-
-    /// With `-A`, a non-`$` line is still a prompt.
-    #[test]
-    fn allow_direct_non_dollar_is_prompt() {
-        let (out, _err) = run("look\n", &["-A"]);
+    fn safe_mode_non_dollar_is_prompt() {
+        let (out, _err) = run("look\n", &["-s"]);
         assert!(!out.contains("hi"), "stdout was: {out:?}");
     }
 

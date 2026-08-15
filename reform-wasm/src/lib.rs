@@ -14,7 +14,8 @@ use wasm_bindgen::prelude::*;
 pub struct ReformEngine {
     engine: Engine,
     /// Whether `$`-prefixed lines typed at the terminal are inserted directly
-    /// as facts (CLI `-A`). When off, they are treated as player prompts.
+    /// as facts (CLI `-s` / `--safe` disables this). When off, they are treated
+    /// as player prompts.
     allow_direct: bool,
 }
 
@@ -41,7 +42,8 @@ impl ReformEngine {
     }
 
     /// Whether `$`-prefixed terminal lines are inserted directly as facts
-    /// (CLI `-A`). When false they are treated as player prompts.
+    /// (CLI `-s` / `--safe` disables this). When false they are treated as
+    /// player prompts.
     pub fn set_allow_direct(&mut self, on: bool) {
         self.allow_direct = on;
     }

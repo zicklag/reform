@@ -45,4 +45,4 @@ hydrates in the browser.
   `fire <name>`) to the terminal, matching `--trace` / `REFORM_TRACE`.
 - **Allow $ commands** — when on, `$`-prefixed lines typed at the terminal are
   inserted as direct facts/commands; when off they are treated as player prompts,
-  mirroring the CLI `-A`.
+  mirroring the CLI `-s` / `--safe` (which disables them).

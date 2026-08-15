@@ -8,9 +8,15 @@ use reform::engine::Engine;
 #[derive(FromArgs)]
 #[argh(name = "reform")]
 struct Cli {
-    /// Allow `$`-prefixed lines to be inserted directly instead of as prompts.
-    #[argh(switch, short = 'A', description = "allow $ lines as direct facts")]
-    allow_direct: bool,
+    /// Disallow `$`-prefixed lines as direct facts/commands; treat them as
+    /// player prompts instead.
+    #[argh(
+        switch,
+        short = 's',
+        long = "safe",
+        description = "don't parse $ statements as literal facts"
+    )]
+    safe: bool,
 
     /// Trace engine activity to stderr (each line prefixed `[trace]`): facts
     /// added (`+`) / removed (`-`), rules registered, and rule firings
@@ -100,7 +106,7 @@ fn main() {
             }
         } else if is_blank {
             // Ignore blank lines outside a buffer.
-        } else if cli.allow_direct && line.starts_with('$') {
+        } else if !cli.safe && line.starts_with('$') {
             // Start buffering a direct `$` fact.
             buffer = Some(line);
         } else {

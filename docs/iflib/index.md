@@ -1,1 +1,3 @@
-# Interactive Fiction Lib
+# Interactive Fiction Guide
+
+
