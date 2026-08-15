@@ -1,4 +1,4 @@
-# Living roo# Set the room the player is in  
+# Living roo# Set the room the player is in
 $ player is in living-room
 
 # Living room
@@ -8,13 +8,13 @@ $ description of living-room is
 # Kitchen
 $ description of kitchen is
   (The place where we cook the food.)
-  
+
 $ kitchen is north of living-room
 
 # Bedroom
 $ description of bedroom is
   (A nice room with your bed in it.)
-  
+
 $ bedroom is east of kitchenm
 
 $ rule (parse the "look" command)
@@ -29,10 +29,10 @@ $ rule (parse the "look" command)
     println $description
   )
 
-$ rule (apologies for not understanding prompt)
+$ rule (apologize for not understanding prompt)
   (
-    - prompt $command
+    - prompt $( $arg )+
   )
   (
-    println (I'm sorry, I didn't understand that command.)
-  ) 
+    println (I'm sorry, I didn't understand your command:) $( ( ) $arg )+
+  )

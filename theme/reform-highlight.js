@@ -60,6 +60,8 @@
               begin: /^[ \t]*\(/,
               end: /\)/,
               contains: [
+                // Comments run from `#` to end of line.
+                { className: 'comment', begin: /#.*$/ },
                 PLACEHOLDER,
                 REPEAT,
                 NEGATE,

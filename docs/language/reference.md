@@ -1,57 +1,725 @@
 # Language Reference
 
-### CLI Built-ins
+> **Note:** This is AI generated from the source code. It will be reviewed for
+correctness later, but should serve as a good reference while the rest of the
+docs are still work-in-progress.
 
-The Reform CLI defines a small collection of it's own fact conventions that allow
-your games to output to the console, debug the game, and load other reform files.
+This is a complete, reference guide for the Reform language and its reference
+implementation. It describes every syntactic form, every matching and execution
+behavior, and every built-in fact the CLI understands.
 
-#### `print` and `println`
+All data is held in **facts** (lists of string arguments). **Rules** watch the
+fact store and, when their **pattern** matches existing facts, fire to
+**delete** matched facts and **create** new ones from their **body**. The engine
+repeatedly fires rules until no rule changes anything (a fixpoint). There is no
+built-in arithmetic, control flow, or I/O other than the small set of CLI facts
+listed below — everything else is built from facts and rules.
 
-If you create a fact where the first argument is `print` or `println` it will
-output all of the arguments that come afterward.
+- [Facts](#facts)
+- [Fact Syntax](#fact-syntax)
+- [Templates](#templates)
+- [Fenced Blocks](#fenced-blocks)
+- [File Loading and Fact Prefixes](#file-loading-and-fact-prefixes)
+- [Rules](#rules)
+- [Patterns](#patterns)
+- [Bodies](#bodies)
+- [Matching Semantics](#matching-semantics)
+- [Rule Priority (Specificity)](#rule-priority-specificity)
+- [Execution Model](#execution-model)
+- [Rule Validation](#rule-validation)
+- [CLI](#cli)
+- [CLI Built-in Facts](#cli-built-in-facts)
+- [Normal Form](#normal-form)
+- [Embedding](#embedding)
 
-`println` will make sure there is a newline after what is printed, and `print`
-will print it without a newline.
+---
 
-#### `facts`
+## Facts
 
-If you create a fact with a single `facts` argument, it will print out all of
-the facts currently in the engine.
+A **fact** is an ordered list of **arguments**, each of which is a string. For
+example, `$ Alice is happy.` creates a fact with four arguments: `Alice`,
+`is`, `happy`, `.`.
 
-This is very useful for debugging.
+Facts have no intrinsic meaning. A program's *conventions* define what a fact
+means — usually via rules. Two different programs can interpret the same fact
+differently. This is what makes Reform a substrate for custom, natural-looking
+languages.
 
-#### `load`
+Every argument is stored as an interned string; arguments are compared by
+value. A fact may have zero arguments (`()`), and an argument may be the empty
+string (written `()`). Facts are unique in the engine — adding a fact that is
+already present is a no-op.
 
-If you create a fact that has two arguments where the first one is `load`, it
-will try to load the reform file specified in the second argument.
+---
 
-This allows you to orgnize your reform program across multiple files:
+## Fact Syntax
+
+### Line prefixes
+
+When loading from a file, a line may start with one prefix character. Prefixes
+do **not** compose — a line starts with at most one of `$`, `>`, or nothing.
+
+| Prefix | Meaning                                            |
+|--------|----------------------------------------------------|
+| (none) | The fact gets a leading `parse` argument.          |
+| `$`    | Raw fact / rule / command. No prefix added.        |
+| `>`    | The fact gets a leading `prompt` argument.          |
+
+So `$ prompt Hello World` and `> Hello World` create the identical fact.
+`Hello World` (no prefix) creates `parse Hello World`.
+
+### Arguments and whitespace
+
+Arguments are separated by horizontal whitespace (spaces and tabs). Any number
+of spaces may separate arguments.
 
 ```rf
-# Load the interactive fiction library
-$ load ./iflb/lib.rf
-
-# Now I can use any custom syntaxes defined by the interactive fiction library.
+$ This   is   a   sentence
 ```
 
-#### `quit`
+### Comments
 
-This fact makes the reform engine exit.
+A `#` starts a comment, which runs to the end of the line. Full-line comments
+and trailing comments are both ignored.
 
-#### `panic`
+```rf
+# a full-line comment
+$ hello world # a trailing comment
+```
 
-This will immediately exit the engine with a panic message set to the arguments
-provided.
+A `#` inside a parenthesized argument or a template is literal, not a comment.
 
-#### `assert` and `assert-not`
+### Punctuation splitting
 
-The `assert` fact lets you specify a list of arguments and the engine will make
-sure that a fact with those arguments exists. If the fact does not exist, the
-engine will panic.
+Punctuation — `,` `;` `.` `'` `:` — that is followed by whitespace or the end
+of the line is split into its own argument.
 
-`assert-not` will panic if the fact _does_ exist.
+```rf
+$ This is a sentence.
+```
 
-#### `find`
+produces the arguments `This`, `is`, `a`, `sentence`, `.`. Punctuation
+embedded in a word (not followed by whitespace / end of line) stays in the
+word: `example.com` is a single argument.
 
-This fact will search the engine for any facts matching the **pattern** that you
-specify.
+A word that *ends* in punctuation that must stay attached must be wrapped in
+parenthesis:
+
+```rf
+$ (www.) is a common web domain prefix
+```
+
+### Grouping with parentheses
+
+Wrapping content in parentheses makes it a single argument, including spaces:
+
+```rf
+$ the full name of Alice is (Alice Von Schmidt)
+```
+
+The last argument is `Alice Von Schmidt`.
+
+Inside a parenthesized argument:
+
+- Parentheses may be **nested** if balanced: `(He was pleased (not that he'd admit it).)` keeps the inner parens.
+- A literal `(` or `)` is escaped with a backslash: `\(` and `\)`. A smiley `:)` in a string is written `:\\)`.
+- A literal backslash is escaped as `\\\\`.
+- To include parens as the *value* (e.g. an argument literally `(example)`), use double parentheses: `((example))`.
+
+### Multi-line facts
+
+A fact may continue on subsequent lines if those lines are indented **more**
+than the line that started the fact. Indentation may be any amount of
+horizontal whitespace.
+
+```rf
+$ Bob
+  is smiling.
+```
+
+Continuation indentation is relative: each continuation line must be more
+indented than the *fact's first line*. Comment-only continuation lines and
+blank continuation lines add no arguments.
+
+Indentation counting is suspended while inside a parenthesized argument — all
+whitespace inside the parens is taken literally.
+
+An **empty line breaks a fact**. Everything indented under the fact before a
+blank line belongs to it; after the blank line, a new fact starts.
+
+---
+
+## Templates
+
+A **template argument** is a multi-line string wrapped in backticks. It is
+syntax sugar for mixing literal text with substitution sections and other
+arguments.
+
+```rf
+$ The description is `There is a gate before you.
+
+It is {if open}open{else}closed{end if}.`
+```
+
+A template parses into a sequence of arguments. The opening and closing
+backticks each become their own `` ` `` argument, marking the template's
+extent. Between them, literal text runs are joined into single arguments,
+while `{ ... }` curly-brace sections are split into their own arguments with
+normal word splitting.
+
+```rf
+(`) (There is a gate before you.
+
+It is ) { if open } open { else } closed { end if } (.) (`)
+```
+
+Inside a single-backtick template:
+
+- Literal curly braces are escaped as `\{` and `\}`. Unescaped braces are always substitution delimiters.
+- A literal backtick is written `` \` ``.
+- A literal backslash is written `\\\\`.
+- Normal word splitting applies *between* backticks and inside `{ ... }`
+  sections; literal text runs (including newlines) are preserved verbatim as
+  single arguments.
+
+---
+
+## Fenced Blocks
+
+A triple backtick (`` ``` ``) opens a **fenced block**: a multi-line template
+convenient for text indented under a fact.
+
+```rf
+Before starting first-time-look:
+    say ```
+        "Kion, wake up."
+
+        Kion stirs, and opens his eyes slowly, "Hmm, what?"
+        ```
+```
+
+The interior is **dedented to the column of the opening fence** — the leading
+whitespace in front of `` ``` `` is stripped from every interior line, so
+content indented under the fence comes out flush-left. The leading newline
+(right after the opening fence) and the trailing newline (right before the
+closing fence) are ignored.
+
+A fenced block expands to the same `` ` `` marker arguments plus interior
+chunks as a single-backtick template, so its literal text becomes one
+continuous argument (with the paragraph text).
+
+The closing fence is a line consisting only of optional horizontal whitespace
+followed by `` ``` ``. Content after the closing fence on the same line is
+parsed as regular arguments following the template.
+
+Inside a fenced block:
+
+- Backticks are **literal** — the block is only closed by a dedicated `` ``` ``
+  line, not by a single backtick.
+- `\{` and `\}` are escapes for literal braces.
+- `\\\\` is a literal backslash.
+- `` \``` `` (escaped triple backtick) produces a literal `` ``` `` in the
+  content and does not close the fence.
+- A `{ ... }` section splits the interior just as in a single-backtick
+  template.
+
+---
+
+## File Loading and Fact Prefixes
+
+Facts are loaded from a file by parsing each fact, then applying the line
+prefix to decide what to store:
+
+- **No prefix** → the fact is stored with a leading `parse` argument:
+  `This is a sentence.` becomes `parse This is a sentence .`.
+- **`$`** → the fact is stored as-is, with no prefix. Rules and commands must
+  use `$` so they are not treated as parse facts.
+- **`>`** → the fact is stored with a leading `prompt` argument. This is how
+  player input and file-based test prompts are represented.
+
+The `parse` prefix lets rules post-process plain-looking sentences: a rule can
+match `parse ...` and transform it into domain facts. The `prompt` prefix
+distinguishes player/user input from other facts.
+
+Prefixes do not compose: `$>` is not meaningful; a line starts with at most one
+prefix.
+
+---
+
+## Rules
+
+A **rule** is a special fact whose first argument is exactly `rule`. Rules are
+registered with the engine and fired automatically when their pattern matches.
+Rules must be written with the `$` prefix (so they aren't stored as `parse`
+facts).
+
+A rule fact has **4 or 5 arguments**:
+
+1. `rule` — always exactly this.
+2. **name** — any string (usually parenthesized to allow spaces). Names are
+   not namespaced; unique, descriptive names help with debugging and removal.
+3. **pattern** — matches against facts currently in the engine.
+4. **body** — a template producing the facts to create when the pattern matches.
+5. **specificity adjustment** (optional) — see below.
+
+```rf
+$ rule (say hello when user says hi)
+  (
+    - prompt hi
+  )
+  (
+    println Hello!
+  )
+```
+
+The pattern and body are almost always wrapped in parentheses because they
+contain facts themselves.
+
+When the pattern matches:
+
+1. Every fact matched by a pattern line prefixed with `-` is **deleted**.
+2. The body is rendered (substituting bindings) and its resulting facts are
+   **created**.
+
+### Specificity adjustment (5th argument)
+
+The optional fifth argument is an integer optionally prefixed with `+`, `-`,
+or `=`:
+
+- `+N` adds N to the rule's computed specificity.
+- `-N` subtracts N.
+- `=N` sets the specificity to exactly N, ignoring the computed value.
+
+Higher specificity fires first. The adjustment is how you override the default
+ordering without changing the pattern. The argument must be a non-empty signed
+or `=`-prefixed integer.
+
+---
+
+## Patterns
+
+A **pattern** is a sequence of **pattern items**, one per line (a line's worth
+of facts, which may span indented continuation lines). Each item is either a
+**pattern fact** or a **repeated block of pattern facts**. The whole pattern is
+usually one parenthesized argument with one fact per line.
+
+### Literals
+
+A bare word matches that exact argument.
+
+```rf
+( prompt look )
+```
+
+### Placeholders
+
+A `$name` placeholder matches any single argument. A placeholder used more than
+once — within the same fact or across facts — must bind to the **same value**
+in every occurrence.
+
+```rf
+$ rule (say hello to user by name)
+  (
+    - prompt my name is $name
+  )
+  (
+    println (Hello ) $name !
+  )
+```
+
+`$any` is not a keyword; it is a conventional placeholder name equivalent to
+`$x` or any other name.
+
+### Arg repetitions
+
+A `$( ... )` block around arguments repeats (or makes optional) those
+arguments within a single fact. Three forms, closed by `)?`, `)+`, or `)*`:
+
+| Form       | Meaning                        |
+|------------|--------------------------------|
+| `$( ... )?`| optional (zero or one)         |
+| `$( ... )+`| one or more                    |
+| `$( ... )*`| zero or more                   |
+
+```rf
+( - prompt $( $arg )+ )
+```
+
+Repetitions may be **nested**, and may wrap whole facts to match multiple facts
+at once.
+
+### Fact repetitions
+
+A `$( ... )?/+/*` block at a fact's base indentation (a sibling item, one per
+line) repeats whole **facts**. `$( ... )*` collects every matching fact,
+`$( ... )+` requires at least one, and `$( ... )?` is an optional fact
+constraint.
+
+```rf
+$ rule example2
+  (
+    # collect all "player is carrying" facts into a list
+    $(
+      player is carrying $item
+    )*
+    $(
+      - all player items $( $any )*
+    )?
+  )
+  (
+    all player items $( $item )*
+  )
+```
+
+### Removal and negation prefixes
+
+Each pattern fact line may start with a prefix:
+
+| Prefix | Meaning                                                                                  |
+|--------|------------------------------------------------------------------------------------------|
+| (none) | a fact to match; kept in the engine after firing                                          |
+| `-`    | a fact to match **and delete** when the rule fires                                        |
+| `!`    | a **negated** fact: matches when *no* fact in the engine matches it (with the current bindings); binds nothing and consumes nothing |
+
+`-` and `!` do not combine into a single marker. The parser accepts `!` then a
+literal `-word`, but not a combined `-!`.
+
+### Greedy repetitions
+
+By default, `?`, `+`, and `*` repetitions are **lazy** (see [Matching
+Semantics](#matching-semantics)). Doubling the marker makes a repetition
+**greedy**: `??`, `++`, `**` prefer *more* iterations.
+
+---
+
+## Bodies
+
+A **body** is a substitution template. When a rule's pattern matches, the body
+is rendered by substituting the pattern's bindings, and the resulting text is
+parsed into facts that are created.
+
+A body is composed of:
+
+- **Literal text** — emitted verbatim. This includes parentheses, newlines,
+  and the entire contents of generated (inner) rules.
+- **`$name` placeholders** — substituted with the matched value. A bound value
+  renders in normal form (space-joined if it is a list).
+- **`$( ... )?/+/*` repetition blocks** — iterated over the bound lists, one
+  emission per list element. A block whose placeholders are bound at the same
+  nesting depth in the pattern is driven by those lists. If the driver lists
+  have inconsistent lengths, the block renders nothing.
+
+Two special escapes:
+
+- `$$` produces a literal `$` in the output. This is how a generated *inner*
+  rule writes its own `$x` placeholders or `$( ... )` blocks: `$$x` and
+  `$$( ... )` — the outer pattern binds the values, and the emitted rule gets
+  its own placeholders.
+- A bare `$` not followed by a placeholder name is literal text.
+
+A rule whose body renders to empty output creates nothing.
+
+### Body/pattern placeholder alignment
+
+Every placeholder used in a body must be **declared by the pattern**, and must
+appear at the **same or deeper nesting** in the body than in the pattern. A
+placeholder bound inside a repetition in the pattern must be iterated by a
+matching `$( ... )` block in the body; a flat placeholder may be expanded
+inside a repetition. Violating this is a validation error (see [Rule
+Validation](#rule-validation)).
+
+---
+
+## Matching Semantics
+
+### Multiple facts, one pattern
+
+A multi-line pattern matches only when **all** of its facts exist. Each pattern
+fact line matches a **distinct** fact in the engine (the same fact cannot
+satisfy two lines). Placeholders shared across facts must bind to the same
+value, which lets patterns join facts:
+
+```rf
+$ rule (parse the "look" command)
+  (
+    - prompt look
+    player is in $room
+    description of $room is $description
+  )
+  (
+    println (You are in the ) $room .
+    println $description
+  )
+```
+
+This only fires when the player is in a room *and* that room has a
+description, and `$room` must match in both facts.
+
+### Placeholder binding
+
+- A scalar placeholder (outside any repetition) binds to one argument and is
+  consistency-checked across the whole match: `$x is $x` matches only a fact
+  where both words are equal.
+- A placeholder inside an arg repetition is **list-bound**: it collects a list
+  of values, one per iteration, nested one level per enclosing repetition.
+
+### Lazy vs. greedy repetition
+
+`+` and `*` arg repetitions are **lazy** by default: they match as few
+iterations as possible. When a fact admits several full-consumption matches,
+they are enumerated lazy-first (the one peeling the fewest arguments from the
+leftmost repetition first). `?` is greedy by default (one iteration preferred,
+zero as fallback) but enumerates both alternatives in that order. Doubled
+markers (`++`, `**`, `??`) invert to greedy.
+
+The **laziest binding that satisfies the entire pattern** fires. If the greedier
+parse fails a later constraint (e.g. an `$( $a is article )?` whose `$a` has no
+matching fact), matching backtracks to a lazier parse that does satisfy it. For
+a `?` block, a list-bound placeholder with an empty list "disables" the
+corresponding fact-level `?` constraint, and a non-empty list makes it a
+constraint that only verifies a matching fact exists (without consuming it).
+
+### Fact repetitions and list collection
+
+`$( ... )*` and `$( ... )+` fact-level repetitions collect all matching facts;
+`$( ... )?` matches an optional fact. Repeated blocks can only contain a single
+inner pattern fact (multi-fact inner repetitions are not supported).
+
+---
+
+## Rule Priority (Specificity)
+
+When multiple rules match the same facts, the most specific rule fires first.
+Specificity is **word-based** and computed automatically from the pattern.
+
+Each word contributes:
+
+| Element                     | Score |
+|-----------------------------|-------|
+| literal argument            | 5     |
+| placeholder (`$x`)          | 4     |
+| required (non-negated) fact | 1     |
+| negated fact                | 0     |
+
+Repetition blocks add nothing for the block itself, but **penalize** every word
+inside them by the block's looseness. Penalties stack across nested blocks and
+saturate at zero:
+
+| Repetition | Penalty per enclosed word |
+|------------|---------------------------|
+| `?`        | 1                         |
+| `+`        | 3                         |
+| `*`        | 4                         |
+
+For example, the catch-all `parse $( $word )+` scores `1 + 5 + (4-3) = 7`,
+while the structured `parse $( $a1 )? $x is $( $a2 )? $y` scores
+`1 + 5 + (4-1) + 4 + 5 + (4-1) + 4 = 25` — the structured rule wins. A pattern
+with more required repetitions outranks one with fewer.
+
+Rules are sorted by specificity descending, and **ties preserve insertion
+order**. This is why a "didn't understand" catch-all rule fires only after a
+more specific rule has handled (and, typically, removed) a prompt.
+
+The optional 5th rule argument can add (`+N`), subtract (`-N`), or set (`=N`)
+the computed specificity.
+
+---
+
+## Execution Model
+
+### The turn loop
+
+All computation happens by firing rules to a **fixpoint**. Each `turn()`:
+
+1. Iterates rules from most to least specific.
+2. For each rule, snapshots the current facts and finds every match.
+3. A rule fires at most once per distinct matched-fact set per turn (tracked
+   to prevent re-firing on identical facts).
+4. On firing, it deletes the `-`-marked facts, renders the body, and creates
+   the resulting facts (and fires any new rules).
+5. If any fact changed, the loop **restarts from the most-specific rule**, so
+   more-specific rules get first dibs on changed facts.
+6. When a full pass changes nothing, the engine has reached a fixpoint.
+
+### Recursive firing
+
+A rule may fire repeatedly within a single turn, including on facts produced
+by its own firing (there is no single-fire-per-turn limit). This is what makes
+recursive "peel one item per firing" rules work — e.g. splitting one sentence
+off a `parse` fact and leaving a shorter `parse` fact that re-triggers the same
+rule. A rule is *not* marked fired when its output restarts the loop.
+
+### Fixpoint bound
+
+Infinite recursion is bounded by a per-turn iteration cap (default 100,000,
+configurable in the embedding API). A non-terminating rule set bails with a
+fixpoint error.
+
+### Command execution order
+
+Facts that name a registered command (such as `println` or `assert`) are not
+stored as data; they are executed. When a command fact is encountered while
+loading, the engine **settles rules first** (so `assert` sees the result of
+rules that have run), then dispatches the command. Commands produced by rule
+bodies execute immediately, mid-turn.
+
+---
+
+## Rule Validation
+
+When a rule is parsed, structural invariants are checked and rejected with an
+error:
+
+- The rule fact must have 4 or 5 arguments.
+- A placeholder used at **two different nesting depths** (different stacks of
+  enclosing repetition kinds) — within the pattern, within the body, or within
+  a single repeated arg list — is rejected.
+- Every body placeholder must be **declared by the pattern**.
+- A body placeholder bound at one nesting in the pattern may be used at the
+  **same or deeper** nesting in the body, never shallower.
+
+An empty pattern and an empty body are both valid. A pattern consisting only of
+negated or only of removal facts is valid.
+
+---
+
+## CLI
+
+The `reform` executable is a REPL plus a file runner.
+
+```
+reform [--safe] [--trace] [--version] [files...]
+```
+
+- Positional **files** are loaded (via `load_file`) before the REPL starts. If
+  a file sets `$ quit`, loading stops.
+- **`--safe`** disallows `$`-prefixed lines as direct facts/commands at the
+  REPL; they are treated as player prompts instead.
+- **`--trace`** (or the `REFORM_TRACE` environment variable being set) prints
+  trace events to stderr: facts added (`+`) / removed (`-`), rules registered
+  (with computed specificity), and rule firings (`fire <name> -> <body>`).
+- **`--version`** prints the version and exits.
+
+At the REPL:
+
+- Lines are treated as prompts (wrapped as `prompt ...` facts).
+- A `$`-prefixed line starts buffering a multi-line direct fact/rule; indented
+  lines continue it, a blank line (or a non-indented line) submits it. This
+  lets you enter multi-line rules at the REPL.
+- Blank lines are ignored outside a buffer.
+- The engine quits when a `$ quit` fact is processed.
+
+---
+
+## CLI Built-in Facts
+
+These fact conventions are implemented by the reference CLI (and the engine's
+default commands). They are triggered by creating facts with the `$` prefix (so
+they aren't stored as `parse` facts). Each is a **command**: the fact is not
+stored in the engine — it is executed.
+
+### `print` and `println`
+
+A fact whose first argument is `print` or `println` outputs all remaining
+arguments.
+
+- `println` concatenates its arguments with **no separator** and appends a
+  newline.
+- `print` joins its arguments with spaces and does not append a newline.
+
+Because `println` concatenates without spaces, wrap a multi-word string in a
+single parenthesized arg: `$ println (you see a cave)` prints `you see a cave`,
+while `$ println you see a cave` prints `youseeacave`.
+
+```rf
+$ println (Hello) $name !
+```
+
+### `facts`
+
+A fact with a single `facts` argument prints all facts currently in the
+engine, one per line in normal form. Useful for debugging.
+
+### `load`
+
+A fact with two arguments whose first is `load` loads the reform file named by
+the second argument. Relative paths resolve against the directory of the file
+that issued the `load` (or the process working directory if there is none).
+`load` issued from a rule body triggers a load mid-turn; cyclic/re-entrant
+loading is not specially guarded, so avoid infinite load loops.
+
+```rf
+$ load ./iflib/lib.rf
+```
+
+### `quit`
+
+This fact makes the engine exit. Loading and rule processing stop at the next
+safe point.
+
+### `panic`
+
+Immediately exits the engine with an error whose message is the joined
+arguments.
+
+### `assert` and `assert-not`
+
+`assert` takes a list of arguments and panics unless a fact with exactly those
+arguments exists. `assert-not` panics if the fact *does* exist.
+
+### `find`
+
+`find` searches the engine for facts matching the given **pattern** and prints
+each match in normal form, one per line. `find` only supports a single-fact
+pattern (no fact-level repetitions); a multi-fact or repetition pattern is an
+error.
+
+### `-` (immediate removal)
+
+A fact whose first argument is `-` removes matching facts immediately. The
+remaining arguments are interpreted as a pattern (removing every matching
+fact); if that pattern does not parse, they are treated as an exact fact to
+remove. `$ -` with no arguments is a no-op.
+
+---
+
+## Normal Form
+
+The **normal form** of a fact is its canonical rendering: arguments separated by
+spaces, with each argument wrapped in parentheses if it needs to be. An
+argument is wrapped if it contains whitespace, parentheses, or a backtick, or
+ends in one of `;` `.` `:` `'`. An empty argument renders as `()`.
+
+Facts in normal form always parse back to the identical fact, so normal form
+round-trips. `facts`, `find`, trace output, and body-placeholder rendering all
+use normal form.
+
+```rf
+(Grand Canyon) is big
+This is a sentence ending in a period .
+```
+
+---
+
+## Embedding
+
+The `reform` crate is a library, and nearly all of its types, fields, and
+functions are public so it can be embedded and extended:
+
+- `Engine` holds the fact store, registered rules, command handlers, output
+  sinks, and load base directory. Use `load_str` / `load_file` to load source,
+  `add_fact` / `remove_fact` / `add_rule`, `turn` / `run` / `settle` to drive
+  evaluation, `facts()` / `rules()` to inspect state, and `register_command` /
+  `remove_command` to add custom commands.
+- `Fact`, `Arg`, `normal_form_arg`, and `normal_form_fact` provide the data
+  model and rendering.
+- `parser::facts` / `parser::pattern` / `parser::body` parse source, patterns,
+  and rule bodies.
+- `rule::compute_specificity` and the `Rule` / `Pattern` / `Body` types expose
+  the matching and rendering machinery.
+- The engine routes text output through pluggable sinks, which is how the WASM
+  build renders into a virtual terminal.
+
+Commands are just registered `CommandHandler` closures (the engine has no
+special-cased built-ins beyond what `register_default_commands` installs), so a
+host can replace or extend the command set freely.

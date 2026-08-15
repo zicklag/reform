@@ -153,7 +153,7 @@ that were not understood by a more specific rule.
 For example we can add this to `simple-rooms.rf`:
 
 ```rf
-$ rule (apologies for not understanding prompt)
+$ rule (apologize for not understanding prompt)
   (
     - prompt $command
   )
@@ -175,7 +175,78 @@ A cozy room with a nice sofa.
 >
 ```
 
-Note that we didn't have to think about priorities in this case at all. Even
-though `prompt $command` technically matches the `prompt look` fact that we use
-for looking, the fact that the `prompt look` pattern is more specific means that
-it ran first.
+Notice how the priorities worked themselves out automatically.
+
+Even though the "apologize" rule's pattern technically matches the `look`
+prompt, because the look rule had a more specific pattern, it ran first and it
+removed the prompt before the apologize rule found it.
+
+## Repeating and Optional Blocks
+
+At this point you might have realized that we still have a problem with our
+apologize rule: it only works if we put in a single word. If we type `hello
+world`, `$command` will only act as a placeholder for the first word, and the
+pattern fails to match.
+
+```
+reform simple-rooms.rf
+> hello
+I'm sorry, I didn't understand that command.
+> hello world
+>
+```
+
+What we need is a way to match on **any number of arguments**.
+
+We can do this in Reform with **repeating / optional blocks**, which come in 3 varieties.
+
+**Optional blocks** start with `$(` and end with `)?` and can wrap around arguments that you want to be optional in the pattern.
+
+**Zero-or-more blocks** start with `$(` and end with `)*` and will match if the
+arguments inside are not there, or if they are there, and possibly repeated
+multiple times.
+
+**One-or-more blocks** start with `$(` and end with `)+` and will match if the
+arguments inside are repeated one or more times.
+
+So to fix our apologize rule we can have it match on any prompt with a one-or-more repeating
+block:
+
+```rf
+$ rule (apologize for not understanding prompt)
+  (
+    - prompt $( $arg )+
+  )
+  (
+    println (I'm sorry, I didn't understand your command:) $( ( ) $arg )+
+  )
+```
+
+Now it will print an error message for any number of arguments. There are a
+couple things to note here:
+
+- When you use a placeholder in a block in the pattern, you must put it in the
+  same kind of block in the body.
+- If we want to put a literal, single space in an argument we have to put it in
+  parenthesis: `( )`
+- Because `println` doesn't put spaces between arguments, we add a space before
+  `$arg`, _inside the repeating block_. This way, each time the block repeats
+  with a new `$arg`, it also gets it's own space so that it's properly separated.
+
+```
+reform simple-rooms.rf
+> hello
+I'm sorry, I didn't understand your command: hello
+> hello world
+I'm sorry, I didn't understand your command: hello world
+>
+```
+
+It works! We get the apology message regardless of how many arguments we put
+into our prompt.
+
+Blocks can be used to parser very rich patterns. They can even be nested inside
+each-other when necessary or wrapped around whole facts to match on multiple
+facts at a time.
+
+
