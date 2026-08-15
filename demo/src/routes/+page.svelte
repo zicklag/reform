@@ -22,7 +22,7 @@
 			content: `# A minimal Reform program.
 #
 # Facts are space-separated arguments. A line prefixed with \`$\` is a direct
-# fact (no \`sentence\` prefix); \`>\` marks a player prompt.
+# fact (no \`parse\` prefix); \`>\` marks a player prompt.
 
 $ println (Hello from Reform!)
 
@@ -71,12 +71,12 @@ $ rule (quit)
 			name: 'Rule Rewriting',
 			content: `# A rule that rewrites a sentence into a derived fact.
 #
-# The pattern matches a \`sentence\` fact and the body creates a new fact.
+# The pattern matches a \`parse\` fact and the body creates a new fact.
 # The \`-\` prefix on the pattern removes the matched fact.
 
 $ rule (parse is)
     (
-        - sentence $x is $y
+        - parse $x is $y
     )
     (
         $x is $y

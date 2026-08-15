@@ -107,7 +107,7 @@ $ rule (clean up after phase)
     )
 
 #
-# Add some sentence parsers for creating rules rules for the
+# Add some parse parsers for creating rules rules for the
 # actions
 # 
 
@@ -199,10 +199,10 @@ $ rule (parse after rule statement)
             )
             (
                 $(
-                    sentence $( $first_words )+
+                    parse $( $first_words )+
                 )**
                 $(
-                    sentence $( $last_words )*
+                    parse $( $last_words )*
                 )?
             )
         queue $( $queue )*

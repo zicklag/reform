@@ -99,7 +99,7 @@ controlled scale. Each pattern type isolates one cost center.
 
 | Workload type | What it stresses | Generator output |
 |---|---|---|
-| `catch-all` | Arg repetition scan × fact count | 1 rule `( sentence $( $word )* )`, N `sentence` facts with growing arg counts |
+| `catch-all` | Arg repetition scan × fact count | 1 rule `( parse $( $word )* )`, N `parse` facts with growing arg counts |
 | `literal-filter` | Prefilter literal rejection | K rules each anchored on a distinct literal first arg, N facts with varied first words |
 | `repeated-binding` | Binding consistency (prefilter false positives) | Rules with `$x ... $x`, facts that pass the prefilter but fail binding |
 | `multi-fact-join` | Fact-level nested-loop join | Rules with 2–3 fact pattern lines, N facts per predicate |

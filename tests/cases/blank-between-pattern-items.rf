@@ -10,9 +10,9 @@ b
 
 $ rule two-items-blank
     (
-        $( sentence a )?
+        $( parse a )?
 
-        sentence b
+        parse b
     )
     ( both )
 $ assert both

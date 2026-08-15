@@ -4,5 +4,5 @@ say `hello {name} world`
 say `escaped \{braces\} and \`backtick\``
 
 $ facts
-$ assert sentence say (`) (hello ) { name } ( world) (`)
-$ assert sentence say (`) (escaped {braces} and `backtick`) (`)
+$ assert parse say (`) (hello ) { name } ( world) (`)
+$ assert parse say (`) (escaped {braces} and `backtick`) (`)

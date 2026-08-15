@@ -1,6 +1,6 @@
 $ rule default-sentence-rule
     (
-        - sentence $( $word )+
+        - parse $( $word )+
     )
     (
         $ println (Did not understand sentence: ) $($word )+
@@ -9,7 +9,7 @@ $ rule default-sentence-rule
 # $x is $y
 $ rule x_is_y
     (
-        - sentence $( $a1 )? $x is $( $a2 )? $y
+        - parse $( $a1 )? $x is $( $a2 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
     )
@@ -20,7 +20,7 @@ $ rule x_is_y
 # $x is $relation $of $y
 $ rule x_is_rel_of_y
     (
-        - sentence $( $a1 )? $x is $( $a2 )? $rel $( $prep )? $( $a3 )? $y
+        - parse $( $a1 )? $x is $( $a2 )? $rel $( $prep )? $( $a3 )? $y
         $( $a1 is article )?
         $( $a2 is article )?
         $( $a3 is article )?

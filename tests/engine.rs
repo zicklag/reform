@@ -52,7 +52,7 @@ the door is open
 the window is shut
 plain wall is gray
 $ rule simplify
-    ( sentence $( $a )? $x is $adj )
+    ( parse $( $a )? $x is $adj )
     ( $x is $adj )
 $ assert door is open
 $ assert window is shut
@@ -116,11 +116,11 @@ fn prompt_prefix() {
     assert!(e.contains(&fact("prompt look up")));
 }
 
-/// Plain sentences get the `sentence` prefix.
+/// Plain sentences get the `parse` prefix.
 #[test]
-fn sentence_prefix() {
+fn parse_prefix() {
     let e = load("the canyon is big\n$ quit\n");
-    assert!(e.contains(&fact("sentence the canyon is big")));
+    assert!(e.contains(&fact("parse the canyon is big")));
 }
 
 /// Comments (full-line and trailing) are ignored.
@@ -134,7 +134,7 @@ the door is open   # trailing comment
 $ quit
 "#,
     );
-    assert!(e.contains(&fact("sentence the door is open")));
+    assert!(e.contains(&fact("parse the door is open")));
 }
 
 /// `assert-not` fails (returns an error) when the fact IS present.
@@ -1049,18 +1049,18 @@ fn compute_specificity_scores() {
 
     // A catch-all must be LESS specific than a structured rule with a literal
     // constraint, so the structured rule fires first:
-    //   `sentence $( $arg )*`                    = 1 + 5 + (4-3)        = 7
-    //   `sentence $( $a1 )? $x is $( $a2 )? $y`  = 1 + 5 + (4-1) + 4 + 5(is) + (4-1) + 4 = 25
-    let default = reform::parser::pattern("sentence $( $arg )*").unwrap();
-    let structured = reform::parser::pattern("sentence $( $a1 )? $x is $( $a2 )? $y").unwrap();
+    //   `parse $( $arg )*`                    = 1 + 5 + (4-3)        = 7
+    //   `parse $( $a1 )? $x is $( $a2 )? $y`  = 1 + 5 + (4-1) + 4 + 5(is) + (4-1) + 4 = 25
+    let default = reform::parser::pattern("parse $( $arg )*").unwrap();
+    let structured = reform::parser::pattern("parse $( $a1 )? $x is $( $a2 )? $y").unwrap();
     assert!(
         compute_specificity(&structured) > compute_specificity(&default),
         "structured rule must out-rank the catch-all default"
     );
 
-    // A `+` catch-all (`sentence $( $word )+`) must also be less specific than
+    // A `+` catch-all (`parse $( $word )+`) must also be less specific than
     // the same structured rule: 1 + 5 + (4-2) = 8 < 25.
-    let default_plus = reform::parser::pattern("sentence $( $word )+").unwrap();
+    let default_plus = reform::parser::pattern("parse $( $word )+").unwrap();
     assert!(
         compute_specificity(&structured) > compute_specificity(&default_plus),
         "structured rule must out-rank a `+` catch-all default"
@@ -1328,7 +1328,7 @@ fn output_sink_captures_stdout_and_trace() {
     e.load_str("$ println hi\n$ print there \n$ a\n$ b\n$ facts\n$ find a\n$ quit\n")
         .unwrap();
     // println appends a newline; print does not; `$ a`/`$ b` store bare facts
-    // (no `sentence` prefix); facts lists every fact; find lists only matches.
+    // (no `parse` prefix); facts lists every fact; find lists only matches.
     assert_eq!(out.borrow().as_str(), "hi\ntherea\nb\na\n");
     // Trace events go to the stderr sink.
     let errs = err.borrow();

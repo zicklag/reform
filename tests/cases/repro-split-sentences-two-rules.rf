@@ -1,14 +1,14 @@
 $ rule split_sentences
     (
-        - sentence $( $sent )+ . $( $rest )+
+        - parse $( $sent )+ . $( $rest )+
     )
     (
         statement $( $sent )+
-        sentence $( $rest )+
+        parse $( $rest )+
     )
 $ rule split_sentences
     (
-        - sentence $( $words )+ .
+        - parse $( $words )+ .
     )
     (
         statement $( $words )+

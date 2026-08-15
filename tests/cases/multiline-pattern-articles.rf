@@ -1,5 +1,5 @@
 # Faithful reproduction of an iflib-style multi-line pattern using RAW facts
-# (added via `$`-prefix, so no `sentence` wrapping). The pattern combines:
+# (added via `$`-prefix, so no `parse` wrapping). The pattern combines:
 #  - a removal fact continued across indented lines, with arg-level
 #    `$( $a )?` / `$( $a2 )?` / `$( $queue )*` on continuation lines,
 #  - a sibling fact `$nowToken is now-token`,

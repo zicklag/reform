@@ -9,7 +9,7 @@ type Monaco = typeof monaco;
  * space-separated list of arguments. Key syntax:
  *
  *   - `#` starts a comment to end of line
- *   - `$` prefix marks a direct fact / engine command (no `sentence` prefix)
+ *   - `$` prefix marks a direct fact / engine command (no `parse` prefix)
  *   - `>` prefix marks a player prompt
  *   - `( ... )` a literal argument (parens balanced, `\(`/`\)` escapes)
  *   - `` `...` `` a template string; `{ ... }` a substitution section inside

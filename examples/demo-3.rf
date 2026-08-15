@@ -129,8 +129,8 @@ $ rule (resolve that is in)
 # ===========================================================================
 # Using resolution in rule bodies
 #
-# To use noun phrase resolution in rule bodies, we create a "sentence" fact
-# from the body. The sentence goes through the normal parsing pipeline:
+# To use noun phrase resolution in rule bodies, we create a "parse" fact
+# from the body. The parse fact goes through the normal parsing pipeline:
 # period splitting -> statement -> resolution -> core rules.
 # ===========================================================================
 
@@ -149,7 +149,7 @@ $ rule (carry-out illuminating)
         carry-out enacting illuminating
     )
     (
-        sentence now the brightness of the room the player is in is light .
+        parse now the brightness of the room the player is in is light .
     )
 
 # Understand "darken" as the darkening action
@@ -166,7 +166,7 @@ $ rule (carry-out darkening)
         carry-out enacting darkening
     )
     (
-        sentence now the brightness of the room the player is in is dark .
+        parse now the brightness of the room the player is in is dark .
     )
 
 # Understand "locate" as the locating action
@@ -217,7 +217,7 @@ $ assert brightness of basket is light
 $ println (Test 2 passed: container resolution works)
 
 # Test 3: Using resolution in a rule body
-# The "illuminate" action creates a sentence that gets resolved
+# The "illuminate" action creates a parse fact that gets resolved
 > illuminate
 $ assert brightness of Kitchen is light
 $ println (Test 3 passed: illuminate action works via resolution)

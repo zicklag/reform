@@ -13,7 +13,7 @@
 $ load ./iflib/lib.rf
 
 # ===========================================================================
-# World setup (using $ prefix to bypass sentence parsing for facts the
+# World setup (using $ prefix to bypass parse wrapping for facts the
 # core rules don't handle well — in a real game, you'd add custom
 # parsing rules for these patterns)
 # ===========================================================================

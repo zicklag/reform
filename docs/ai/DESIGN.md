@@ -178,7 +178,7 @@ dedents the interior to the `say ` column and drops the leading/trailing newline
 
 ## Loading Facts
 
-When facts are being loaded from a file into the engine, they are pared and then prefixed with an additional `sentence` argument before being stored in the engine.
+When facts are being loaded from a file into the engine, they are pared and then prefixed with an additional `parse` argument before being stored in the engine.
 
 For example:
 
@@ -189,10 +189,10 @@ This is a sentence.
 Becomes in normal form:
 
 ```rf
-sentence This is a sentence .
+parse This is a sentence .
 ```
 
-If a line is prefixed with a `$`, then the `sentence` prefix argument is not added. For example:
+If a line is prefixed with a `$`, then the `parse` prefix argument is not added. For example:
 
 ```rf
 This is a sentence.
@@ -202,13 +202,13 @@ $ canyon is big
 In normal form is:
 
 ```rf
-sentence This is a sentence
+parse This is a sentence
 canyon is big
 ```
 
 This allows the rule system to intentionally take "normal sentences" and post-process them and parse them into different facts to provide a more natural, parsed definition language as separate from the underlying fact model used by a game.
 
-When a line is prefixed with a `>` then instead of being a `sentence` fact it becomes a `prompt` fact.
+When a line is prefixed with a `>` then instead of being a `parse` fact it becomes a `prompt` fact.
 
 ```rf
 > look up
@@ -226,7 +226,7 @@ Prompts are usually meant for input provided from outside the game, by the playe
 
 Rules are a special kind fact. They are stored like any other fact, but they are also evaluated by the engine to pattern match and modify the facts on every turn.
 
-In a reform file you have to use the `$` prefix to define a rule, to avoid it getting the `sentence` prefix.
+In a reform file you have to use the `$` prefix to define a rule, to avoid it getting the `parse` prefix.
 
 A rule fact has 4 or 5 arguments:
 
@@ -241,7 +241,7 @@ Because the pattern and body of a rule need to contain facts themselves, they wi
 ```rf
 $ rule example
   (
-    - sentence $( $a1 )? $x is $( $a2 )? $y
+    - parse $( $a1 )? $x is $( $a2 )? $y
     $( $a1 is article )?
     $( $a2 is article )?
   )
@@ -303,7 +303,7 @@ $ rule example2
 
 These are some common commands that may be implemented by different engines, but are not guaranteed everywhere.
 
-These are triggered by just creating new facts, with the `$` syntax to prevent the `sentence` prefix.
+These are triggered by just creating new facts, with the `$` syntax to prevent the `parse` prefix.
 
 - `load ./file.rf` load a file relative to this one
 - `assert fact` panic if the provided fact does not exist
@@ -335,5 +335,5 @@ The following clarifications were recorded during implementation and should be w
 
 8. **`load` from rule bodies** — If a rule body produces a `load` fact, it triggers a load mid-turn. Cyclic/re-entrant loading behavior is not yet specified; implementers should guard against infinite loops.
 9. **Lazy repetitions** — Arg-level `+`/`*` repetitions are lazy: they match as few iterations as possible. When a single fact admits several full-consumption matches, they are enumerated lazy-first (the one peeling fewest arguments from the leftmost repetition first). Optional `?` blocks are greedy (one iteration preferred, zero as fallback) but enumerate both alternatives in that order. The laziest binding that satisfies the *entire* pattern — including later constraint facts, e.g. `$( $a is article )?` — fires; if the greedier parse fails a downstream constraint, matching backtracks to the next-lazier parse rather than dropping the fact. Fact-level repetitions still collect all matching facts.
-10. **Recursive rule firing** — A rule may fire repeatedly within a single turn, including on facts produced by its own firing (there is no single-fire-per-turn limit). This lets a rule recursively peel one item per firing (e.g. split one sentence off a `sentence` fact, leaving a shorter `sentence` fact that re-triggers the same rule). Infinite recursion is bounded by a per-turn iteration cap; non-terminating rules bail with a fixpoint error. More-specific rules always get first dibs on changed facts (the turn restarts from the most-specific rule whenever any fact changes).
-11. **Specificity of repeating blocks** — A repetition block (`$( ... )?`, `$( ... )+`, `$( ... )*`) adds 0 for the block itself; the words inside it are worth less the looser the block is, because a looser block constrains the match less. The per-block penalty, subtracted from each enclosed word's base score (literal 5, placeholder 4), is: `?` → 1, `+` → 2, `*` → 3. Penalties stack across nested blocks and saturate at zero. So a catch-all `sentence $( $word )+` scores 1 + 5 + (4-2) = 8, while `sentence $( $a1 )? $x is $( $a2 )? $y` scores 1 + 5 + (4-1) + 4 + 5(is) + (4-1) + 4 = 25 — the structured rule wins. More required repetitions still outrank fewer: `sentence $( $a )+ . $( $b )+` (1 + 5 + (4-2) + 5 + (4-2) = 15) beats `sentence $( $a )+ .` (1 + 5 + (4-2) + 5 = 13).
+10. **Recursive rule firing** — A rule may fire repeatedly within a single turn, including on facts produced by its own firing (there is no single-fire-per-turn limit). This lets a rule recursively peel one item per firing (e.g. split one sentence off a `parse` fact, leaving a shorter `parse` fact that re-triggers the same rule). Infinite recursion is bounded by a per-turn iteration cap; non-terminating rules bail with a fixpoint error. More-specific rules always get first dibs on changed facts (the turn restarts from the most-specific rule whenever any fact changes).
+11. **Specificity of repeating blocks** — A repetition block (`$( ... )?`, `$( ... )+`, `$( ... )*`) adds 0 for the block itself; the words inside it are worth less the looser the block is, because a looser block constrains the match less. The per-block penalty, subtracted from each enclosed word's base score (literal 5, placeholder 4), is: `?` → 1, `+` → 2, `*` → 3. Penalties stack across nested blocks and saturate at zero. So a catch-all `parse $( $word )+` scores 1 + 5 + (4-2) = 8, while `parse $( $a1 )? $x is $( $a2 )? $y` scores 1 + 5 + (4-1) + 4 + 5(is) + (4-1) + 4 = 25 — the structured rule wins. More required repetitions still outrank fewer: `parse $( $a )+ . $( $b )+` (1 + 5 + (4-2) + 5 + (4-2) = 15) beats `parse $( $a )+ .` (1 + 5 + (4-2) + 5 = 13).

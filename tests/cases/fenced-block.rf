@@ -16,7 +16,7 @@ say ```
     ```
 
 $ facts
-$ assert sentence say (`) (Hello, world.) (`)
-$ assert sentence say (`) (Hello.
+$ assert parse say (`) (Hello, world.) (`)
+$ assert parse say (`) (Hello.
 
 ) { name } (`)

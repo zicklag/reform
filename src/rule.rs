@@ -109,8 +109,8 @@ impl Rule {
 /// at zero. Negated facts contribute 0.
 ///
 /// This ranks a structured rule with literal constraints above a wildcard
-/// catch-all: `sentence $( $word )+` scores 1 + 5 + (4-2) = 8, while
-/// `sentence $( $a1 )? $x is $( $a2 )? $y` scores
+/// catch-all: `parse $( $word )+` scores 1 + 5 + (4-2) = 8, while
+/// `parse $( $a1 )? $x is $( $a2 )? $y` scores
 /// 1 + 5 + (4-1) + 4 + 5 + (4-1) + 4 = 25. It also keeps a pattern with more
 /// required repetitions more specific than one with fewer:
 /// `a $( $b )+ . $( $c )+` (15) > `a $( $b )+ .` (13).

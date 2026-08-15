@@ -418,7 +418,7 @@ impl Engine {
                     .collect(),
             ),
             _ => Fact(
-                std::iter::once(Arg::from("sentence"))
+                std::iter::once(Arg::from("parse"))
                     .chain(args.iter().cloned())
                     .collect(),
             ),
@@ -431,7 +431,7 @@ impl Engine {
             ">" => std::iter::once("prompt")
                 .chain(args[1..].iter().map(|a| &**a))
                 .collect(),
-            _ => std::iter::once("sentence")
+            _ => std::iter::once("parse")
                 .chain(args.iter().map(|a| &**a))
                 .collect(),
         };

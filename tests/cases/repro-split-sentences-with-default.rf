@@ -1,6 +1,6 @@
 $ rule split_sentences
     (
-        - sentence $( $words1 )+ . $( $words2 )+
+        - parse $( $words1 )+ . $( $words2 )+
     )
     (
         s $( $words1 )+ .

@@ -4,4 +4,4 @@ When doing:
         ``` and
 
 $ facts
-$ assert sentence When doing : say (`) (hello world) (`) and
+$ assert parse When doing : say (`) (hello world) (`) and

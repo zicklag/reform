@@ -1,6 +1,6 @@
 $ rule (parse example)
     (
-        - sentence Example $( $( $words )+ ; )** $( $last_words )+
+        - parse Example $( $( $words )+ ; )** $( $last_words )+
     )
     (
         $(

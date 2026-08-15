@@ -18,7 +18,7 @@
 #           player at Garden
 #       )
 #       (
-#           sentence say (You see a beautiful garden.)
+#           parse say (You see a beautiful garden.)
 #       )
 #
 # The `and` keyword joins multiple conditions:
@@ -26,7 +26,7 @@
 #
 # Conditions are in "normal form" — the same format as facts in the engine.
 # To use English conditions like "the player is in the garden", you'd first
-# run them through the sentence->statement->fact pipeline to convert them
+# run them through the parse->statement->fact pipeline to convert them
 # to normal form, then use the result as the condition. (See demo-1 for
 # the noun phrase resolution approach.)
 
@@ -72,7 +72,7 @@ $ rule (understand examine)
 #
 # Matches:  statement $action when $( $condition )+ : $( $body )+
 # Creates:  a rule that matches carry-out enacting $action AND $( $condition )+
-#           and fires sentence $( $body )+
+#           and fires parse $( $body )+
 # ===========================================================================
 
 $ rule (parse when clause)
@@ -86,7 +86,7 @@ $ rule (parse when clause)
                 $( $condition )+
             )
             (
-                sentence $( $body )+
+                parse $( $body )+
             )
     )
 
@@ -109,7 +109,7 @@ $ rule (parse when clause with and)
                 $( $c2 )+
             )
             (
-                sentence $( $body )+
+                parse $( $body )+
             )
     )
 

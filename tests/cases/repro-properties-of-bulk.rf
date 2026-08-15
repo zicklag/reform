@@ -1,6 +1,6 @@
 $ rule (properties of bulk)
     (
-        - sentence properties of $x : $( $prop : $value )+
+        - parse properties of $x : $( $prop : $value )+
     )
     (
         $( 

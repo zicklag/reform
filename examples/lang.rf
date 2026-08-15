@@ -15,7 +15,7 @@ $ rule example
 
 $ rule example2
     (
-        sentence $( $a1 )? $thing1 is $rel $( $prep )? $( $a2 )? $thing2
+        parse $( $a1 )? $thing1 is $rel $( $prep )? $( $a2 )? $thing2
         $( $a1 is article )?
         $( $a2 is article )?
         $( $prep is preposition )?

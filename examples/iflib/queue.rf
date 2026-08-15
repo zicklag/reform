@@ -31,16 +31,16 @@ $ queue
 # line, separated by periods.
 $ rule (split sentences by periods 1)
     (
-        - sentence $( $words1 )+ . $( $words2 )+
+        - parse $( $words1 )+ . $( $words2 )+
         - queue $( $queue )*
     )
     (
         queue stmt-start $( $words1 )+ stmt-end $( $queue )*
-        sentence $( $words2 )+
+        parse $( $words2 )+
     )
 $ rule (split sentences by periods 2)
     (
-        - sentence $( $words )+ $( . )?
+        - parse $( $words )+ $( . )?
         - queue $( $queue )*
     )
     (

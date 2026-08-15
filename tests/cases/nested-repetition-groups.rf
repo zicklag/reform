@@ -1,6 +1,6 @@
 $ rule (parse nested bindings)
     (
-        - sentence example $( start $( $rule )+ end )*
+        - parse example $( start $( $rule )+ end )*
     )
     (
         $(

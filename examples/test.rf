@@ -1,6 +1,6 @@
 $ rule (parse after rule statement)
     (
-        - sentence $after $action : $( $( $first_words )+ ;  )** $( $last_words )+
+        - parse $after $action : $( $( $first_words )+ ;  )** $( $last_words )+
     )
     (
         rule (after $action rule)
@@ -9,9 +9,9 @@ $ rule (parse after rule statement)
             )
             (
                 $(
-                    sentence $( $first_words )+
+                    parse $( $first_words )+
                 )**
-                sentence $( $last_words )+
+                parse $( $last_words )+
             )
     )
 

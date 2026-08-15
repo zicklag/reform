@@ -5,7 +5,7 @@ Example
 
 $ rule (parse example)
     (
-        sentence Example $( - $( $words )+ )+
+        parse Example $( - $( $words )+ )+
     )
     (
         $(

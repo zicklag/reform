@@ -3,6 +3,6 @@ say `You are in {the location of the player }.
 You feel {temperature of the location of the player}.`
 
 $ facts
-$ assert sentence say (`) (You are in ) { the location of the player } (.
+$ assert parse say (`) (You are in ) { the location of the player } (.
 
 You feel ) { temperature of the location of the player } . (`)

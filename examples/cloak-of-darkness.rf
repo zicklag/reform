@@ -1,8 +1,8 @@
 # The Cloak of Darkness, implemented in Reform.
 #
 # Architecture:
-#   * Layer 1 — "core" parse rules: match `sentence ...` facts (plain English
-#     declarations, prefixed by the engine with `sentence`) and rewrite them
+#   * Layer 1 — "core" parse rules: match `parse ...` facts (plain English
+#     declarations, prefixed by the engine with `parse`) and rewrite them
 #     into a small "world model". The matched sentence is removed.
 #   * Layer 2 — the game itself, as Inform-like English sentences.
 #   * Layer 3 — game rules react to `prompt ...` facts (player input) and
@@ -22,7 +22,7 @@
 
 $ rule parse_room
     (
-        - sentence $( the )? $name is a room
+        - parse $( the )? $name is a room
     )
     (
         room $name
@@ -30,7 +30,7 @@ $ rule parse_room
 
 $ rule parse_desc
     (
-        - sentence the description of $( the )? $obj is $text
+        - parse the description of $( the )? $obj is $text
     )
     (
         desc $obj $text
@@ -39,7 +39,7 @@ $ rule parse_desc
 # "the Cloakroom is west of the Foyer"  ->  exit Foyer west Cloakroom
 $ rule parse_exit
     (
-        - sentence $( the )? $a is $dir of $( the )? $b
+        - parse $( the )? $a is $dir of $( the )? $b
     )
     (
         exit $b $dir $a
@@ -47,7 +47,7 @@ $ rule parse_exit
 
 $ rule parse_in
     (
-        - sentence $( the )? $obj is in $( the )? $loc
+        - parse $( the )? $obj is in $( the )? $loc
     )
     (
         located $obj $loc
@@ -55,7 +55,7 @@ $ rule parse_in
 
 $ rule parse_supporter
     (
-        - sentence $( the )? $obj is a supporter in $( the )? $loc
+        - parse $( the )? $obj is a supporter in $( the )? $loc
     )
     (
         supporter $obj
@@ -64,7 +64,7 @@ $ rule parse_supporter
 
 $ rule parse_scenery_in
     (
-        - sentence $( the )? $obj is scenery in $( the )? $loc
+        - parse $( the )? $obj is scenery in $( the )? $loc
     )
     (
         scenery $obj
@@ -73,7 +73,7 @@ $ rule parse_scenery_in
 
 $ rule parse_scenery
     (
-        - sentence $( the )? $obj is scenery
+        - parse $( the )? $obj is scenery
     )
     (
         scenery $obj
@@ -81,7 +81,7 @@ $ rule parse_scenery
 
 $ rule parse_dark
     (
-        - sentence $( the )? $room is dark
+        - parse $( the )? $room is dark
     )
     (
         dark $room
@@ -89,7 +89,7 @@ $ rule parse_dark
 
 $ rule parse_worn
     (
-        - sentence the player wears $( a )? $( an )? $obj
+        - parse the player wears $( a )? $( an )? $obj
     )
     (
         worn $obj
@@ -97,7 +97,7 @@ $ rule parse_worn
 
 $ rule parse_neatness
     (
-        - sentence the neatness of $( the )? $obj is $value
+        - parse the neatness of $( the )? $obj is $value
     )
     (
         prop $obj neatness $value
@@ -105,7 +105,7 @@ $ rule parse_neatness
 
 $ rule parse_understand
     (
-        - sentence understand $word as $( the )? $obj
+        - parse understand $word as $( the )? $obj
     )
     (
         noun $obj $word
