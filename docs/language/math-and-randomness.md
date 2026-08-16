@@ -1,3 +1,3 @@
-# Template Strings
+# Math & Randomness
 
 **Comming Soon...**

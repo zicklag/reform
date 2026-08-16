@@ -9,6 +9,7 @@
   - [Rules](language/rules.md)
   - [Patterns](language/patterns.md)
   - [Template Strings](language/template-strings.md)
+  - [Math & Randomness](language/math-and-randomness.md)
   - ["Plain Language" Parsing](language/plain-language-parsing.md)
 - [Language Reference](language/reference.md)
 - [Interactive Fiction Guide](iflib/index.md)
