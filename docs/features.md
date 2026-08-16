@@ -51,11 +51,15 @@ modeling, while having very few language concepts built-in.
 
 Because everything is built around matching on string arguments, doing thing like
 dealing with external IO, parsing other formats, or FFI, will not be Reform's
-strong suit out of the box. Also, arithmetic is not built in.
+strong suit out of the box. Arithmetic is built in via the [`@eval`][@eval]
+fact, however, so expressions like `@eval (2 + 2 * 3)` are reduced to `8`
+immediately when they appear.
 
 It is possible to integrate those things using Rust. Rust can interact with
 the facts in Reform to give it indirect control over systems outside of it, but
 Reform is still limited in the kinds of operations it can easily express.
+
+[@eval]: language/reference.md#arithmetic-eval
 
 ### Flexible
 

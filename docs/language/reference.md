@@ -12,8 +12,8 @@ All data is held in **facts** (lists of string arguments). **Rules** watch the
 fact store and, when their **pattern** matches existing facts, fire to
 **delete** matched facts and **create** new ones from their **body**. The engine
 repeatedly fires rules until no rule changes anything (a fixpoint). There is no
-built-in arithmetic, control flow, or I/O other than the small set of CLI facts
-listed below — everything else is built from facts and rules.
+built-in control flow or I/O other than the small set of CLI facts listed below
+— everything else is built from facts and rules.
 
 - [Facts](#facts)
 - [Fact Syntax](#fact-syntax)
@@ -29,6 +29,7 @@ listed below — everything else is built from facts and rules.
 - [Rule Validation](#rule-validation)
 - [CLI](#cli)
 - [CLI Built-in Facts](#cli-built-in-facts)
+- [Arithmetic: `@eval`](#arithmetic-eval)
 - [Normal Form](#normal-form)
 - [Embedding](#embedding)
 
@@ -689,6 +690,39 @@ remaining arguments are interpreted as a pattern (removing every matching
 fact); if that pattern does not parse, they are treated as an exact fact to
 remove. `$ -` with no arguments is a no-op. Removing a rule fact also
 unregisters that rule.
+
+---
+
+## Arithmetic: `@eval`
+
+`@eval` evaluates the **single argument that directly follows it** as a math
+expression (parsed and evaluated as an f64) and substitutes the result. It is
+reduced with the highest priority — immediately when a fact is created, before
+rules ever see it — so math is computed as soon as it appears. Because `@eval`
+interprets only the next single argument, an expression made of multiple words
+must be wrapped in parentheses:
+
+```rf
+$ the final result is @eval (2 + 2 * 3)
+$ half of 7 is @eval (7 / 2)
+```
+
+`2 + 2 * 3` evaluates to `8` (multiplication binds before addition) and
+`7 / 2` to `3.5`. Values are always f64, so divisions don't truncate.
+
+`@eval` reduces only when the entire expression is a valid, self-contained
+arithmetic expression. An `@eval` whose expression fails to parse or fails to
+evaluate is left untouched and the fact proceeds unchanged:
+
+```rf
+$ a @eval (2 + )      # still a fact with args `a`, `@eval`, `(2 + )`
+```
+
+The supported operators are `+`, `-`, `*`, `/`, `%` (remainder), and `^`
+(power), plus unary `+`/`-`, and the built-in functions `sqrt`, `abs`, `exp`,
+`ln`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`,
+`tanh`, `asinh`, `acosh`, `atanh`, `floor`, `ceil`, `round`, `signum`, `max`,
+`min`, and the constants `pi` and `e`.
 
 ---
 

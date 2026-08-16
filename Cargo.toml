@@ -25,3 +25,4 @@ internment = { version = "0.8.6", features = ["intern"], default-features = fals
 smallvec = "1.15.2"
 peg = "0.8.6"
 fixedbitset = "0.5.7"
+meval = "0.2"

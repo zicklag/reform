@@ -431,6 +431,69 @@ fn add_fact_duplicate() {
     assert!(!e.add_fact(f));
 }
 
+// -- @eval arithmetic reduction -------------------------------------------------
+
+/// An `@eval` in a fact is reduced to the f64 result of the single following
+/// expression argument, immediately when the fact is created.
+#[test]
+fn eval_reduces_math_to_number() {
+    let e = load("$ the final result is @eval (2 + 2 * 3)\n$ quit\n");
+    assert!(e.contains(&fact("the final result is 8")));
+}
+
+/// The expression is evaluated as an f64, so non-integer results are kept.
+#[test]
+fn eval_reduces_to_f64() {
+    let e = load("$ half of (7) is @eval (7 / 2)\n$ quit\n");
+    assert!(e.contains(&fact("half of (7) is 3.5")));
+}
+
+/// Multiple `@eval`s in one fact are each reduced.
+#[test]
+fn eval_reduces_multiple() {
+    let e = load("$ a is @eval (1 + 1) and @eval (2 * 3)\n$ quit\n");
+    assert!(e.contains(&fact("a is 2 and 6")));
+}
+
+/// An `@eval` not followed by an argument is left untouched.
+#[test]
+fn eval_at_end_is_left_alone() {
+    let e = load("$ a @eval\n$ quit\n");
+    assert!(e.contains(&fact("a @eval")));
+}
+
+/// An `@eval` whose expression fails to parse is left untouched.
+#[test]
+fn eval_invalid_expression_is_left_alone() {
+    let e = load("$ a @eval (2 + )\n$ quit\n");
+    assert!(e.contains(&fact("a @eval (2 + )")));
+}
+
+/// An `@eval` whose expression contains a variable is left untouched (Reform
+/// does not support variable bindings).
+#[test]
+fn eval_with_variable_is_left_alone() {
+    let e = load("$ a @eval (x + 2)\n$ quit\n");
+    assert!(e.contains(&fact("a @eval (x + 2)")));
+}
+
+/// Eval reduction happens with highest priority, before rules fire: a rule
+/// body that generates an `@eval` fact reduces it immediately, and a fact
+/// with `@eval` is already reduced before a rule pattern sees it.
+#[test]
+fn eval_reduces_in_rule_body() {
+    let e = load(
+        r#"
+$ rule sum
+    ( add $( $a )* )
+    ( total @eval ( 1 + 2 ) )
+$ add
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("total 3")));
+}
+
 /// `normal_form_arg` escaping edge cases.
 #[test]
 fn normal_form_arg_edge_cases() {
@@ -1381,6 +1444,10 @@ fn output_sink_captures_stdout_and_trace() {
     let err = Rc::new(RefCell::new(String::new()));
     let out_cb = Rc::clone(&out);
     let err_cb = Rc::clone(&err);
+    // The sink closures capture `Rc`s but must be stored in the `Arc`-based
+    // `Output`. This is fine: the test is single-threaded, so the non-Send
+    // capture is intentional.
+    #[allow(clippy::arc_with_non_send_sync)]
     e.set_output(reform::engine::Output {
         stdout: Arc::new(move |s| out_cb.borrow_mut().push_str(s)),
         stderr: Arc::new(move |s| err_cb.borrow_mut().push_str(s)),

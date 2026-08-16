@@ -313,6 +313,7 @@ impl Engine {
     }
 
     pub fn add_fact(&mut self, fact: Fact) -> bool {
+        let fact = self.reduce_evals(fact);
         if self.facts.contains(&fact) {
             false
         } else {
@@ -323,6 +324,36 @@ impl Engine {
             self.changed = true;
             true
         }
+    }
+
+    /// Reduce `@eval` arguments in a fact before it is stored, substituting
+    /// the result of evaluating the single following argument as an f64
+    /// arithmetic expression (via `meval`). This happens with the highest
+    /// priority — immediately when a fact is created, before rules ever see
+    /// it — so math is reduced as soon as it appears.
+    ///
+    /// An `@eval` only interprets the single argument that directly follows
+    /// it. Any `@eval` that isn't followed by an argument, whose expression
+    /// fails to parse, contains variables (we don't support variable
+    /// bindings), or fails to evaluate, is left untouched and the fact
+    /// proceeds unchanged.
+    pub fn reduce_evals(&self, fact: Fact) -> Fact {
+        let mut out: Vec<Arg> = Vec::with_capacity(fact.len());
+        let mut i = 0;
+        while i < fact.len() {
+            if &*fact[i] == "@eval"
+                && let Some(expr) = fact.get(i + 1)
+                && let Ok(value) = meval::eval_str(&**expr)
+            {
+                let s = format!("{value}");
+                out.push(Arg::from(s.as_str()));
+                i += 2;
+                continue;
+            }
+            out.push(fact[i]);
+            i += 1;
+        }
+        Fact(out)
     }
 
     pub fn remove_fact(&mut self, fact: &Fact) -> bool {
