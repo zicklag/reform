@@ -31,61 +31,286 @@ $ assert the world is round
 $ println (assert passed: the world is round)
 `,
 		},
-		'game': {
-			name: 'Mini Game',
-			content: `# A tiny interactive game: a rule that responds to player prompts.
+		'rule': {
+			name: 'Rules',
+			content: `# Rules are how you implement logic in Reform.
 #
-# The \`>\` prefix in a file is a player prompt; typing at the terminal is too.
-# Rules match on \`prompt\` facts and can rewrite them into responses.
+# A rule has a name, a pattern, and a body. When the pattern matches existing
+# facts, the engine fires the rule: it deletes facts marked with \`-\` and
+# creates the facts in the body. The \`-\` on the prompt makes sure the rule
+# doesn't keep firing on the same input.
 
-$ rule (greet)
+$ rule (say hello when user says hi)
     (
-        - prompt hello
+        - prompt hi
     )
     (
-        $ println (Hello, adventurer!)
-    )
-
-$ rule (look)
-    (
-        - prompt look
-    )
-    (
-        $ println (You are in a dark cave. A faint light glows to the north.)
+        println Hello!
     )
 
-$ rule (quit)
-    (
-        - prompt quit
-    )
-    (
-        $ println (Goodbye!)
-        $ quit
-    )
-
-> hello
-> look
+# Try it: type \`hi\` in the terminal.
+# > hi
 `,
 		},
-		'rule': {
-			name: 'Rule Rewriting',
-			content: `# A rule that rewrites a sentence into a derived fact.
+		'name': {
+			name: 'Placeholders',
+			content: `# Patterns can capture arguments with \`$name\` placeholders.
 #
-# The pattern matches a \`parse\` fact and the body creates a new fact.
-# The \`-\` prefix on the pattern removes the matched fact.
+# The placeholder matches any single argument, and the same placeholder can be
+# reused in the body to substitute the captured value. Here we don't know the
+# user's name ahead of time, so we capture it and echo it back.
 
-$ rule (parse is)
+$ rule (say hello to user by name)
     (
-        - parse $x is $y
+        - prompt my name is $name
     )
     (
-        $x is $y
+        println (Hello ) $name !
     )
 
-the sky is blue
-the grass is green
+# Try it: type your name in the terminal.
+# > my name is Sheri
+`,
+		},
+		'rooms': {
+			name: 'Simple Rooms',
+			content: `# A tiny interactive game: walk around a map of rooms.
+#
+# Facts describe the world (where the player is, room descriptions, exits).
+# Rules react to \`prompt\` facts from the terminal. Notice how rule priority
+# works out automatically: the specific \`go north\` rule fires before the
+# generic \`fail to go north\` rule, which fires before the catch-all apology.
+
+# Set the room the player is in
+$ player is in living-room
+
+# Living room
+$ description of living-room is
+  (A cozy room with a nice sofa.)
+
+# Kitchen
+$ description of kitchen is
+  (The place where we cook the food.)
+
+$ kitchen is north of living-room
+
+# Bedroom
+$ description of bedroom is
+  (A nice room with your bed in it.)
+
+$ bedroom is east of kitchen
+
+$ rule (parse the "look" command)
+  (
+    - prompt look
+    player is in $room
+    description of $room is $description
+  )
+  (
+    println (You are in the ) $room .
+    println
+    println $description
+  )
+
+$ rule (apologize for not understanding prompt)
+  (
+    - prompt $( $arg )+
+  )
+  (
+    println (I'm sorry, I didn't understand your command:) $( ( ) $arg )+
+  )
+
+$ rule (go north)
+  (
+    - prompt north
+    - player is in $here
+    $there is north of $here
+  )
+  (
+    player is in $there
+    prompt look
+  )
+
+$ rule (fail to go north)
+  (
+    - prompt north
+  )
+  (
+    println (You can't go that way.)
+  )
+
+$ rule (go south)
+  (
+    - prompt south
+    - player is in $here
+    $here is north of $there
+  )
+  (
+    player is in $there
+    prompt look
+  )
+
+$ rule (fail to go south)
+  (
+    - prompt south
+  )
+  (
+    println (You can't go that way.)
+  )
+
+$ rule (go east)
+  (
+    - prompt east
+    - player is in $here
+    $there is east of $here
+  )
+  (
+    player is in $there
+    prompt look
+  )
+
+$ rule (fail to go east)
+  (
+    - prompt east
+  )
+  (
+    println (You can't go that way.)
+  )
+
+$ rule (go west)
+  (
+    - prompt west
+    - player is in $here
+    $here is east of $there
+  )
+  (
+    player is in $there
+    prompt look
+  )
+
+$ rule (fail to go west)
+  (
+    - prompt west
+  )
+  (
+    println (You can't go that way.)
+  )
+
+# Try it: type \`look\`, \`north\`, \`east\`, etc. in the terminal.
+# > look
+# > north
+`,
+		},
+		'math': {
+			name: 'Math',
+			content: `# Arithmetic is built in via the \`@eval\` fact.
+#
+# \`@eval\` evaluates the single argument that follows it as a math expression
+# and substitutes the result immediately. Expressions with multiple words must
+# be wrapped in parentheses. Values are always f64, so division doesn't truncate.
+
+$ the final result is @eval (2 + 2 * 3)
+$ half of 7 is @eval (7 / 2)
+$ a power is @eval (2 ^ 10)
+$ a square root is @eval (sqrt(144))
+$ a rounded value is @eval (round(3.7))
+$ pi is about @eval (pi)
+
+# \`random(n)\` draws a value in [0, n). Combine with floor for a die roll.
+$ die roll @eval (1 + floor(random(6)))
 
 $ facts
+`,
+		},
+		'plain': {
+			name: 'Plain Language',
+			content: `# Reform lets you invent your own syntax with rules.
+#
+# Lines typed without a \`$\` prefix become \`parse\` facts. Rules can match
+# those \`parse\` facts and rewrite them into a world model. This is how you
+# build a custom "plain language" parser entirely in Reform.
+
+$ rule (parse a room)
+    (
+        - parse $( the )? $name is a room
+    )
+    (
+        room $name
+    )
+
+$ rule (parse a description)
+    (
+        - parse the description of $( the )? $obj is $text
+    )
+    (
+        desc $obj $text
+    )
+
+$ rule (parse an exit)
+    (
+        - parse $( the )? $a is $dir of $( the )? $b
+    )
+    (
+        exit $b $dir $a
+    )
+
+$ rule (parse the player is in)
+    (
+        - parse the player is in $( the )? $room
+    )
+    (
+        player is in $room
+    )
+
+$ rule (parse a look command)
+    (
+        - parse look
+    )
+    (
+        prompt look
+    )
+
+$ rule (look at the room)
+    (
+        - prompt look
+        player is in $room
+        desc $room $text
+    )
+    (
+        $ println (You are in the ) $room .
+        $ println $text
+    )
+
+$ rule (go somewhere)
+    (
+        - prompt go $dir
+        - player is in $here
+        exit $here $dir $there
+    )
+    (
+        player is in $there
+        prompt look
+    )
+
+$ rule (fail to go)
+    (
+        - prompt go $dir
+    )
+    (
+        $ println (You can't go that way.)
+    )
+
+# The world, written in plain English:
+the Kitchen is a room
+the description of the Kitchen is (A cozy room with a stove.)
+the Bedroom is a room
+the description of the Bedroom is (A quiet room with a bed.)
+the Bedroom is east of the Kitchen
+the player is in the Kitchen
+
+# Try it: type \`look\` or \`go east\` in the terminal.
+# > look
+# > go east
 `,
 		},
 	};
@@ -103,8 +328,8 @@ $ facts
 	let trace = $state(false);
 	// Default to allowing `$` commands at the terminal (CLI `-s`/`--safe` disables).
 	let allowDirect = $state(true);
-	let selectedExample = $state('hello');
-	let source = $state(examples['hello'].content);
+	let selectedExample = $state('rooms');
+	let source = $state(examples['rooms'].content);
 	let status = $state('Ready');
 
 	// --- lifecycle ----------------------------------------------------------
@@ -180,10 +405,11 @@ $ facts
 					t.write(data);
 				}
 			});
-			t.write('Reform REPL — type a prompt, or use $ commands.\r\n> ');
-
 			// Resize the terminal with the window.
 			window.addEventListener('resize', onResize);
+
+			// Run the initial example so the console is ready for input.
+			run();
 		})();
 
 		return () => {
@@ -223,6 +449,7 @@ $ facts
 		selectedExample = v;
 		source = examples[v].content;
 		editor?.setValue(source);
+		run();
 	}
 
 	function onTraceChange(on: boolean) {
