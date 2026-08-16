@@ -312,7 +312,7 @@ These are triggered by just creating new facts, with the `$` syntax to prevent t
 - `quit` exit the program
 - `panic message` panic with a message
 - `println any number of message args` concatenate all args with no separator and print to stdout followed by a newline. To print text containing spaces, wrap it in a single parenthesized arg (e.g. `$ println (you see a cave)`); bare word args run together (`$ println you see a cave` prints `youseeacave`).
-- `print args` print all the args separated by spaces to stdout without a trailing newline.
+- `print args` concatenate all args with no separator and print to stdout without a trailing newline.
 - `- fact` can be used to remove a fact immediately
 
 ## Errata

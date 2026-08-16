@@ -46,9 +46,10 @@ differently. This is what makes Reform a substrate for custom, natural-looking
 languages.
 
 Every argument is stored as an interned string; arguments are compared by
-value. A fact may have zero arguments (`()`), and an argument may be the empty
-string (written `()`). Facts are unique in the engine — adding a fact that is
-already present is a no-op.
+value. An argument may be the empty string (written `()`). A fact with zero
+arguments exists only through the embedding API — no source syntax produces
+one. Facts are unique in the engine — adding a fact that is already present is
+a no-op.
 
 ---
 
@@ -70,8 +71,8 @@ So `$ prompt Hello World` and `> Hello World` create the identical fact.
 
 ### Arguments and whitespace
 
-Arguments are separated by horizontal whitespace (spaces and tabs). Any number
-of spaces may separate arguments.
+Arguments are separated by spaces (any number). A tab is an ordinary word
+character — it neither separates arguments nor counts toward indentation.
 
 ```rf
 $ This   is   a   sentence
@@ -122,15 +123,14 @@ The last argument is `Alice Von Schmidt`.
 Inside a parenthesized argument:
 
 - Parentheses may be **nested** if balanced: `(He was pleased (not that he'd admit it).)` keeps the inner parens.
-- A literal `(` or `)` is escaped with a backslash: `\(` and `\)`. A smiley `:)` in a string is written `:\\)`.
-- A literal backslash is escaped as `\\\\`.
+- A literal `(` or `)` is escaped with a backslash: `\(` and `\)`. A smiley `:)` in a string is written `:\)`.
+- A literal backslash is escaped as `\\`.
 - To include parens as the *value* (e.g. an argument literally `(example)`), use double parentheses: `((example))`.
 
 ### Multi-line facts
 
 A fact may continue on subsequent lines if those lines are indented **more**
-than the line that started the fact. Indentation may be any amount of
-horizontal whitespace.
+than the line that started the fact. Indentation is counted in spaces.
 
 ```rf
 $ Bob
@@ -144,8 +144,9 @@ blank continuation lines add no arguments.
 Indentation counting is suspended while inside a parenthesized argument — all
 whitespace inside the parens is taken literally.
 
-An **empty line breaks a fact**. Everything indented under the fact before a
-blank line belongs to it; after the blank line, a new fact starts.
+A blank or comment-only line adds no arguments and does not by itself end the
+fact: a later line indented more than the fact's first line still continues
+it. A line at the same or lesser indentation starts a new fact.
 
 ---
 
@@ -177,7 +178,7 @@ Inside a single-backtick template:
 
 - Literal curly braces are escaped as `\{` and `\}`. Unescaped braces are always substitution delimiters.
 - A literal backtick is written `` \` ``.
-- A literal backslash is written `\\\\`.
+- A literal backslash is written `\\`.
 - Normal word splitting applies *between* backticks and inside `{ ... }`
   sections; literal text runs (including newlines) are preserved verbatim as
   single arguments.
@@ -217,7 +218,7 @@ Inside a fenced block:
 - Backticks are **literal** — the block is only closed by a dedicated `` ``` ``
   line, not by a single backtick.
 - `\{` and `\}` are escapes for literal braces.
-- `\\\\` is a literal backslash.
+- `\\` is a literal backslash.
 - `` \``` `` (escaped triple backtick) produces a literal `` ``` `` in the
   content and does not close the fence.
 - A `{ ... }` section splits the interior just as in a single-backtick
@@ -283,8 +284,7 @@ When the pattern matches:
 
 ### Specificity adjustment (5th argument)
 
-The optional fifth argument is an integer optionally prefixed with `+`, `-`,
-or `=`:
+The optional fifth argument is an integer prefixed with `+`, `-`, or `=`:
 
 - `+N` adds N to the rule's computed specificity.
 - `-N` subtracts N.
@@ -384,6 +384,10 @@ Each pattern fact line may start with a prefix:
 `-` and `!` do not combine into a single marker. The parser accepts `!` then a
 literal `-word`, but not a combined `-!`.
 
+`!` is only honored on pattern facts at the **top level** of the pattern.
+Inside a fact-level repetition (`$( ... )?/+/*`), the `!` prefix is stripped
+and the inner fact is matched as a plain (non-negated) fact.
+
 ### Greedy repetitions
 
 By default, `?`, `+`, and `*` repetitions are **lazy** (see [Matching
@@ -468,9 +472,9 @@ description, and `$room` must match in both facts.
 `+` and `*` arg repetitions are **lazy** by default: they match as few
 iterations as possible. When a fact admits several full-consumption matches,
 they are enumerated lazy-first (the one peeling the fewest arguments from the
-leftmost repetition first). `?` is greedy by default (one iteration preferred,
-zero as fallback) but enumerates both alternatives in that order. Doubled
-markers (`++`, `**`, `??`) invert to greedy.
+leftmost repetition first). `?` is also lazy by default (zero iterations
+preferred, one as fallback). Doubled markers (`++`, `**`, `??`) invert to
+greedy.
 
 The **laziest binding that satisfies the entire pattern** fires. If the greedier
 parse fails a later constraint (e.g. an `$( $a is article )?` whose `$a` has no
@@ -536,7 +540,9 @@ All computation happens by firing rules to a **fixpoint**. Each `turn()`:
 3. A rule fires at most once per distinct matched-fact set per turn (tracked
    to prevent re-firing on identical facts).
 4. On firing, it deletes the `-`-marked facts, renders the body, and creates
-   the resulting facts (and fires any new rules).
+   the resulting facts. Any rules created by the body are registered but fire
+   on a subsequent turn (the current turn iterates a snapshot of the rule
+   list).
 5. If any fact changed, the loop **restarts from the most-specific rule**, so
    more-specific rules get first dibs on changed facts.
 6. When a full pass changes nothing, the engine has reached a fixpoint.
@@ -544,10 +550,11 @@ All computation happens by firing rules to a **fixpoint**. Each `turn()`:
 ### Recursive firing
 
 A rule may fire repeatedly within a single turn, including on facts produced
-by its own firing (there is no single-fire-per-turn limit). This is what makes
-recursive "peel one item per firing" rules work — e.g. splitting one sentence
-off a `parse` fact and leaving a shorter `parse` fact that re-triggers the same
-rule. A rule is *not* marked fired when its output restarts the loop.
+by its own firing (limited only by the per-matched-fact-set tracking in step
+3). This is what makes recursive "peel one item per firing" rules work — e.g.
+splitting one sentence off a `parse` fact and leaving a shorter `parse` fact
+that re-triggers the same rule. A rule is *not* marked fired when its output
+restarts the loop.
 
 ### Fixpoint bound
 
@@ -625,9 +632,10 @@ arguments.
 
 - `println` concatenates its arguments with **no separator** and appends a
   newline.
-- `print` joins its arguments with spaces and does not append a newline.
+- `print` concatenates its arguments with **no separator** and does not append
+  a newline.
 
-Because `println` concatenates without spaces, wrap a multi-word string in a
+Because both concatenate without spaces, wrap a multi-word string in a
 single parenthesized arg: `$ println (you see a cave)` prints `you see a cave`,
 while `$ println you see a cave` prints `youseeacave`.
 
@@ -679,7 +687,8 @@ error.
 A fact whose first argument is `-` removes matching facts immediately. The
 remaining arguments are interpreted as a pattern (removing every matching
 fact); if that pattern does not parse, they are treated as an exact fact to
-remove. `$ -` with no arguments is a no-op.
+remove. `$ -` with no arguments is a no-op. Removing a rule fact also
+unregisters that rule.
 
 ---
 
@@ -690,9 +699,12 @@ spaces, with each argument wrapped in parentheses if it needs to be. An
 argument is wrapped if it contains whitespace, parentheses, or a backtick, or
 ends in one of `;` `.` `:` `'`. An empty argument renders as `()`.
 
-Facts in normal form always parse back to the identical fact, so normal form
-round-trips. `facts`, `find`, trace output, and body-placeholder rendering all
-use normal form.
+Facts in normal form parse back to the identical fact, so normal form
+round-trips for arguments that don't contain a comma, a `#`, an unescaped
+`{`/`}`, or start with `$` — such arguments do not survive re-parsing (a
+comma splits, `#` starts a comment, braces split, and a leading `$` gets the
+`parse` prefix). `facts`, `find`, trace output, and body-placeholder rendering
+all use normal form.
 
 ```rf
 (Grand Canyon) is big
@@ -708,7 +720,7 @@ functions are public so it can be embedded and extended:
 
 - `Engine` holds the fact store, registered rules, command handlers, output
   sinks, and load base directory. Use `load_str` / `load_file` to load source,
-  `add_fact` / `remove_fact` / `add_rule`, `turn` / `run` / `settle` to drive
+  `add_fact` / `remove_fact` / `add_rule`, `turn` / `run` to drive
   evaluation, `facts()` / `rules()` to inspect state, and `register_command` /
   `remove_command` to add custom commands.
 - `Fact`, `Arg`, `normal_form_arg`, and `normal_form_fact` provide the data

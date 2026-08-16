@@ -15,7 +15,7 @@ $ kitchen is north of living-room
 $ description of bedroom is
   (A nice room with your bed in it.)
 
-$ bedroom is east of kitchenm
+$ bedroom is east of kitchen
 
 $ rule (parse the "look" command)
   (
@@ -35,4 +35,80 @@ $ rule (apologize for not understanding prompt)
   )
   (
     println (I'm sorry, I didn't understand your command:) $( ( ) $arg )+
+  )
+
+$ rule (go north)
+  (
+    - prompt north
+    - player is in $here
+    $there is north of $here
+  )
+  (
+    player is in $there
+    prompt look
+  )
+
+$ rule (fail to go north)
+  (
+    - prompt north
+  )
+  (
+    println (You can't go that way.)
+  )
+
+$ rule (go south)
+  (
+    - prompt south
+    - player is in $here
+    $here is north of $there
+  )
+  (
+    player is in $there
+    prompt look
+  )
+  
+$ rule (fail to go south)
+  (
+    - prompt south
+  )
+  (
+    println (You can't go that way.)
+  )
+  
+$ rule (go east)
+  (
+    - prompt east
+    - player is in $here
+    $there is east of $here
+  )
+  (
+    player is in $there
+    prompt look
+  )
+  
+$ rule (fail to go east)
+  (
+    - prompt east
+  )
+  (
+    println (You can't go that way.)
+  )
+
+$ rule (go west)
+  (
+    - prompt west
+    - player is in $here
+    $here is east of $there
+  )
+  (
+    player is in $there
+    prompt look
+  )
+  
+$ rule (fail to go west)
+  (
+    - prompt west
+  )
+  (
+    println (You can't go that way.)
   )

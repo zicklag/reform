@@ -249,4 +249,270 @@ Blocks can be used to parser very rich patterns. They can even be nested inside
 each-other when necessary or wrapped around whole facts to match on multiple
 facts at a time.
 
+### Greedy and Lazy Blocks
 
+By default pattern blocks are **lazy**. This means that they will match as few
+arguments as possible, if there is a choice.
+
+For example if we have a pattern like this:
+
+```
+(
+  $( $before )+ $( $after )*
+)
+```
+
+If we have a fact like:
+
+```
+a b c
+```
+
+`$before` will match `a` because it has to match at least once, but because
+it is lazy, it will only match `a`, and it will allow `$after` to match
+on `b` and `c`.
+
+Even though `$after` is lazy, too, it has to match on `b` and `c` because
+if it tried to match on nothing, the pattern wouldn't match at all.
+
+So lazy blocks will try to do as little matching as possible, while still
+actually matching the fact, if they can.
+
+Usually lazy matching is good for parsing because it lets us more easily
+match on some info at the beginning of a fact, and leave the rest at
+the end in a catch all like `$after`. Sometimes, though, you need to make
+a block **greedy**.
+
+A greedy block will match as many arguments as possible. You can  make
+any of the blocks greedy instead of lazy by doubling the optional / repeat
+character at the end of the block, i.e:
+
+- Greedy optional block `$( $example )??`
+- Greedy zero-or-more block `$( $example )**`
+- Greedy one-or-more block `$( $example )++`
+
+## Almost the Whole Language
+
+Now you've almost learned the entire Reform language!
+
+It may take some getting used to, figuring out how to make different kinds of
+logic and flows with only rules and facts. We are still figuring out the best
+way to do things ourselves!
+
+But the system is very flexible and we are excited to see what kinds of
+things can be made with it.
+
+As we flesh out our interactive fiction library, we'll be extending the docs
+with a cookbook to show how to do common things.
+
+The last concept to learn about is [template strings](templates.md), which are
+helpful for writing big strings with programmed substitutions in them.
+
+### Plain Language Programming
+
+We also haven't demonstrated how to do "plain language" programming yet! In
+fact, you already have all the tools you need to make custom language parsers
+in Reform.
+
+Instead of making rules that match on `prompt` facts, you can make rules that
+match on `parse` facts, which are generated whenever you type a fact without
+the `$` before it.
+
+This lets you extend Reform to create your own syntax just by using rules! In a
+[later section](plain-language-parsing.md) section we'll go into some examples
+of what this can look like.
+
+But before we get to any of that, lets update our game so we can walk around!
+
+## Walking Around Rooms
+
+In our **simple-rooms.rf** so far, we can `look`, but we can only look at the
+room we're in and there's no way to go to the other rooms.
+
+What we want to do is add rules for parsing `north`, `south`, `east`, and `west`
+so that they move us into the adjacent room in that direction, if there is one.
+
+Our north rule can look like this:
+
+```rf
+$ rule (go north)
+  (
+    - prompt north
+    - player is in $here
+    $there is north of $here
+  )
+  (
+    player is in $there
+    prompt look
+  )
+```
+
+Let's break it down step by step. First the pattern:
+
+- `-prompt north`: If the player typed north, we match on it and remove the
+  prompt.
+- `- player is in $here`: If the player is in any room `$here` then we match on
+  that and remove the fact. We remove it so that we can add a new fact for where
+  the player is that will replace the old one.
+- `$there is north of $here`: We match on a fact that says some other room is
+  north of the `$here` room that the player is in.
+
+If all those facts exist, then we are able to go north in the body:
+
+- `player is in $there`: We put the player in the room that was north of `$here`.
+- `prompt look`: We trigger a look prompt so that the player can immediately see
+  the description of the Room that they moved to.
+
+Now we can run it!
+
+```
+reform examples/simple-rooms.rf
+> look
+You are in the living-room.
+
+A cozy room with a nice sofa.
+> north
+You are in the kitchen.
+
+The place where we cook the food.
+> north
+I'm sorry, I didn't understand your command: north
+>
+```
+
+Notice that when there is no room north of the room that we are in, our north
+rule fails to fire and the apologize rule fires because nothing consumed `prompt
+north`. That's confusing to the player, so let's improve it by adding default
+rule for going north that gives a more helpful message.
+
+```rf
+$ rule (fail to go north)
+  (
+    - prompt north
+  )
+  (
+    println (You can't go that way.)
+  )
+```
+
+And running it:
+
+```
+reform examples/simple-rooms.rf
+> north
+You are in the kitchen.
+
+The place where we cook the food.
+> north
+You can't go that way.
+>
+```
+
+The automatic rule priority works out great for us again: the "go north" rule
+is more specific than "fail to go north" because it matches on multiple facts.
+
+Now, when parsing a `north` prompt, there are actually three different rules now
+that would match on the prompt:
+
+- "go north"
+- "fail to go north", and
+- "apologize for not understanding prompt"
+
+But Reform is smart enough to order them by how specific they are so that
+they each fire only when they should.
+
+Finally, we can do the same thing for all of the remaining directions:
+
+```rf
+$ rule (go south)
+  (
+    - prompt south
+    - player is in $here
+    $here is north of $there
+  )
+  (
+    player is in $there
+    prompt look
+  )
+  
+$ rule (fail to go south)
+  (
+    - prompt south
+  )
+  (
+    println (You can't go that way.)
+  )
+  
+$ rule (go east)
+  (
+    - prompt east
+    - player is in $here
+    $there is east of $here
+  )
+  (
+    player is in $there
+    prompt look
+  )
+  
+$ rule (fail to go east)
+  (
+    - prompt east
+  )
+  (
+    println (You can't go that way.)
+  )
+
+$ rule (go west)
+  (
+    - prompt west
+    - player is in $here
+    $here is east of $there
+  )
+  (
+    player is in $there
+    prompt look
+  )
+  
+$ rule (fail to go west)
+  (
+    - prompt west
+  )
+  (
+    println (You can't go that way.)
+  )
+```
+
+One thing worth noticing is that when going south and west, just swap `$here` and
+`$there` while still chekcing the `north of` or `east of` rules.
+
+There are multiple ways of handling this, for example, we could create rules that
+automatically create `west of` rules whenever there is a corresponding `east of`.
+In our experience so far it seems best to decide on an "official" way to write
+any given fact, so that if you ever need to change which room is `east of` another
+you only have to worry about updating one rule, instead of both the `east of` and
+`west of` rules.
+
+Anyway, now we can navigate our whole map!
+
+```
+reform examples/simple-rooms.rf
+> look
+You are in the living-room.
+
+A cozy room with a nice sofa.
+> east
+You can't go that way.
+> north
+You are in the kitchen.
+
+The place where we cook the food.
+> west
+You can't go that way.
+> east
+You are in the bedroom.
+
+A nice room with your bed in it.
+> east
+You can't go that way.
+>
+```

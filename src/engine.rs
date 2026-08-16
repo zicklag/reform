@@ -237,7 +237,7 @@ impl Engine {
         self.register_command(
             "print",
             Arc::new(|engine, args| {
-                let s: String = args.iter().map(|a| &**a).collect::<Vec<_>>().join(" ");
+                let s: String = args.iter().map(|a| &**a).collect();
                 (engine.output.stdout)(&s);
                 Ok(())
             }),
