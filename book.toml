@@ -10,7 +10,7 @@ build-dir = "book"
 
 [output.html]
 default-theme = "Rust"
-git-repository-url = "https://github.com/zicklag/reform/docs"
+git-repository-url = "https://github.com/zicklag/reform"
 additional-css = ["theme/reform-highlight.css"]
 additional-js = ["theme/reform-highlight.js"]
 
