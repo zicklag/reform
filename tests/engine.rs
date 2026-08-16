@@ -494,6 +494,53 @@ $ quit
     assert!(e.contains(&fact("total 3")));
 }
 
+/// Two engines with the same seed produce the same `random(n)` results for
+/// the life of the engine.
+#[test]
+fn eval_random_deterministic_with_seed() {
+    let a = reform::engine::Engine::new_with_seed(12345);
+    let b = reform::engine::Engine::new_with_seed(12345);
+    for _ in 0..20 {
+        let fa = a.reduce_evals(fact("@eval (random(100))"));
+        let fb = b.reduce_evals(fact("@eval (random(100))"));
+        assert_eq!(fa, fb, "same seed must give same result");
+    }
+}
+
+/// Different seeds produce (almost surely) different results.
+#[test]
+fn eval_random_different_seeds_differ() {
+    let a = reform::engine::Engine::new_with_seed(111);
+    let b = reform::engine::Engine::new_with_seed(222);
+    let fa = a.reduce_evals(fact("@eval (random(100))"));
+    let fb = b.reduce_evals(fact("@eval (random(100))"));
+    assert_ne!(fa, fb, "different seeds should differ");
+}
+
+/// `random(n)` is in `[0, n)`, so `1 + floor(random(6))` yields a die roll
+/// in `1..=6` and a value inside the range.
+#[test]
+fn eval_random_die_roll_in_range() {
+    let e = reform::engine::Engine::new_with_seed(42);
+    for _ in 0..100 {
+        let f = e.reduce_evals(fact("die @eval (1 + floor(random(6)))"));
+        let v: i64 = f[1].parse().expect("die value should be a number");
+        assert!((1..=6).contains(&v), "die roll {v} out of 1..=6");
+    }
+}
+
+/// A `random(n)` value with `n` stays in `[0, n)`, including when it is
+/// non-integer.
+#[test]
+fn eval_random_bounded() {
+    let e = reform::engine::Engine::new_with_seed(7);
+    for _ in 0..100 {
+        let f = e.reduce_evals(fact("x @eval (random(10))"));
+        let v: f64 = f[1].parse().expect("random should yield a number");
+        assert!((0.0..10.0).contains(&v), "random value {v} out of [0,10)");
+    }
+}
+
 /// `normal_form_arg` escaping edge cases.
 #[test]
 fn normal_form_arg_edge_cases() {

@@ -596,7 +596,7 @@ negated or only of removal facts is valid.
 The `reform` executable is a REPL plus a file runner.
 
 ```
-reform [--safe] [--trace] [--version] [files...]
+reform [--safe] [--trace] [--seed SEED] [--version] [files...]
 ```
 
 - Positional **files** are loaded (via `load_file`) before the REPL starts. If
@@ -606,6 +606,8 @@ reform [--safe] [--trace] [--version] [files...]
 - **`--trace`** (or the `REFORM_TRACE` environment variable being set) prints
   trace events to stderr: facts added (`+`) / removed (`-`), rules registered
   (with computed specificity), and rule firings (`fire <name> -> <body>`).
+- **`--seed SEED`** seeds the `random(n)` stream so `@eval` output is
+  deterministic. Omit it to draw a fresh random seed from system entropy.
 - **`--version`** prints the version and exits.
 
 At the REPL:
@@ -724,6 +726,24 @@ The supported operators are `+`, `-`, `*`, `/`, `%` (remainder), and `^`
 `tanh`, `asinh`, `acosh`, `atanh`, `floor`, `ceil`, `round`, `signum`, `max`,
 `min`, and the constants `pi` and `e`.
 
+### Randomness: `random(n)`
+
+`@eval` includes a `random(n)` function. Its argument `n` is the **exclusive
+upper bound**: `random(n)` returns a uniformly distributed f64 in `[0, n)`.
+So `random(6)` draws from `[0, 6)` and `random(1)` is always in `[0, 1)`. It
+draws from a deterministic stream seeded at engine creation, so combining it
+with `floor` gives clean integer ranges — e.g. a die roll:
+
+```rf
+$ die roll @eval (1 + floor(random(6)))
+$ random walk step @eval (floor(random(3)) - 1)
+```
+
+The stream is seeded once for the life of the engine. [`Engine::new`] seeds it
+from system entropy (nondeterministic); [`Engine::new_with_seed`] or the CLI's
+`--seed` flag seed it with a fixed value, making `random(n)` reproducible
+across runs.
+
 ---
 
 ## Normal Form
@@ -756,7 +776,9 @@ functions are public so it can be embedded and extended:
   sinks, and load base directory. Use `load_str` / `load_file` to load source,
   `add_fact` / `remove_fact` / `add_rule`, `turn` / `run` to drive
   evaluation, `facts()` / `rules()` to inspect state, and `register_command` /
-  `remove_command` to add custom commands.
+  `remove_command` to add custom commands. Construct it with `Engine::new`
+  (entropy-seeded `random(n)`) or `Engine::new_with_seed(u64)` for a
+  deterministic random stream.
 - `Fact`, `Arg`, `normal_form_arg`, and `normal_form_fact` provide the data
   model and rendering.
 - `parser::facts` / `parser::pattern` / `parser::body` parse source, patterns,

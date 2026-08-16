@@ -1,6 +1,7 @@
 use crate::rule::Rule;
 use crate::{Arg, Fact, parser};
 use anyhow::{Result, anyhow, bail};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -64,6 +65,12 @@ pub struct Engine {
     /// Where stdout-style output (print/println/find/facts) and trace events
     /// go. Defaults to the process stdout/stderr; WASM swaps in JS callbacks.
     output: Output,
+    /// SplitMix64 state for the `random(n)` function available to `@eval`
+    /// expressions. A `Cell` provides the interior mutability that lets
+    /// `random` advance the stream from `reduce_evals`'s shared `&self`.
+    /// Seeded via [`Engine::new`] (entropy) or [`Engine::new_with_seed`]
+    /// (deterministic); see [`Engine::set_seed`].
+    rng_state: Cell<u64>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -95,15 +102,40 @@ impl Default for Engine {
             max_iterations: 100_000,
             commands: HashMap::new(),
             output: Output::default(),
+            rng_state: Cell::new(entropy_seed()),
         };
         engine.register_default_commands();
         engine
     }
 }
 
+/// Derive a random seed from the system entropy source (`getrandom`). Used by
+/// [`Engine::default`] so the `random(n)` function is nondeterministic unless
+/// the caller supplies a seed via [`Engine::new_with_seed`].
+fn entropy_seed() -> u64 {
+    getrandom::u64().unwrap_or(0x9E3779B97F4A7C15)
+}
+
 impl Engine {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create an engine with a deterministic random seed. Every `random(n)`
+    /// call in an `@eval` expression draws from this seed's stream, so two
+    /// engines built with the same seed produce identical results for the
+    /// life of the engine. Use [`Engine::new`] to draw the seed from system
+    /// entropy instead.
+    pub fn new_with_seed(seed: u64) -> Self {
+        let mut engine = Self::default();
+        engine.set_seed(seed);
+        engine
+    }
+
+    /// Re-seed the `random(n)` stream. Subsequent `@eval` expressions use the
+    /// new seed from here on.
+    pub fn set_seed(&mut self, seed: u64) {
+        self.rng_state.set(seed);
     }
 
     pub fn facts(&self) -> &[Fact] {
@@ -332,18 +364,26 @@ impl Engine {
     /// priority — immediately when a fact is created, before rules ever see
     /// it — so math is reduced as soon as it appears.
     ///
+    /// The expression language is `meval`'s built-ins plus a `random(n)`
+    /// function that returns a uniformly distributed f64 in `[0, n)`, drawn
+    /// from this engine's deterministic seed stream (see
+    /// [`Engine::new_with_seed`]).
+    ///
     /// An `@eval` only interprets the single argument that directly follows
     /// it. Any `@eval` that isn't followed by an argument, whose expression
     /// fails to parse, contains variables (we don't support variable
     /// bindings), or fails to evaluate, is left untouched and the fact
     /// proceeds unchanged.
     pub fn reduce_evals(&self, fact: Fact) -> Fact {
+        let mut ctx = meval::Context::new();
+        ctx.func("random", |bound: f64| self.next_random() * bound);
         let mut out: Vec<Arg> = Vec::with_capacity(fact.len());
         let mut i = 0;
         while i < fact.len() {
             if &*fact[i] == "@eval"
                 && let Some(expr) = fact.get(i + 1)
-                && let Ok(value) = meval::eval_str(&**expr)
+                && let Ok(value) = expr.parse::<meval::Expr>()
+                && let Ok(value) = value.eval_with_context(&ctx)
             {
                 let s = format!("{value}");
                 out.push(Arg::from(s.as_str()));
@@ -354,6 +394,19 @@ impl Engine {
             i += 1;
         }
         Fact(out)
+    }
+
+    /// One draw from the engine's SplitMix64 random stream: a uniformly
+    /// distributed f64 in `[0, 1)`. Advances the internal state, so successive
+    /// `random(n)` calls in `@eval` expressions yield independent values.
+    fn next_random(&self) -> f64 {
+        let mut z = self.rng_state.get();
+        z = z.wrapping_add(0x9E3779B97F4A7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z = z ^ (z >> 31);
+        self.rng_state.set(z);
+        (z >> 11) as f64 / (1u64 << 53) as f64
     }
 
     pub fn remove_fact(&mut self, fact: &Fact) -> bool {

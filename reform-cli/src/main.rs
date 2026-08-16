@@ -33,6 +33,16 @@ struct Cli {
     #[argh(switch, long = "version", description = "print version and exit")]
     version: bool,
 
+    /// Seed the `random(n)` stream to make `@eval` output deterministic for
+    /// the life of the process.
+    #[argh(
+        option,
+        short = 'r',
+        long = "seed",
+        description = "deterministic random seed"
+    )]
+    seed: Option<u64>,
+
     /// Reform files to load before starting the REPL.
     #[argh(positional, description = "reform files to load")]
     files: Vec<PathBuf>,
@@ -44,7 +54,10 @@ fn main() {
         println!("reform {}", env!("CARGO_PKG_VERSION"));
         return;
     }
-    let mut engine = Engine::new();
+    let mut engine = match cli.seed {
+        Some(seed) => Engine::new_with_seed(seed),
+        None => Engine::new(),
+    };
     let trace = cli.trace || std::env::var("REFORM_TRACE").is_ok();
     engine.set_trace(trace);
 
