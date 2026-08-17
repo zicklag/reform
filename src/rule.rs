@@ -519,10 +519,10 @@ impl PatternFact {
     /// fresh against `fact` and accumulated through the frame stack. If the
     /// input `bindings` already hold a value for one of this fact's list-bound
     /// placeholders, that value is the expected (final) result from a prior
-    /// match — used by `removed_facts`/`matched_facts` to re-identify the
-    /// consumed fact — so only fresh matches that reproduce it exactly are
-    /// kept. Scalars and list-bound placeholders from other pattern items
-    /// are carried through as constraints.
+    /// match — used by `matched_facts` to re-identify the consumed fact — so
+    /// only fresh matches that reproduce it exactly are kept. Scalars and
+    /// list-bound placeholders from other pattern items are carried through
+    /// as constraints.
     pub fn match_fact(&self, fact: &Fact, bindings: &Bindings) -> Vec<Bindings> {
         // Structural pre-filter: reject facts whose arg shape can't match
         // before running the binding matcher. The pre-filter is a sound
@@ -849,16 +849,37 @@ impl Pattern {
     pub fn find_matches_detailed(&self, facts: &[Fact]) -> Vec<(Bindings, Vec<usize>)> {
         let used = vec![false; facts.len()];
         match_items_detailed(&self.0, facts, &used, &Bindings::new())
+            .into_iter()
+            .map(|(b, groups)| (b, groups.into_iter().flatten().collect()))
+            .collect()
+    }
+
+    /// Like [`find_matches_detailed`](Self::find_matches_detailed) but the
+    /// indices are grouped per pattern item (in pattern order), so a caller
+    /// can tell which facts each item consumed. Used by `removed_facts` to
+    /// delete exactly the facts a `-` item consumed.
+    pub fn find_matches_detailed_grouped(
+        &self,
+        facts: &[Fact],
+    ) -> Vec<(Bindings, Vec<Vec<usize>>)> {
+        let used = vec![false; facts.len()];
+        match_items_detailed(&self.0, facts, &used, &Bindings::new())
     }
 }
 
-/// Like `match_items` but also returns the indices of matched facts.
+/// Like `match_items` but also returns, for each pattern item, the indices of
+/// the facts it consumed. The outer `Vec` has one entry per pattern item (in
+/// pattern order); each inner `Vec` holds the fact indices that item matched
+/// (empty for negated facts, `?` constraints, and absent repetitions). This
+/// lets `removed_facts` delete exactly the facts a `-` item consumed, without
+/// re-matching (which can't tell a loose `- $x` from a sibling item that
+/// consumed the same fact).
 fn match_items_detailed(
     items: &[PatternItem],
     facts: &[Fact],
     used: &[bool],
     b: &Bindings,
-) -> Vec<(Bindings, Vec<usize>)> {
+) -> Vec<(Bindings, Vec<Vec<usize>>)> {
     if items.is_empty() {
         return vec![(b.clone(), Vec::new())];
     }
@@ -871,7 +892,10 @@ fn match_items_detailed(
                 // fact matches. Binds nothing, consumes nothing.
                 let any = facts.iter().any(|f| !pf.match_fact(f, b).is_empty());
                 if !any {
-                    out.extend(match_items_detailed(rest, facts, used, b));
+                    for (b3, mut groups) in match_items_detailed(rest, facts, used, b) {
+                        groups.insert(0, Vec::new());
+                        out.push((b3, groups));
+                    }
                 }
             } else {
                 for i in 0..facts.len() {
@@ -895,10 +919,10 @@ fn match_items_detailed(
                     for b2 in pf.match_fact(&facts[i], b) {
                         let rest_matches = match_items_detailed(rest, facts, &used2, &b2);
                         if !rest_matches.is_empty() {
-                            // Prepend this fact's index to each result's index list.
-                            for (b3, mut idxs) in rest_matches {
-                                idxs.insert(0, i);
-                                out.push((b3, idxs));
+                            // Prepend this fact's index group to each result.
+                            for (b3, mut groups) in rest_matches {
+                                groups.insert(0, vec![i]);
+                                out.push((b3, groups));
                             }
                             break;
                         }
@@ -913,14 +937,15 @@ fn match_items_detailed(
     out
 }
 
-/// Like `match_fact_repetition` but also returns the indices of matched facts.
+/// Like `match_fact_repetition` but also returns, for each pattern item, the
+/// indices of the facts it consumed (see [`match_items_detailed`]).
 fn match_fact_repetition_detailed(
     rep: &PatternFactRepetition,
     facts: &[Fact],
     used: &[bool],
     b: &Bindings,
     rest: &[PatternItem],
-) -> Vec<(Bindings, Vec<usize>)> {
+) -> Vec<(Bindings, Vec<Vec<usize>>)> {
     if rep.facts.len() != 1 {
         // Multi-fact inner repetitions aren't supported yet.
         return Vec::new();
@@ -1012,7 +1037,7 @@ fn match_fact_repetition_detailed(
     // there is nothing to take.
     let want_absent = can_absent && (!want_present || (free_optional && !matched_idx.is_empty()));
 
-    let present_results: Vec<(Bindings, Vec<usize>)> = if want_present {
+    let present_results: Vec<(Bindings, Vec<Vec<usize>>)> = if want_present {
         let mut used2 = used.to_vec();
         let mut b3 = b.clone();
         if !must_match {
@@ -1054,26 +1079,29 @@ fn match_fact_repetition_detailed(
         // never produces, so it was a no-op anyway.
         match_items_detailed(rest, facts, &used2, &b3)
             .into_iter()
-            .map(|(b_rest, idxs)| {
-                let all_idxs = if must_match {
-                    // `?` constraint: the fact is verified but NOT consumed, so
-                    // don't include its index in the result.
-                    idxs
-                } else {
-                    let mut all = take.clone();
-                    all.extend(idxs);
-                    all
-                };
-                (b_rest, all_idxs)
+            .map(|(b_rest, mut groups)| {
+                // This repetition's consumed facts are its own group. A `?`
+                // constraint verifies but does NOT consume, so it contributes
+                // an empty group.
+                let this_group = if must_match { Vec::new() } else { take.clone() };
+                groups.insert(0, this_group);
+                (b_rest, groups)
             })
             .collect()
     } else {
         Vec::new()
     };
 
-    let absent_results: Vec<(Bindings, Vec<usize>)> = if want_absent {
+    let absent_results: Vec<(Bindings, Vec<Vec<usize>>)> = if want_absent {
         // No matching facts (or `?` with nothing to take): match zero facts.
+        // This repetition consumed nothing, so its group is empty.
         match_items_detailed(rest, facts, used, b)
+            .into_iter()
+            .map(|(b_rest, mut groups)| {
+                groups.insert(0, Vec::new());
+                (b_rest, groups)
+            })
+            .collect()
     } else {
         Vec::new()
     };
@@ -1111,18 +1139,35 @@ impl Rule {
         self.pattern.find_matches_detailed(facts)
     }
 
-    /// Facts matched by pattern facts marked for removal (`-`), given a set of
-    /// bindings. Used to delete the consumed facts when the rule fires.
-    pub fn removed_facts(&self, facts: &[Fact], b: &Bindings) -> Vec<Fact> {
+    /// Like [`find_matches_detailed`](Self::find_matches_detailed) but the
+    /// indices are grouped per pattern item (in pattern order), so a caller
+    /// can tell which facts each item consumed. Used by `removed_facts` to
+    /// delete exactly the facts a `-` item consumed.
+    pub fn find_matches_detailed_grouped(
+        &self,
+        facts: &[Fact],
+    ) -> Vec<(Bindings, Vec<Vec<usize>>)> {
+        self.pattern.find_matches_detailed_grouped(facts)
+    }
+
+    /// Facts matched by pattern facts marked for removal (`-`), given the
+    /// per-item consumed-fact indices from
+    /// [`find_matches_detailed_grouped`](Self::find_matches_detailed_grouped)
+    /// (one group per pattern item, in pattern order). Used to delete the
+    /// consumed facts when the rule fires. Using the exact consumed indices —
+    /// rather than re-matching — is what lets a `-` inside a fact-level
+    /// repetition delete only the facts it actually consumed, and keeps a
+    /// loose `- $x` from deleting a fact a sibling item consumed.
+    pub fn removed_facts(&self, facts: &[Fact], groups: &[Vec<usize>]) -> Vec<Fact> {
         let mut out = Vec::new();
-        for item in &self.pattern.0 {
-            if let PatternItem::Fact(pf) = item
-                && pf.removed
-            {
-                for f in facts {
-                    if !pf.match_fact(f, b).is_empty() {
-                        out.push(f.clone());
-                    }
+        for (item, group) in self.pattern.0.iter().zip(groups) {
+            let removed = match item {
+                PatternItem::Fact(pf) => pf.removed,
+                PatternItem::FactRepetition(rep) => rep.facts.iter().any(|pf| pf.removed),
+            };
+            if removed {
+                for &i in group {
+                    out.push(facts[i].clone());
                 }
             }
         }

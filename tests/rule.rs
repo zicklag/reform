@@ -515,16 +515,16 @@ fn removed_facts_one_or_more_only_matched() {
         fact(&["parse", "alpha"]),
         fact(&["parse", "beta"]),
     ];
-    let matches = rule.find_matches_detailed(&facts);
+    let matches = rule.find_matches_detailed_grouped(&facts);
     assert_eq!(matches.len(), 2);
     // First match binds alpha — only that fact should be removed.
-    let (b1, _) = &matches[0];
-    let removed = rule.removed_facts(&facts, b1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["parse", "alpha"]));
     // Second match binds beta — only that fact should be removed.
-    let (b2, _) = &matches[1];
-    let removed = rule.removed_facts(&facts, b2);
+    let (_, groups) = &matches[1];
+    let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["parse", "beta"]));
 }
@@ -543,14 +543,14 @@ fn removed_facts_zero_or_more_only_matched() {
         fact(&["parse", "alpha"]),
         fact(&["parse", "beta"]),
     ];
-    let matches = rule.find_matches_detailed(&facts);
+    let matches = rule.find_matches_detailed_grouped(&facts);
     assert_eq!(matches.len(), 2);
-    let (b1, _) = &matches[0];
-    let removed = rule.removed_facts(&facts, b1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["parse", "alpha"]));
-    let (b2, _) = &matches[1];
-    let removed = rule.removed_facts(&facts, b2);
+    let (_, groups) = &matches[1];
+    let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["parse", "beta"]));
 }
@@ -569,14 +569,14 @@ fn removed_facts_optional_only_matched() {
         fact(&["parse", "alpha", "beta"]),
         fact(&["parse", "gamma", "delta"]),
     ];
-    let matches = rule.find_matches_detailed(&facts);
+    let matches = rule.find_matches_detailed_grouped(&facts);
     assert_eq!(matches.len(), 2);
-    let (b1, _) = &matches[0];
-    let removed = rule.removed_facts(&facts, b1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["parse", "alpha", "beta"]));
-    let (b2, _) = &matches[1];
-    let removed = rule.removed_facts(&facts, b2);
+    let (_, groups) = &matches[1];
+    let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["parse", "gamma", "delta"]));
 }
@@ -596,16 +596,82 @@ fn removed_facts_nested_zero_width_inner() {
         fact(&["prefix", "alpha"]),
         fact(&["prefix", "beta"]),
     ];
-    let matches = rule.find_matches_detailed(&facts);
+    let matches = rule.find_matches_detailed_grouped(&facts);
     assert_eq!(matches.len(), 2);
-    let (b1, _) = &matches[0];
-    let removed = rule.removed_facts(&facts, b1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["prefix", "alpha"]));
-    let (b2, _) = &matches[1];
-    let removed = rule.removed_facts(&facts, b2);
+    let (_, groups) = &matches[1];
+    let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["prefix", "beta"]));
+}
+
+/// A `-` inside a fact-level repetition deletes exactly the facts that
+/// repetition consumed. `$( - player has $item )*` consumes the two `player
+/// has` facts; the trailing `keep` fact is consumed by a sibling item and must
+/// NOT be deleted. Before the fix, `removed_facts` ignored `FactRepetition`
+/// items entirely, so the `-` was a silent no-op.
+#[test]
+fn removed_facts_fact_level_repetition() {
+    use reform::rule::Rule;
+    let rule = Rule::parse(&[
+        "rule", "r", "$( - player has $item )*\nkeep", "( done )",
+    ])
+    .unwrap();
+    let facts = vec![
+        fact(&["player", "has", "sword"]),
+        fact(&["player", "has", "shield"]),
+        fact(&["keep"]),
+    ];
+    let matches = rule.find_matches_detailed_grouped(&facts);
+    assert_eq!(matches.len(), 1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
+    assert_eq!(removed.len(), 2);
+    assert_eq!(removed[0], fact(&["player", "has", "sword"]));
+    assert_eq!(removed[1], fact(&["player", "has", "shield"]));
+}
+
+/// A `-` inside a fact-level optional deletes the fact when it is present and
+/// is a no-op when it is absent. This is the motivating case for the fix. A
+/// greedy `??` forces the optional to consume the fact when present; a lazy
+/// `?` prefers matching zero facts, so it deletes nothing.
+#[test]
+fn removed_facts_fact_level_optional_delete() {
+    use reform::rule::Rule;
+    // Greedy optional: consumes and deletes `foo` when present.
+    let rule = Rule::parse(&[
+        "rule", "r", "$( - foo )??\nbar", "( done )",
+    ])
+    .unwrap();
+    let facts = vec![fact(&["foo"]), fact(&["bar"])];
+    let matches = rule.find_matches_detailed_grouped(&facts);
+    assert_eq!(matches.len(), 1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["foo"]));
+    // Greedy optional, foo absent: matches zero facts, nothing to delete.
+    let facts = vec![fact(&["bar"])];
+    let matches = rule.find_matches_detailed_grouped(&facts);
+    assert_eq!(matches.len(), 1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
+    assert!(removed.is_empty());
+    // Lazy optional with foo present: prefers matching zero facts, so it
+    // consumes nothing and deletes nothing.
+    let rule = Rule::parse(&[
+        "rule", "r", "$( - foo )?\nbar", "( done )",
+    ])
+    .unwrap();
+    let facts = vec![fact(&["foo"]), fact(&["bar"])];
+    let matches = rule.find_matches_detailed_grouped(&facts);
+    assert_eq!(matches.len(), 1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
+    assert!(removed.is_empty());
 }
 
 /// `Rule::find_matches` delegates to `Pattern::find_matches`.
@@ -623,6 +689,27 @@ fn rule_find_matches_delegates() {
         matches[0].get("words"),
         Some(&BindValue::Many(vec![BindValue::One(Arg::from("alpha"))]))
     );
+}
+
+/// `Rule::find_matches_detailed` flattens the per-item groups into a single
+/// index list (the engine uses the grouped variant, but the flattened public
+/// API must still work).
+#[test]
+fn rule_find_matches_detailed_flattens() {
+    use reform::rule::Rule;
+    let rule = Rule::parse(&[
+        "rule", "r", "$( - player has $item )*\nkeep", "( done )",
+    ])
+    .unwrap();
+    let facts = vec![
+        fact(&["player", "has", "sword"]),
+        fact(&["player", "has", "shield"]),
+        fact(&["keep"]),
+    ];
+    let matches = rule.find_matches_detailed(&facts);
+    assert_eq!(matches.len(), 1);
+    let (_, idxs) = &matches[0];
+    assert_eq!(idxs, &vec![0, 1, 2]);
 }
 
 // ---------------------------------------------------------------------------

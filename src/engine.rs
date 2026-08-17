@@ -614,7 +614,7 @@ impl Engine {
             // prevent less specific rules from matching the same facts.
             let snapshot = self.facts.clone();
             self.changed = false;
-            for (bindings, _matched_indices) in rule.find_matches_detailed(&snapshot) {
+            for (bindings, groups) in rule.find_matches_detailed_grouped(&snapshot) {
                 // Check if this rule has already fired on this exact set of
                 // matched facts. If so, skip to prevent re-firing on the same
                 // facts (which causes infinite loops when a rule doesn't
@@ -625,7 +625,7 @@ impl Engine {
                     continue;
                 }
                 self.fired[i].push(matched_set);
-                for rf in rule.removed_facts(&snapshot, &bindings) {
+                for rf in rule.removed_facts(&snapshot, &groups) {
                     self.remove_fact(&rf);
                 }
                 let text = rule.body.render(&bindings);
