@@ -1,0 +1,24 @@
+# This is an example of a rule that needs a greedy block to be possible
+# to represent without recursion.
+$ rule (needs-greedy)
+  (
+    - parse after doing :
+      $( $( $first )+ ; )**
+      $( $( $last )+ $( ; )? )?
+  )
+  (
+    $(
+      cmd $( $first )+
+    )*
+
+    $( cmd $( $last )+ )?
+  )
+
+after doing:
+  say hi;
+  do other stuff;
+  hello world
+
+$ assert cmd say hi
+$ assert cmd do other stuff
+$ assert cmd hello world
