@@ -394,16 +394,18 @@ and the inner fact is matched as a plain (non-negated) fact.
 
 `-` is honored inside fact-level repetitions as well as at the top level: it
 deletes exactly the facts that repetition **consumed** (never facts a sibling
-item matched). Deletion follows consumption, so in a fact-level optional
-`$( - foo )?`, a greedy `??` consumes and deletes the fact when present, while
-a lazy `?` prefers matching zero facts and deletes nothing (see [Lazy vs.
-greedy repetition](#lazy-vs-greedy-repetition)).
+item matched). A fact-level optional `$( - foo )?` consumes and deletes `foo`
+when present (fact-level repetitions are always greedy; see [Lazy vs. greedy
+repetition](#lazy-vs-greedy-repetition)).
 
 ### Greedy repetitions
 
-By default, `?`, `+`, and `*` repetitions are **lazy** (see [Matching
-Semantics](#matching-semantics)). Doubling the marker makes a repetition
-**greedy**: `??`, `++`, `**` prefer *more* iterations.
+Within a single fact's arguments, `?`, `+`, and `*` repetitions are **lazy** by
+default (see [Matching Semantics](#matching-semantics)). Doubling the marker
+makes an arg-level repetition **greedy**: `??`, `++`, `**` prefer *more*
+iterations. Fact-level repetitions (`$( ... )?/+/*` on their own lines) are
+**always greedy** — the greedy variants `??`/`++`/`**` behave identically to
+their single-marked forms there.
 
 ---
 
@@ -487,25 +489,31 @@ not collected into a list.
 
 ### Lazy vs. greedy repetition
 
-`+` and `*` arg repetitions are **lazy** by default: they match as few
-iterations as possible. When a fact admits several full-consumption matches,
-they are enumerated lazy-first (the one peeling the fewest arguments from the
-leftmost repetition first). `?` is also lazy by default (zero iterations
-preferred, one as fallback). Doubled markers (`++`, `**`, `??`) invert to
-greedy.
+Within a single fact, `+` and `*` arg repetitions are **lazy** by default:
+they match as few iterations as possible. When a fact admits several
+full-consumption matches, they are enumerated lazy-first (the one peeling the
+fewest arguments from the leftmost repetition first). `?` is also lazy by
+default (zero iterations preferred, one as fallback). Doubled markers (`++`,
+`**`, `??`) invert to greedy.
 
-The **laziest binding that satisfies the entire pattern** fires. If the greedier
-parse fails a later constraint (e.g. an `$( $a is article )?` whose `$a` has no
-matching fact), matching backtracks to a lazier parse that does satisfy it. For
-a `?` block, a list-bound placeholder with an empty list "disables" the
-corresponding fact-level `?` constraint, and a non-empty list makes it a
-constraint that only verifies a matching fact exists (without consuming it).
+The **laziest binding that satisfies the entire pattern** fires. If the
+greedier parse fails a later constraint (e.g. an `$( $a is article )?` whose
+`$a` has no matching fact), matching backtracks to a lazier parse that does
+satisfy it. For a `?` block, a list-bound placeholder with an empty list
+"disables" the corresponding fact-level `?` constraint, and a non-empty list
+makes it a constraint that only verifies a matching fact exists (without
+consuming it).
 
 ### Fact repetitions and list collection
 
 `$( ... )*` and `$( ... )+` fact-level repetitions collect all matching facts;
-`$( ... )?` matches an optional fact. Repeated blocks can only contain a single
-inner pattern fact (multi-fact inner repetitions are not supported).
+`$( ... )?` matches an optional fact. Fact-level repetitions are **always
+greedy**: `*`/`+` consume every matching fact, and `?` consumes the fact when
+present, falling back to matching zero facts only when consuming leaves the
+rest of the pattern unsatisfiable. The greedy markers `**`/`++`/`??` have no
+effect at the fact level — they behave identically to `*`/`+`/`?`. Repeated
+blocks can only contain a single inner pattern fact (multi-fact inner
+repetitions are not supported).
 
 ---
 

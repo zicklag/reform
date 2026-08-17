@@ -635,13 +635,32 @@ fn removed_facts_fact_level_repetition() {
 }
 
 /// A `-` inside a fact-level optional deletes the fact when it is present and
-/// is a no-op when it is absent. This is the motivating case for the fix. A
-/// greedy `??` forces the optional to consume the fact when present; a lazy
-/// `?` prefers matching zero facts, so it deletes nothing.
+/// is a no-op when it is absent. Fact-level repetitions are always greedy, so
+/// both `?` and `??` consume the fact when present.
 #[test]
 fn removed_facts_fact_level_optional_delete() {
     use reform::rule::Rule;
-    // Greedy optional: consumes and deletes `foo` when present.
+    // Optional consumes and deletes `foo` when present.
+    let rule = Rule::parse(&[
+        "rule", "r", "$( - foo )?
+bar", "( done )",
+    ])
+    .unwrap();
+    let facts = vec![fact(&["foo"]), fact(&["bar"])];
+    let matches = rule.find_matches_detailed_grouped(&facts);
+    assert_eq!(matches.len(), 1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0], fact(&["foo"]));
+    // Optional, foo absent: matches zero facts, nothing to delete.
+    let facts = vec![fact(&["bar"])];
+    let matches = rule.find_matches_detailed_grouped(&facts);
+    assert_eq!(matches.len(), 1);
+    let (_, groups) = &matches[0];
+    let removed = rule.removed_facts(&facts, groups);
+    assert!(removed.is_empty());
+    // `??` is equivalent to `?`: fact-level repetitions are greedy either way.
     let rule = Rule::parse(&[
         "rule", "r", "$( - foo )??\nbar", "( done )",
     ])
@@ -653,25 +672,6 @@ fn removed_facts_fact_level_optional_delete() {
     let removed = rule.removed_facts(&facts, groups);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0], fact(&["foo"]));
-    // Greedy optional, foo absent: matches zero facts, nothing to delete.
-    let facts = vec![fact(&["bar"])];
-    let matches = rule.find_matches_detailed_grouped(&facts);
-    assert_eq!(matches.len(), 1);
-    let (_, groups) = &matches[0];
-    let removed = rule.removed_facts(&facts, groups);
-    assert!(removed.is_empty());
-    // Lazy optional with foo present: prefers matching zero facts, so it
-    // consumes nothing and deletes nothing.
-    let rule = Rule::parse(&[
-        "rule", "r", "$( - foo )?\nbar", "( done )",
-    ])
-    .unwrap();
-    let facts = vec![fact(&["foo"]), fact(&["bar"])];
-    let matches = rule.find_matches_detailed_grouped(&facts);
-    assert_eq!(matches.len(), 1);
-    let (_, groups) = &matches[0];
-    let removed = rule.removed_facts(&facts, groups);
-    assert!(removed.is_empty());
 }
 
 /// A native-scalar placeholder (bound by a top-level fact) used inside a
@@ -847,24 +847,20 @@ fn greedy_plus_with_zero_width_inner() {
     assert_eq!(matches.len(), 1);
 }
 
-/// Fact-level `??` (greedy optional) with a matching fact present: takes the
-/// fact (present path), unlike lazy `?` which prefers not taking it.
+/// A fact-level optional with a matching fact present takes the fact
+/// (fact-level repetitions are always greedy). The greedy `??` variant
+/// behaves identically to `?`.
 #[test]
-fn fact_level_greedy_optional_takes_fact() {
-    let p = reform::parser::pattern("$( a )??\nb").unwrap();
-    let facts = vec![fact(&["a"]), fact(&["b"])];
-    let matches = p.find_matches(&facts);
-    assert_eq!(matches.len(), 1);
-}
-
-/// Fact-level `?` (lazy optional) with a matching fact present: prefers not
-/// taking the fact (absent path succeeds first).
-#[test]
-fn fact_level_lazy_optional_skips_fact() {
-    let p = reform::parser::pattern("$( a )?\nb").unwrap();
-    let facts = vec![fact(&["a"]), fact(&["b"])];
-    let matches = p.find_matches(&facts);
-    assert_eq!(matches.len(), 1);
+fn fact_level_optional_takes_fact() {
+    for pat in ["$( a )?\nb", "$( a )??\nb"] {
+        let p = reform::parser::pattern(pat).unwrap();
+        let facts = vec![fact(&["a"]), fact(&["b"])];
+        let matches = p.find_matches_detailed(&facts);
+        assert_eq!(matches.len(), 1);
+        // The optional consumes the `a` fact (its index 0 is in the match).
+        let (_, idxs) = &matches[0];
+        assert_eq!(idxs, &vec![0, 1]);
+    }
 }
 
 /// `$( $( $x )* )**` (greedy zero-or-more with zero-width inner `*`) against
@@ -878,13 +874,16 @@ fn greedy_star_with_zero_width_inner() {
     assert_eq!(matches.len(), 1);
 }
 
-/// `$( a )??\na` (greedy fact-level optional) with a single `a` fact: the
-/// present path consumes `a`, leaving nothing for the required `a` — it
-/// fails, so the absent path is used as fallback.
+/// `$( a )??\na` (fact-level optional) with a single `a` fact: the present
+/// path consumes `a`, leaving nothing for the required `a` — it fails, so the
+/// absent path is used as fallback. Fact-level repetitions are always greedy,
+/// so `??` behaves like `?`.
 #[test]
-fn fact_level_greedy_optional_fallback_to_absent() {
-    let p = reform::parser::pattern("$( a )??\na").unwrap();
-    let facts = vec![fact(&["a"])];
-    let matches = p.find_matches(&facts);
-    assert_eq!(matches.len(), 1);
+fn fact_level_optional_fallback_to_absent() {
+    for pat in ["$( a )??\na", "$( a )?\na"] {
+        let p = reform::parser::pattern(pat).unwrap();
+        let facts = vec![fact(&["a"])];
+        let matches = p.find_matches(&facts);
+        assert_eq!(matches.len(), 1);
+    }
 }

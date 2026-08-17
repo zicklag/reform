@@ -1116,9 +1116,9 @@ fn match_fact_repetition_detailed(
         rep.kind,
         RepetitionKind::Optional | RepetitionKind::ZeroOrMore
     ) && !must_match;
-    // A free optional with matched facts tries both taking and not taking,
-    // ordered by the greedy flag. Other optionals / `*` only try absent when
-    // there is nothing to take.
+    // Fact-level repetitions are always greedy: a free optional with matched
+    // facts prefers taking them, and `*`/`+` always take everything they
+    // match. Absent is only tried when there is nothing to take.
     let want_absent = can_absent && (!want_present || (free_optional && !matched_idx.is_empty()));
 
     let present_results: Vec<(Bindings, Vec<Vec<usize>>)> = if want_present {
@@ -1198,23 +1198,11 @@ fn match_fact_repetition_detailed(
         Vec::new()
     };
 
-    if free_optional && !matched_idx.is_empty() {
-        // Free optional with matched facts: try the preferred path first
-        // (absent for lazy, present for greedy), falling back to the other
-        // only if the preferred path yields no complete matches — mirroring
-        // the `break`-on-first-success semantics of the `Fact` case.
-        let (first, second) = if rep.greedy {
-            (present_results, absent_results)
-        } else {
-            (absent_results, present_results)
-        };
-        if !first.is_empty() {
-            out.extend(first);
-        } else {
-            out.extend(second);
-        }
-    } else {
+    // Fact-level repetitions are always greedy: present first, with absent as
+    // a fallback only when taking leaves the rest of the pattern unsatisfiable.
+    if !present_results.is_empty() {
         out.extend(present_results);
+    } else {
         out.extend(absent_results);
     }
     out
