@@ -279,7 +279,10 @@ contain facts themselves.
 
 When the pattern matches:
 
-1. Every fact matched by a pattern line prefixed with `-` is **deleted**.
+1. Every fact matched by a pattern item prefixed with `-` is **deleted** —
+   including `-` inside a fact-level repetition, which deletes exactly the
+   facts that repetition consumed (see [Removal and negation
+   prefixes](#removal-and-negation-prefixes)).
 2. The body is rendered (substituting bindings) and its resulting facts are
    **created**.
 
@@ -389,6 +392,13 @@ literal `-word`, but not a combined `-!`.
 Inside a fact-level repetition (`$( ... )?/+/*`), the `!` prefix is stripped
 and the inner fact is matched as a plain (non-negated) fact.
 
+`-` is honored inside fact-level repetitions as well as at the top level: it
+deletes exactly the facts that repetition **consumed** (never facts a sibling
+item matched). Deletion follows consumption, so in a fact-level optional
+`$( - foo )?`, a greedy `??` consumes and deletes the fact when present, while
+a lazy `?` prefers matching zero facts and deletes nothing (see [Lazy vs.
+greedy repetition](#lazy-vs-greedy-repetition)).
+
 ### Greedy repetitions
 
 By default, `?`, `+`, and `*` repetitions are **lazy** (see [Matching
@@ -467,6 +477,13 @@ description, and `$room` must match in both facts.
   where both words are equal.
 - A placeholder inside an arg repetition is **list-bound**: it collects a list
   of values, one per iteration, nested one level per enclosing repetition.
+
+A scalar placeholder used again inside a fact-level repetition acts as a
+**constraint**, not a collection: it must match the same value in every
+iteration (like a literal) and keeps its scalar binding. For example, in
+`$prop of car is red` followed by `$( $prop of $x is $old )*`, `$prop` stays
+bound to `color` and only facts whose prop is `color` are matched — `$prop` is
+not collected into a list.
 
 ### Lazy vs. greedy repetition
 
@@ -581,7 +598,12 @@ error:
 - The rule fact must have 4 or 5 arguments.
 - A placeholder used at **two different nesting depths** (different stacks of
   enclosing repetition kinds) — within the pattern, within the body, or within
-  a single repeated arg list — is rejected.
+  a single repeated arg list — is rejected, **except** in the pattern when one
+  of the uses is at the top level (scalar). A top-level use makes the
+  placeholder a **native scalar**, which may be used inside fact-level
+  repetitions as a constraint; a list-bound placeholder (used at a non-empty
+  nesting) at two different nesting depths is still genuinely ambiguous and
+  rejected.
 - Every body placeholder must be **declared by the pattern**.
 - A body placeholder bound at one nesting in the pattern may be used at the
   **same or deeper** nesting in the body, never shallower.
