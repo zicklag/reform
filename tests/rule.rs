@@ -674,6 +674,44 @@ fn removed_facts_fact_level_optional_delete() {
     assert!(removed.is_empty());
 }
 
+/// A native-scalar placeholder (bound by a top-level fact) used inside a
+/// fact-level repetition acts as a constraint: it must match the same value in
+/// every iteration, and the matcher must NOT collect it into a `Many` list
+/// (which would overwrite the scalar binding).
+#[test]
+fn native_scalar_in_fact_repetition_is_constraint() {
+    use reform::rule::Rule;
+    // `$prop` is bound by the top-level fact `$prop of car is red`; the
+    // fact-level `*` repetition `$( $prop of $x is $old )*` must treat `$prop`
+    // as a constraint (only matching facts whose prop is `color`), not collect
+    // it into a list.
+    let rule = Rule::parse(&[
+        "rule", "r", "$prop of car is red\n$( $prop of $x is $old )*\nkeep", "( done )",
+    ])
+    .unwrap();
+    let facts = vec![
+        fact(&["color", "of", "car", "is", "red"]),
+        fact(&["color", "of", "door", "is", "blue"]),
+        fact(&["size", "of", "car", "is", "big"]), // wrong prop: must not match
+        fact(&["keep"]),
+    ];
+    let matches = rule.find_matches_detailed_grouped(&facts);
+    assert_eq!(matches.len(), 1);
+    let (b, _) = &matches[0];
+    // `$prop` stays a scalar `color`, not a `Many` list.
+    assert_eq!(b.get("prop"), Some(&reform::rule::BindValue::One(reform::Arg::from("color"))));
+    // `$x` is collected across the repetition. The `color of car is red` fact
+    // was already consumed by the top-level pattern fact, so only `door`
+    // remains; the `size of car is big` fact is excluded because `$prop` is a
+    // constraint that must equal `color`.
+    assert_eq!(
+        b.get("x"),
+        Some(&reform::rule::BindValue::Many(vec![
+            reform::rule::BindValue::One(reform::Arg::from("door")),
+        ]))
+    );
+}
+
 /// `Rule::find_matches` delegates to `Pattern::find_matches`.
 #[test]
 fn rule_find_matches_delegates() {

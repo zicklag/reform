@@ -348,10 +348,30 @@ fn body_contexts(b: &Body) -> Result<UseMap> {
 
 fn record(out: &mut UseMap, name: &str, ctx: &RepContext, where_: &str) -> Result<()> {
     match out.get(name) {
-        Some(existing) if existing != ctx => {
-            bail!("placeholder `${name}` used at inconsistent nesting depths in {where_}")
+        Some(existing) => {
+            // In the pattern, a placeholder's native context is the strictest
+            // (shortest) one it appears in. A top-level (scalar) placeholder
+            // may be used at deeper nesting as a constraint — it must match
+            // the same value in every repetition, like a literal. A
+            // list-bound placeholder (native context non-empty) must appear
+            // at exactly that context; using it at a different nesting depth
+            // is genuinely ambiguous. The body keeps strict behavior: a body
+            // placeholder used at two different nesting depths can't be
+            // rendered unambiguously.
+            if where_ == "pattern" && existing.is_empty() {
+                // Native scalar: deeper uses are constraints. Allowed.
+                Ok(())
+            } else if where_ == "pattern" && ctx.is_empty() {
+                // A top-level use makes this a native scalar.
+                out.insert(name.to_string(), Vec::new());
+                Ok(())
+            } else if existing == ctx {
+                Ok(())
+            } else {
+                bail!("placeholder `${name}` used at inconsistent nesting depths in {where_}")
+            }
         }
-        _ => {
+        None => {
             out.insert(name.to_string(), ctx.clone());
             Ok(())
         }
@@ -432,6 +452,65 @@ fn is_prefix(prefix: &[RepetitionKind], ctx: &[RepetitionKind]) -> bool {
         return false;
     }
     prefix == &ctx[..prefix.len()]
+}
+
+/// Placeholders whose native context is top-level (scalar): they are bound by
+/// a top-level pattern fact and may be used inside fact-level repetitions as
+/// constraints (matching the same value in every repetition, like a literal).
+/// The matcher must not collect these into `Many` lists when a fact-level
+/// repetition matches — that would overwrite the scalar binding.
+fn native_scalars(p: &Pattern) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    let mut stack: RepContext = Vec::new();
+    collect_native_scalars(&p.0, &mut stack, &mut out);
+    out
+}
+
+fn collect_native_scalars(
+    items: &[PatternItem],
+    stack: &mut RepContext,
+    out: &mut std::collections::HashSet<String>,
+) {
+    for item in items {
+        match item {
+            PatternItem::Fact(f) => {
+                for a in &f.args {
+                    collect_arg_native(a, stack, out);
+                }
+            }
+            PatternItem::FactRepetition(r) => {
+                stack.push(r.kind);
+                for f in &r.facts {
+                    for a in &f.args {
+                        collect_arg_native(a, stack, out);
+                    }
+                }
+                stack.pop();
+            }
+        }
+    }
+}
+
+fn collect_arg_native(
+    a: &ArgTemplate,
+    stack: &mut RepContext,
+    out: &mut std::collections::HashSet<String>,
+) {
+    match a {
+        ArgTemplate::Placeholder(name) => {
+            if stack.is_empty() {
+                out.insert(name.clone());
+            }
+        }
+        ArgTemplate::RepeatedArgs(r) => {
+            stack.push(r.kind);
+            for a in &r.args {
+                collect_arg_native(a, stack, out);
+            }
+            stack.pop();
+        }
+        ArgTemplate::Literal(_) => {}
+    }
 }
 
 use crate::Fact;
@@ -848,7 +927,8 @@ impl Pattern {
     /// Like `find_matches` but also returns the indices of the matched facts.
     pub fn find_matches_detailed(&self, facts: &[Fact]) -> Vec<(Bindings, Vec<usize>)> {
         let used = vec![false; facts.len()];
-        match_items_detailed(&self.0, facts, &used, &Bindings::new())
+        let native = native_scalars(self);
+        match_items_detailed(&self.0, facts, &used, &Bindings::new(), &native)
             .into_iter()
             .map(|(b, groups)| (b, groups.into_iter().flatten().collect()))
             .collect()
@@ -863,7 +943,8 @@ impl Pattern {
         facts: &[Fact],
     ) -> Vec<(Bindings, Vec<Vec<usize>>)> {
         let used = vec![false; facts.len()];
-        match_items_detailed(&self.0, facts, &used, &Bindings::new())
+        let native = native_scalars(self);
+        match_items_detailed(&self.0, facts, &used, &Bindings::new(), &native)
     }
 }
 
@@ -879,6 +960,7 @@ fn match_items_detailed(
     facts: &[Fact],
     used: &[bool],
     b: &Bindings,
+    native: &std::collections::HashSet<String>,
 ) -> Vec<(Bindings, Vec<Vec<usize>>)> {
     if items.is_empty() {
         return vec![(b.clone(), Vec::new())];
@@ -892,7 +974,7 @@ fn match_items_detailed(
                 // fact matches. Binds nothing, consumes nothing.
                 let any = facts.iter().any(|f| !pf.match_fact(f, b).is_empty());
                 if !any {
-                    for (b3, mut groups) in match_items_detailed(rest, facts, used, b) {
+                    for (b3, mut groups) in match_items_detailed(rest, facts, used, b, native) {
                         groups.insert(0, Vec::new());
                         out.push((b3, groups));
                     }
@@ -917,7 +999,8 @@ fn match_items_detailed(
                     // everything (so `data one | two | three` splits as
                     // `first one | rest ...`, not `first one | two | ...`).
                     for b2 in pf.match_fact(&facts[i], b) {
-                        let rest_matches = match_items_detailed(rest, facts, &used2, &b2);
+                        let rest_matches =
+                            match_items_detailed(rest, facts, &used2, &b2, native);
                         if !rest_matches.is_empty() {
                             // Prepend this fact's index group to each result.
                             for (b3, mut groups) in rest_matches {
@@ -931,7 +1014,7 @@ fn match_items_detailed(
             }
         }
         PatternItem::FactRepetition(rep) => {
-            out.extend(match_fact_repetition_detailed(rep, facts, used, b, rest));
+            out.extend(match_fact_repetition_detailed(rep, facts, used, b, rest, native));
         }
     }
     out
@@ -945,6 +1028,7 @@ fn match_fact_repetition_detailed(
     used: &[bool],
     b: &Bindings,
     rest: &[PatternItem],
+    native: &std::collections::HashSet<String>,
 ) -> Vec<(Bindings, Vec<Vec<usize>>)> {
     if rep.facts.len() != 1 {
         // Multi-fact inner repetitions aren't supported yet.
@@ -1047,6 +1131,14 @@ fn match_fact_repetition_detailed(
                 used2[i] = true;
             }
             for name in &list_ph {
+                // A native-scalar placeholder (bound by a top-level fact) is
+                // used here as a constraint, not collected: it must match the
+                // same value in every repetition, so we leave the existing
+                // scalar binding untouched. Only genuinely list-bound
+                // placeholders are collected into `Many` lists.
+                if native.contains(name) {
+                    continue;
+                }
                 // Collect each matched fact's scalar binding for `name`. A
                 // `Many` here means `name` was already list-bound by a sibling
                 // repetition (shared placeholder, same context): the fact's
@@ -1077,7 +1169,7 @@ fn match_fact_repetition_detailed(
         // would append into the already-bound list (corrupting it) and the
         // filter only collects `One` values, which a list-bound placeholder
         // never produces, so it was a no-op anyway.
-        match_items_detailed(rest, facts, &used2, &b3)
+        match_items_detailed(rest, facts, &used2, &b3, native)
             .into_iter()
             .map(|(b_rest, mut groups)| {
                 // This repetition's consumed facts are its own group. A `?`
@@ -1095,7 +1187,7 @@ fn match_fact_repetition_detailed(
     let absent_results: Vec<(Bindings, Vec<Vec<usize>>)> = if want_absent {
         // No matching facts (or `?` with nothing to take): match zero facts.
         // This repetition consumed nothing, so its group is empty.
-        match_items_detailed(rest, facts, used, b)
+        match_items_detailed(rest, facts, used, b, native)
             .into_iter()
             .map(|(b_rest, mut groups)| {
                 groups.insert(0, Vec::new());

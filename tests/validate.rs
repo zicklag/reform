@@ -14,9 +14,29 @@ fn parse_rule(src: &str) -> Result<Rule, String> {
 }
 
 /// A placeholder used at two different nesting depths in the pattern is
-/// rejected.
+/// rejected — unless one use is top-level, which makes it a native scalar that
+/// may be used at deeper nesting as a constraint.
 #[test]
 fn inconsistent_pattern_nesting_rejected() {
+    // A list-bound placeholder used at two different non-top-level nesting
+    // depths is genuinely ambiguous and rejected.
+    let src = r#"
+$ rule r
+    (
+        $( a $x )*
+        $( c $x )+
+    )
+    ( d )
+"#;
+    let err = parse_rule(src).expect_err("should reject");
+    assert!(err.contains("inconsistent nesting"), "got: {err}");
+}
+
+/// A top-level (scalar) placeholder used inside a fact-level repetition is
+/// allowed: the repetition use is a constraint that must match the same value
+/// in every iteration, like a literal.
+#[test]
+fn scalar_placeholder_in_repetition_accepted() {
     let src = r#"
 $ rule r
     (
@@ -25,8 +45,37 @@ $ rule r
     )
     ( d )
 "#;
-    let err = parse_rule(src).expect_err("should reject");
-    assert!(err.contains("inconsistent nesting"), "got: {err}");
+    parse_rule(src).expect("scalar placeholder in repetition should be accepted");
+}
+
+/// A list-bound placeholder used at the same nesting depth in two separate
+/// repetitions is consistent and accepted.
+#[test]
+fn same_depth_repeated_placeholder_accepted() {
+    let src = r#"
+$ rule r
+    (
+        $( a $x )*
+        $( b $x )*
+    )
+    ( d )
+"#;
+    parse_rule(src).expect("same-depth repeated placeholder should be accepted");
+}
+
+/// A placeholder first used inside a repetition and later at top-level becomes
+/// a native scalar (the top-level use is the strictest context).
+#[test]
+fn repetition_then_top_level_placeholder_accepted() {
+    let src = r#"
+$ rule r
+    (
+        $( c $x )*
+        a $x b
+    )
+    ( d )
+"#;
+    parse_rule(src).expect("repetition-then-top-level placeholder should be accepted");
 }
 
 /// A placeholder used in the body at a different nesting than in the pattern
