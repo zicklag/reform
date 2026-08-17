@@ -414,9 +414,19 @@ peg::parser! {
             literal:literal_arg() { ArgTemplate::Literal(literal) } /
             literal:literal_word() { ArgTemplate::Literal(literal) }
 
+        // Parse a sequence of arg templates that may span multiple lines,
+        // tolerating whitespace (including newlines and indentation) between
+        // and around the args. Used for the interior of an arg-level
+        // `$( ... )` repetition, so a block that wraps to several lines under
+        // a continuation indent parses as a single repetition of arguments
+        // within the fact — not as a sibling fact-level repetition (which
+        // would require each inner item to be its own fact).
+        rule arg_templates_multi() -> Vec<ArgTemplate> =
+            ws() args:(arg:arg_template() ws() { arg })+ ws() { args }
+
         rule arg_repetition() -> RepeatedArgs =
             "$("
-                args:arg_templates()
+                args:arg_templates_multi()
             ")"
             marker:repetition_marker()
             {

@@ -1,0 +1,18 @@
+$ rule (needs-greedy)
+  (
+    - parse properties of $x :
+      $(
+        $key : $( $value )*
+      )+
+  )
+  (
+    $(
+      prop $key of $x is $( $value )*
+    )+
+  )
+
+properties of game:
+  name: hello world
+  author: john doe
+
+$ assert prop name of game is hello world
