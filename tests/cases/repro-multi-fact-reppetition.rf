@@ -1,0 +1,19 @@
+$ alice is character
+$ description of alice is wonderland
+$ bob is character
+$ description of bob is ted
+
+$ rule (test multi fact match)
+  (
+    $(
+      $x is character
+      description of $x is $d
+    )*
+  )
+  (
+    all descriptions $( $d )*
+  )
+
+$ println =====
+$ facts
+$ assert all descriptions wonderland ted

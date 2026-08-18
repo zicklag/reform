@@ -511,9 +511,10 @@ consuming it).
 greedy**: `*`/`+` consume every matching fact, and `?` consumes the fact when
 present, falling back to matching zero facts only when consuming leaves the
 rest of the pattern unsatisfiable. The greedy markers `**`/`++`/`??` have no
-effect at the fact level — they behave identically to `*`/`+`/`?`. Repeated
-blocks can only contain a single inner pattern fact (multi-fact inner
-repetitions are not supported).
+effect at the fact level — they behave identically to `*`/`+`/`?`. A repeated
+block may contain multiple inner pattern facts: each iteration consumes one
+group of facts (one fact per inner pattern fact, matched in order), and the
+inner facts' placeholders collect one value per group.
 
 ---
 

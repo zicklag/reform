@@ -1031,8 +1031,7 @@ fn match_fact_repetition_detailed(
     native: &std::collections::HashSet<String>,
 ) -> Vec<(Bindings, Vec<Vec<usize>>)> {
     if rep.facts.len() != 1 {
-        // Multi-fact inner repetitions aren't supported yet.
-        return Vec::new();
+        return match_multi_fact_rep(rep, facts, used, b, rest, native);
     }
     let pf = &rep.facts[0];
     // top-level placeholders in the inner fact become list-bound
@@ -1206,6 +1205,165 @@ fn match_fact_repetition_detailed(
         out.extend(absent_results);
     }
     out
+}
+
+/// Match a fact-level repetition whose inner block contains multiple pattern
+/// facts. Each iteration of the repetition consumes one group of facts — one
+/// fact per inner pattern fact, matched in order — and the group's bindings
+/// accumulate across iterations. Greedy: as many groups as possible are
+/// consumed; absent (zero groups) is only tried when consuming leaves the rest
+/// of the pattern unsatisfiable.
+fn match_multi_fact_rep(
+    rep: &PatternFactRepetition,
+    facts: &[Fact],
+    used: &[bool],
+    b: &Bindings,
+    rest: &[PatternItem],
+    native: &std::collections::HashSet<String>,
+) -> Vec<(Bindings, Vec<Vec<usize>>)> {
+    let inner: Vec<PatternItem> = rep.facts.iter().cloned().map(PatternItem::Fact).collect();
+    // Top-level placeholders across all inner facts become list-bound.
+    let list_ph: Vec<String> = {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for pf in &rep.facts {
+            for a in &pf.args {
+                if let ArgTemplate::Placeholder(n) = a
+                    && seen.insert(n.clone())
+                {
+                    out.push(n.clone());
+                }
+            }
+        }
+        out
+    };
+
+    // Recursively match groups greedily. Returns all maximal group-matchings
+    // as (per-group final bindings, all consumed indices). Each group is
+    // matched independently against the input bindings `b`, so a placeholder
+    // shared across groups collects a fresh value per group rather than being
+    // constrained to the first group's value. Returns an empty `Vec` when no
+    // group matches at all (so `+` can require at least one group while `*`
+    // falls back to zero).
+    fn match_groups(
+        inner: &[PatternItem],
+        facts: &[Fact],
+        used: &[bool],
+        b: &Bindings,
+        native: &std::collections::HashSet<String>,
+    ) -> Vec<(Vec<Bindings>, Vec<usize>)> {
+        // Greedy: repeatedly take the first group (in fact order) until no
+        // more groups match. This yields a single deterministic maximal
+        // matching, matching the single-fact repetition's greedy behavior.
+        let mut gbs: Vec<Bindings> = Vec::new();
+        let mut all_idx: Vec<usize> = Vec::new();
+        let mut used2 = used.to_vec();
+        loop {
+            let mut found = false;
+            for (b_group, per_fact_idx) in match_items_detailed(inner, facts, &used2, b, native) {
+                let group_idx: Vec<usize> = per_fact_idx.iter().flatten().copied().collect();
+                for &i in &group_idx {
+                    used2[i] = true;
+                }
+                gbs.push(b_group);
+                all_idx.extend(group_idx);
+                found = true;
+                break;
+            }
+            if !found {
+                break;
+            }
+        }
+        if gbs.is_empty() {
+            Vec::new()
+        } else {
+            vec![(gbs, all_idx)]
+        }
+    }
+
+    let mut out = Vec::new();
+    match rep.kind {
+        RepetitionKind::Optional => {
+            // Present (one group) first, absent as fallback. Take only the
+            // first group match (in fact order) for determinism, matching the
+            // single-fact `?` matcher.
+            let mut present = Vec::new();
+            if let Some((b_group, per_fact_idx)) =
+                match_items_detailed(&inner, facts, used, b, native).into_iter().next()
+            {
+                let group_idx: Vec<usize> = per_fact_idx.iter().flatten().copied().collect();
+                let mut used2 = used.to_vec();
+                for &i in &group_idx {
+                    used2[i] = true;
+                }
+                let mut b3 = b.clone();
+                collect_multi_lists(&mut b3, &list_ph, &[b_group], native);
+                for (b_rest, mut g) in match_items_detailed(rest, facts, &used2, &b3, native) {
+                    g.insert(0, group_idx.clone());
+                    present.push((b_rest, g));
+                }
+            }
+            if !present.is_empty() {
+                out.extend(present);
+            } else {
+                for (b_rest, mut g) in match_items_detailed(rest, facts, used, b, native) {
+                    g.insert(0, Vec::new());
+                    out.push((b_rest, g));
+                }
+            }
+        }
+        RepetitionKind::ZeroOrMore | RepetitionKind::OneOrMore => {
+            let groups = match_groups(&inner, facts, used, b, native);
+            let mut present = Vec::new();
+            for (gbs, idxs) in &groups {
+                let mut used2 = used.to_vec();
+                for &i in idxs {
+                    used2[i] = true;
+                }
+                let mut b3 = b.clone();
+                collect_multi_lists(&mut b3, &list_ph, gbs, native);
+                for (b_rest, mut g) in match_items_detailed(rest, facts, &used2, &b3, native) {
+                    g.insert(0, idxs.clone());
+                    present.push((b_rest, g));
+                }
+            }
+            if !present.is_empty() {
+                out.extend(present);
+            } else if rep.kind == RepetitionKind::ZeroOrMore {
+                // `*` may match zero groups.
+                for (b_rest, mut g) in match_items_detailed(rest, facts, used, b, native) {
+                    g.insert(0, Vec::new());
+                    out.push((b_rest, g));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Collect each list-bound placeholder's scalar value from every group into a
+/// `Many` list, skipping native-scalar placeholders (used as constraints).
+fn collect_multi_lists(
+    b3: &mut Bindings,
+    list_ph: &[String],
+    gbs: &[Bindings],
+    native: &std::collections::HashSet<String>,
+) {
+    for name in list_ph {
+        if native.contains(name) {
+            continue;
+        }
+        let list: Vec<BindValue> = gbs
+            .iter()
+            .filter_map(|gb| match gb.get(name) {
+                Some(BindValue::One(v)) => Some(BindValue::One(*v)),
+                _ => None,
+            })
+            .collect();
+        if !list.is_empty() {
+            b3.map.insert(name.clone(), BindValue::Many(list));
+        }
+    }
 }
 
 impl Rule {

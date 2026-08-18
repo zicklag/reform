@@ -166,16 +166,135 @@ fn collect_ph_names_nested_repeat() {
 }
 
 // ---------------------------------------------------------------------------
-// match_fact_repetition multi-fact rejection
+// match_fact_repetition multi-fact
 // ---------------------------------------------------------------------------
 
 #[test]
-fn match_fact_repetition_multi_fact_rejected() {
-    // A pattern with `$( fact1\nfact2 )*` should produce no matches.
-    let p = reform::parser::pattern("$( a\nb )*").unwrap();
-    let facts = vec![fact(&["a"]), fact(&["b"])];
+fn match_fact_repetition_multi_fact_matches() {
+    // A pattern with `$( $a\n$b )*` matches groups of one fact per inner
+    // pattern fact, collecting each placeholder across groups.
+    let p = reform::parser::pattern("$( $a\n$b )*").unwrap();
+    let facts = vec![fact(&["a"]), fact(&["b"]), fact(&["a"]), fact(&["b"])];
     let matches = p.find_matches(&facts);
-    assert!(matches.is_empty());
+    assert_eq!(matches.len(), 1, "one maximal greedy match expected");
+    // Both groups consumed: `$a` and `$b` each bound to two values.
+    let b = &matches[0];
+    assert_eq!(
+        b.get("a"),
+        Some(&BindValue::Many(vec![
+            BindValue::One(Arg::from("a")),
+            BindValue::One(Arg::from("a")),
+        ]))
+    );
+    assert_eq!(
+        b.get("b"),
+        Some(&BindValue::Many(vec![
+            BindValue::One(Arg::from("b")),
+            BindValue::One(Arg::from("b")),
+        ]))
+    );
+}
+
+#[test]
+fn match_fact_repetition_multi_fact_optional() {
+    // `$( $a\n$b )?` matches one group when present, zero when absent.
+    let p = reform::parser::pattern("$( $a\n$b )?\nc").unwrap();
+    let present = vec![fact(&["a"]), fact(&["b"]), fact(&["c"])];
+    let matches = p.find_matches(&present);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(
+        matches[0].get("a"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("a"))]))
+    );
+    assert_eq!(
+        matches[0].get("b"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("b"))]))
+    );
+    // Absent: no `$a`/`$b` facts, only `c`.
+    let absent = vec![fact(&["c"])];
+    let matches = p.find_matches(&absent);
+    assert_eq!(matches.len(), 1);
+    assert!(matches[0].get("a").is_none());
+    assert!(matches[0].get("b").is_none());
+}
+
+#[test]
+fn match_fact_repetition_multi_fact_shared_placeholder() {
+    // A placeholder shared across the inner facts constrains each group to
+    // facts with the same value, and collects one value per group.
+    let p = reform::parser::pattern("$( $x is character\ndescription of $x is $d )*").unwrap();
+    let facts = vec![
+        fact(&["alice", "is", "character"]),
+        fact(&["description", "of", "alice", "is", "wonderland"]),
+        fact(&["bob", "is", "character"]),
+        fact(&["description", "of", "bob", "is", "ted"]),
+    ];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+    let b = &matches[0];
+    assert_eq!(
+        b.get("x"),
+        Some(&BindValue::Many(vec![
+            BindValue::One(Arg::from("alice")),
+            BindValue::One(Arg::from("bob")),
+        ]))
+    );
+    assert_eq!(
+        b.get("d"),
+        Some(&BindValue::Many(vec![
+            BindValue::One(Arg::from("wonderland")),
+            BindValue::One(Arg::from("ted")),
+        ]))
+    );
+}
+
+#[test]
+fn match_fact_repetition_multi_fact_zero_groups() {
+    // `*` with no matching groups matches zero groups; `+` requires at least
+    // one group and so does not match.
+    let star = reform::parser::pattern("$( $a\n$b )*\nc").unwrap();
+    let plus = reform::parser::pattern("$( $a\n$b )+\nc").unwrap();
+    let facts = vec![fact(&["c"])];
+    let star_matches = star.find_matches(&facts);
+    assert_eq!(star_matches.len(), 1);
+    assert!(star_matches[0].get("a").is_none());
+    assert!(star_matches[0].get("b").is_none());
+    assert!(plus.find_matches(&facts).is_empty());
+}
+
+#[test]
+fn match_fact_repetition_multi_fact_native_scalar_constraint() {
+    // A native-scalar placeholder used inside a multi-fact repetition acts as
+    // a constraint (not collected): it must match the same value in every
+    // group.
+    let p = reform::parser::pattern("$kind\n$( $kind of $x is $d\n$kind of $y is $e )*").unwrap();
+    let facts = vec![
+        fact(&["color"]),
+        fact(&["color", "of", "car", "is", "red"]),
+        fact(&["color", "of", "sky", "is", "blue"]),
+        fact(&["size", "of", "car", "is", "big"]),
+    ];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+    let b = &matches[0];
+    // `$kind` stays scalar (constraint), `$x`/`$d`/`$y`/`$e` collect per group.
+    assert_eq!(b.get("kind"), Some(&BindValue::One(Arg::from("color"))));
+    assert_eq!(
+        b.get("x"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("car"))]))
+    );
+    assert_eq!(
+        b.get("d"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("red"))]))
+    );
+    assert_eq!(
+        b.get("y"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("sky"))]))
+    );
+    assert_eq!(
+        b.get("e"),
+        Some(&BindValue::Many(vec![BindValue::One(Arg::from("blue"))]))
+    );
 }
 
 // ---------------------------------------------------------------------------
