@@ -445,3 +445,44 @@ fn pattern_parenthesized_literal_arg() {
         f.args[2]
     );
 }
+
+// -- negative lookahead `$( ... )!` -----------------------------------------
+
+/// A `$( ... )!` at the arg level parses as an `ArgTemplate::NegLookahead`,
+/// not a fact-level repetition.
+#[test]
+fn neg_lookahead_parses_as_arg_template() {
+    use reform::parser::pattern;
+    use reform::rule::ArgTemplate;
+    let p = pattern("look $( the door )! north").unwrap();
+    let reform::rule::PatternItem::Fact(f) = &p.0[0] else {
+        panic!("got {:?}", p)
+    };
+    assert_eq!(f.args.len(), 3);
+    assert!(
+        matches!(&f.args[1], ArgTemplate::NegLookahead(inner)
+            if matches!(&inner[..], [ArgTemplate::Literal(a), ArgTemplate::Literal(b)]
+                if &**a == "the" && &**b == "door")),
+        "got {:?}",
+        f.args[1]
+    );
+}
+
+/// A `$( ... )!` may span multiple lines inside a fact, keeping its interior
+/// args (so a wrapped lookahead stays arg-level, not a sibling fact).
+#[test]
+fn neg_lookahead_multi_line() {
+    use reform::parser::pattern;
+    use reform::rule::ArgTemplate;
+    let p = pattern("look $( the door
+  is locked )! north").unwrap();
+    let reform::rule::PatternItem::Fact(f) = &p.0[0] else {
+        panic!("got {:?}", p)
+    };
+    assert_eq!(f.args.len(), 3);
+    let ArgTemplate::NegLookahead(inner) = &f.args[1] else {
+        panic!("got {:?}", f.args[1])
+    };
+    assert_eq!(inner.len(), 4);
+}
+

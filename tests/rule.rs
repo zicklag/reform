@@ -297,6 +297,46 @@ fn match_fact_repetition_multi_fact_native_scalar_constraint() {
     );
 }
 
+#[test]
+fn match_fact_repetition_multi_fact_negated_inner() {
+    // A multi-fact repetition containing a negated inner fact (`!`) binds
+    // nothing for that fact's placeholders, so its placeholders are excluded
+    // from `list_ph` and never looked up during collection.
+    let p = reform::parser::pattern("$(\n  ! a $x\n  b $y\n)+").unwrap();
+    let facts = vec![
+        fact(&["b", "v1"]),
+        fact(&["b", "v2"]),
+    ];
+    let matches = p.find_matches(&facts);
+    assert_eq!(matches.len(), 1);
+    let b = &matches[0];
+    // `$x` (in the negated fact) is a constraint, not collected; `$y` collects.
+    assert!(b.get("x").is_none(), "got {:?}", b.map);
+    assert_eq!(
+        b.get("y"),
+        Some(&BindValue::Many(vec![
+            BindValue::One(Arg::from("v1")),
+            BindValue::One(Arg::from("v2")),
+        ]))
+    );
+}
+
+#[test]
+fn match_fact_repetition_multi_fact_many_bound_name() {
+    // A list_ph name bound as `Many` (not a scalar `One`) inside a group is
+    // not collected: `$x` is a top-level scalar in `a $x` (so in `list_ph`)
+    // AND list-bound in `b $( $x )*`. The nested arg-repetition promotes `$x`
+    // to `Many` in the group, so collection skips it and it is absent from
+    // the final bindings.
+    let p = reform::parser::pattern("$(\n  b $( $x )*\n  a $x\n)+").unwrap();
+    let facts = vec![fact(&["b"]), fact(&["a", "v"])];
+    let matches = p.find_matches_detailed_grouped(&facts);
+    assert_eq!(matches.len(), 1);
+    let (b, groups) = &matches[0];
+    assert_eq!(groups, &vec![vec![0, 1]]);
+    assert!(b.get("x").is_none(), "got {:?}", b.map);
+}
+
 // ---------------------------------------------------------------------------
 // match_reps at_least_one with zero inner match
 // ---------------------------------------------------------------------------

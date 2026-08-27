@@ -409,6 +409,7 @@ peg::parser! {
             " "* args:(arg:arg_template() " "* { arg })+ " "* { args }
 
         rule arg_template() -> ArgTemplate =
+            nl:neg_lookahead() { ArgTemplate::NegLookahead(nl) } /
             repeated:arg_repetition() { ArgTemplate::RepeatedArgs(repeated) } /
             placeholder:placeholder() { ArgTemplate::Placeholder(placeholder) } /
             literal:literal_arg() { ArgTemplate::Literal(literal) } /
@@ -433,6 +434,16 @@ peg::parser! {
                 let (kind, greedy) = marker;
                 RepeatedArgs::new(kind, greedy, args)
             }
+
+        // A zero-width negative lookahead `$( ... )!` (PEG-style). It matches
+        // at the current position iff the inner args do NOT match starting
+        // there, binding/consuming nothing. This is an *arg*-level form: it
+        // appears inside a single fact's argument sequence (e.g. `look $( the
+        // door )! north`), unlike a fact-level repetition which sits on its
+        // own line. Placed before `arg_repetition` so `!` (not a repetition
+        // marker) routes here.
+        rule neg_lookahead() -> Vec<ArgTemplate> =
+            "$(" args:arg_templates_multi() ")!" { args }
 
         rule placeholder() -> String =
             "$" name:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "." / "," / ";" / ":" / "'" / "!") [_])+)

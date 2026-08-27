@@ -177,6 +177,9 @@ fn arg_specificity(arg: &ArgTemplate, penalty: u64) -> u64 {
         ArgTemplate::Literal(_) => 5u64.saturating_sub(penalty),
         ArgTemplate::Placeholder(_) => 4u64.saturating_sub(penalty),
         ArgTemplate::RepeatedArgs(ra) => repeated_args_specificity(ra, penalty),
+        // A negative lookahead asserts absence but matches nothing itself, so
+        // it contributes 0 — the same as a negated fact.
+        ArgTemplate::NegLookahead(_) => 0,
     }
 }
 
@@ -285,12 +288,22 @@ pub struct PatternFactRepetition {
     pub facts: Vec<PatternFact>,
 }
 
-/// A single argument in a pattern: a literal, a placeholder, or a repeated block.
+/// A single argument in a pattern: a literal, a placeholder, a repeated block,
+/// or a zero-width negative lookahead.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
 pub enum ArgTemplate {
     Literal(Arg),
     Placeholder(String),
     RepeatedArgs(RepeatedArgs),
+    /// A zero-width negative lookahead `$( ... )!` (PEG-style): it matches at
+    /// the current position iff the inner args do **not** match starting
+    /// there. It binds nothing and consumes nothing. The inner args are matched
+    /// against a detached copy of the bindings, so a scalar placeholder bound
+    /// elsewhere in the pattern constrains the lookahead, while any other inner
+    /// placeholder is a fresh local wildcard. Because it asserts absence it only
+    /// narrows the matched language, so the structural pre-filter can
+    /// safely ignore it (see `Nfa`).
+    NegLookahead(Vec<ArgTemplate>),
 }
 
 /// A repeated block of arguments.
@@ -421,6 +434,10 @@ fn collect_arg(
             stack.pop();
             Ok(())
         }
+        // A negative lookahead binds nothing, so its inner placeholders act
+        // purely as runtime constraints (checked against already-bound values)
+        // and contribute no declared placeholder of their own.
+        ArgTemplate::NegLookahead(_) => Ok(()),
         ArgTemplate::Literal(_) => Ok(()),
     }
 }
@@ -509,6 +526,7 @@ fn collect_arg_native(
             }
             stack.pop();
         }
+        ArgTemplate::NegLookahead(_) => {}
         ArgTemplate::Literal(_) => {}
     }
 }
@@ -674,6 +692,10 @@ fn collect_all_placeholders(pats: &[ArgTemplate], out: &mut Vec<String>) {
                 out.push(n.clone());
             }
             ArgTemplate::RepeatedArgs(r) => collect_all_placeholders(&r.args, out),
+            // A lookahead's inner placeholders are matched against a detached
+            // state (see `match_args`'s `NegLookahead` arm) and never collect
+            // into the enclosing repetition, so they are not seeded here.
+            ArgTemplate::NegLookahead(_) => {}
             ArgTemplate::Literal(_) => {}
         }
     }
@@ -693,6 +715,10 @@ fn collect_ph_names_in_args(pats: &[ArgTemplate], out: &mut Vec<String>) {
         match a {
             ArgTemplate::Placeholder(n) => out.push(n.clone()),
             ArgTemplate::RepeatedArgs(r) => collect_ph_names_in_args(&r.args, out),
+            // A lookahead's inner placeholders never collect into the
+            // enclosing repetition's frame (they are matched against a
+            // detached state), so they are not pre-seeded here.
+            ArgTemplate::NegLookahead(_) => {}
             ArgTemplate::Literal(_) => {}
         }
     }
@@ -809,6 +835,22 @@ fn match_args(pats: &[ArgTemplate], args: &[Arg], start: usize, st: &State) -> V
         }
         ArgTemplate::RepeatedArgs(r) => {
             out.extend(match_rep(r, args, start, st, rest));
+        }
+        ArgTemplate::NegLookahead(inner) => {
+            // Zero-width negative lookahead: succeed (state unchanged, no
+            // consumption) iff the inner args do NOT match starting here.
+            // The inner is matched against a *detached* state that inherits
+            // only the caller's scalar bindings (frames cleared). A scalar
+            // placeholder already bound by the pattern therefore constrains
+            // the inner match; any other inner placeholder is a fresh local
+            // wildcard. Nothing the inner matches leaks into or clobbers the
+            // caller's frames or bindings, and an inner placeholder can never
+            // hit an un-seeded frame (which would otherwise panic).
+            let mut detached = st.clone();
+            detached.frames.clear();
+            if match_args(inner, args, start, &detached).is_empty() {
+                out.extend(match_args(rest, args, start, st));
+            }
         }
     }
     out
@@ -1222,11 +1264,18 @@ fn match_multi_fact_rep(
     native: &std::collections::HashSet<String>,
 ) -> Vec<(Bindings, Vec<Vec<usize>>)> {
     let inner: Vec<PatternItem> = rep.facts.iter().cloned().map(PatternItem::Fact).collect();
-    // Top-level placeholders across all inner facts become list-bound.
+    // Top-level placeholders across all inner facts become list-bound. A
+    // negated inner fact (`!`) binds nothing — its placeholders are pure
+    // constraints, never values to collect — so they are excluded from
+    // `list_ph` (including them would make `collect_multi_lists` look up a
+    // binding that can never exist).
     let list_ph: Vec<String> = {
         let mut seen = std::collections::HashSet::new();
         let mut out = Vec::new();
         for pf in &rep.facts {
+            if pf.negated {
+                continue;
+            }
             for a in &pf.args {
                 if let ArgTemplate::Placeholder(n) = a
                     && seen.insert(n.clone())
@@ -1343,6 +1392,12 @@ fn match_multi_fact_rep(
 
 /// Collect each list-bound placeholder's scalar value from every group into a
 /// `Many` list, skipping native-scalar placeholders (used as constraints).
+///
+/// By construction every group binds each `list_ph` name as a scalar `One`:
+/// `list_ph` only contains top-level placeholders of *non-negated* inner facts
+/// (see `match_multi_fact_rep`), and every group matches all its inner facts.
+/// So the `if let` below never skips a present binding; it is written without a
+/// catch-all arm so there is no dead branch to maintain or test.
 fn collect_multi_lists(
     b3: &mut Bindings,
     list_ph: &[String],
@@ -1353,13 +1408,12 @@ fn collect_multi_lists(
         if native.contains(name) {
             continue;
         }
-        let list: Vec<BindValue> = gbs
-            .iter()
-            .filter_map(|gb| match gb.get(name) {
-                Some(BindValue::One(v)) => Some(BindValue::One(*v)),
-                _ => None,
-            })
-            .collect();
+        let mut list = Vec::with_capacity(gbs.len());
+        for gb in gbs {
+            if let Some(BindValue::One(v)) = gb.get(name) {
+                list.push(BindValue::One(*v));
+            }
+        }
         if !list.is_empty() {
             b3.map.insert(name.clone(), BindValue::Many(list));
         }

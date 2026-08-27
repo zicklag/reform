@@ -285,7 +285,141 @@ $ assert all_clear
     assert!(!e.contains(&fact("all_clear")));
 }
 
-// -- fact-level repetition --------------------------------------------------
+// -- negative lookahead `$( ... )!` (arg level) -----------------------------
+
+/// A `$( ... )!` at the arg level is a PEG-style negative lookahead: it
+/// matches at the current position iff the inner args do NOT match there.
+#[test]
+fn neg_lookahead_matches_when_absent() {
+    let e = load(
+        r#"
+$ ready north
+$ rule go
+    ( ready $( the door is locked )! north )
+    ( proceed )
+$ assert proceed
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("proceed")));
+}
+
+/// The negative lookahead fails to match when its inner args ARE present at
+/// the lookahead position.
+#[test]
+fn neg_lookahead_fails_when_present() {
+    let mut e = Engine::new();
+    let _res = e.load_str(
+        r#"
+$ ready the door is locked north
+$ rule go
+    ( ready $( the door is locked )! north )
+    ( proceed )
+$ quit
+"#,
+    );
+    assert!(!e.contains(&fact("proceed")));
+}
+
+/// A negative lookahead is zero-width: it consumes nothing, so the args it
+/// guards remain matched by the rest of the pattern.
+#[test]
+fn neg_lookahead_consumes_nothing() {
+    let e = load(
+        r#"
+$ ready north
+$ rule go
+    ( ready $( the door )! north )
+    ( proceed )
+$ rule any_ready
+    ( ready $x )
+    ( noted $x )
+$ assert noted north
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("noted north")));
+}
+
+/// A placeholder inside a negative lookahead acts as a constraint against an
+/// already-bound value: the rule only fires when no fact matches that value.
+#[test]
+fn neg_lookahead_placeholder_constrains() {
+    let mut e = Engine::new();
+    let _res = e.load_str(
+        r#"
+$ forbidden apple
+$ banana is clean
+$ rule check
+    ( $x is clean
+      $( forbidden $x )! )
+    ( $x passes )
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("banana passes")));
+    assert!(!e.contains(&fact("apple passes")));
+}
+
+/// A negative lookahead nested inside an arg repetition applies the lookahead
+/// per-iteration. The placeholder inside the lookahead appears *only* there,
+/// so it is a local wildcard and must not panic or leak into the repetition's
+/// frame.
+#[test]
+fn neg_lookahead_inside_arg_repetition() {
+    let e = load(
+        r#"
+$ ready a c
+$ rule go
+    ( ready $( $x $( $y is forbidden )! $z )* )
+    ( items $( $x $z )* )
+$ assert items a c
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("items a c")));
+}
+
+/// A lookahead nested in an arg repetition whose inner placeholder is the same
+/// scalar bound by the fact acts as a constraint — it must NOT be re-seeded
+/// into the repetition's frame and clobber the scalar binding (regression
+/// guard for a panic/clobber when a lookahead-inner placeholder shadows a
+/// top-level scalar).
+#[test]
+fn neg_lookahead_scalar_shadowed_in_repetition() {
+    let e = load(
+        r#"
+$ ready a foo
+$ rule go
+    ( ready $x $( $( $x is bad )! $z )+ )
+    ( ok $x )
+$ assert ok a
+$ quit
+"#,
+    );
+    assert!(e.contains(&fact("ok a")));
+}
+
+/// A negative lookahead whose inner args match at *match time* rejects the
+/// fact even when the structural pre-filter admits it. The pre-filter treats
+/// the lookahead as zero-width (only `foo` then `bar` are required), so the
+/// fact `foo bar` passes the pre-filter but is rejected when `$x` matches
+/// `bar` at the lookahead position.
+#[test]
+fn neg_lookahead_rejects_at_match_time() {
+    let mut e = Engine::new();
+    let _res = e.load_str(
+        r#"
+$ foo bar
+$ rule go
+    ( foo $( $x )! bar )
+    ( proceed )
+$ quit
+"#,
+    );
+    assert!(!e.contains(&fact("proceed")));
+}
+
 
 /// `*` fact-level repetition: `$( ... )*` matches zero or more facts.
 #[test]

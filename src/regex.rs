@@ -63,6 +63,19 @@ impl Nfa {
         for item in items {
             let q = if let ArgTemplate::RepeatedArgs(r) = item {
                 Self::accumulate(symbols, follows, Some(r.kind), &r.args)
+            } else if let ArgTemplate::NegLookahead(_) = item {
+                // A negative lookahead `$( ... )!` is a zero-width assertion:
+                // it only *narrows* the accepted language (asserts absence) and
+                // never consumes an arg. In the structural pre-filter we treat
+                // it as matching the empty string (nullable, contributes no
+                // positions), which is the loosest sound choice — the
+                // pre-filter may admit a fact that the precise matcher later
+                // rejects on the lookahead, but never rejects one that matches.
+                Qualities {
+                    first: SmallVec::new(),
+                    last: SmallVec::new(),
+                    nullable: true,
+                }
             } else {
                 // A leaf: `Some(arg)` for a literal, `None` for a placeholder.
                 let pos = symbols.len() as u8;

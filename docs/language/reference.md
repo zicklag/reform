@@ -352,6 +352,43 @@ arguments within a single fact. Three forms, closed by `)?`, `)+`, or `)*`:
 Repetitions may be **nested**, and may wrap whole facts to match multiple facts
 at once.
 
+### Negative lookahead
+
+A `$( ... )!` block is a **zero-width negative lookahead** (PEG-style). It
+matches at the current position iff the inner args do **not** match starting
+there. It binds nothing and consumes nothing — it only asserts the absence of
+the inner arguments.
+
+```rf
+$ rule (look north)
+  (
+    - prompt look $( the door is locked )! north
+  )
+  (
+    println You look north.
+  )
+```
+
+The above rule fires only when `look ... north` does not have `the door is
+locked` at the lookahead position (e.g. `look north` matches; `look the door
+is locked north` does not). The lookahead's inner args are matched against a
+detached copy of the current bindings, so a placeholder inside a lookahead
+that is already bound as a **scalar** by the rest of the pattern acts as a
+**constraint**: the lookahead succeeds only when no argument run matches that
+bound value. A placeholder that appears *only* inside the lookahead (or is a
+list-bound placeholder mid-collection) is a fresh local wildcard for the inner
+match — nothing the lookahead matches leaks into or changes the rule's
+bindings, so such a placeholder is never available to the body.
+
+Because a lookahead is zero-width, the args it guards are still available to
+the rest of the pattern, and because it only asserts absence it does not change
+what the fact consumes. It is the arg-level analog of the `!` fact prefix,
+useful for rejecting a phrase inside a single fact rather than a whole fact.
+
+Like the repetition blocks, a lookahead's interior must contain at least one
+argument — an empty `$( )!` is a parse error (a zero-width lookahead over the
+always-matching empty sequence would always fail, so it is not expressible).
+
 ### Fact repetitions
 
 A `$( ... )?/+/*` block at a fact's base indentation (a sibling item, one per
@@ -531,6 +568,7 @@ Each word contributes:
 | placeholder (`$x`)          | 4     |
 | required (non-negated) fact | 1     |
 | negated fact                | 0     |
+| negative lookahead `$( )!`  | 0     |
 
 Repetition blocks add nothing for the block itself, but **penalize** every word
 inside them by the block's looseness. Penalties stack across nested blocks and
