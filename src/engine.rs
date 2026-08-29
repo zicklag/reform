@@ -15,13 +15,10 @@ use std::sync::Arc;
 /// find itself still in the map and can be cloned again.
 pub type CommandHandler = Arc<dyn Fn(&mut Engine, &[Arg]) -> Result<()>>;
 
-/// A destination for engine text output. Each sink receives exactly the
-/// characters to emit — callers add their own newline — so a sink can
-/// distinguish `println` (line + `\n`) from `print` (no newline).
-///
 /// The default routes to the process stdout/stderr. WASM replaces these with
-/// callbacks into JS so commands like `println`, `find`, and `facts`, plus
-/// trace events, can be rendered into a virtual terminal.
+/// callbacks into JS so commands like `println`, `find`, and `facts` can be
+/// rendered into a virtual terminal. (Trace events do not flow through
+/// `Output`; they go through the [`tracing`] ecosystem — see [`crate::trace`].)
 #[derive(Clone)]
 pub struct Output {
     pub stdout: Arc<dyn Fn(&str)>,
@@ -47,11 +44,6 @@ pub struct Engine {
     /// Directory that `$ load` relative paths resolve against.
     /// `None` means resolve against the process current working directory.
     base_dir: Option<PathBuf>,
-    /// When true, emit trace events to stderr: `+`/`-` for facts added or
-    /// removed, `rule` for rules registered, and `fire <name>` when a rule
-    /// matches and fires. Enabled via `set_trace(true)` (CLI `--trace` or
-    /// `REFORM_TRACE=1`).
-    trace: bool,
     /// Tracks which (rule, matched-fact-set) pairs have already fired in the
     /// current `turn()` call, to prevent re-firing on the same facts.
     fired: Vec<Vec<std::collections::HashSet<Fact>>>,
@@ -62,8 +54,9 @@ pub struct Engine {
     /// `"load"`, `"-"`). All commands are registered handlers — there are no
     /// special-cased built-ins.
     commands: HashMap<String, CommandHandler>,
-    /// Where stdout-style output (print/println/find/facts) and trace events
-    /// go. Defaults to the process stdout/stderr; WASM swaps in JS callbacks.
+    /// Where stdout-style output (print/println/find/facts) goes. Defaults
+    /// to the process stdout/stderr; WASM swaps in JS callbacks. Trace
+    /// events go through the `tracing` ecosystem, not this sink.
     output: Output,
     /// SplitMix64 state for the `random(n)` function available to `@eval`
     /// expressions. A `Cell` provides the interior mutability that lets
@@ -81,7 +74,6 @@ impl std::fmt::Debug for Engine {
             .field("quit", &self.quit)
             .field("changed", &self.changed)
             .field("base_dir", &self.base_dir)
-            .field("trace", &self.trace)
             .field("fired", &self.fired)
             .field("max_iterations", &self.max_iterations)
             .field("commands", &self.commands.keys().collect::<Vec<_>>())
@@ -97,7 +89,6 @@ impl Default for Engine {
             quit: false,
             changed: false,
             base_dir: None,
-            trace: false,
             fired: Vec::new(),
             max_iterations: 100_000,
             commands: HashMap::new(),
@@ -148,10 +139,6 @@ impl Engine {
 
     pub fn quit(&self) -> bool {
         self.quit
-    }
-
-    pub fn set_trace(&mut self, on: bool) {
-        self.trace = on;
     }
 
     /// Replace the stdout/stderr sinks. Callbacks receive the exact characters
@@ -246,11 +233,20 @@ impl Engine {
                     .map_err(|e| anyhow!("load {}: {e}", path.display()))?;
                 let prev = engine.base_dir.take();
                 engine.base_dir = path.parent().map(|p| p.to_path_buf());
+                // Trace the load as a `reform::file` span so the facts it
+                // adds are visibly attributed to this file in trace output.
+                let file_span = tracing::trace_span!(
+                    target: "reform::file",
+                    "file",
+                    path = %path.display()
+                );
+                let entered = file_span.entered();
                 // Safe to use load_str_inner here: since handlers are Fn (not
                 // FnMut), dispatch_command clones the Arc without removing it
                 // from the map, so nested `$ load` directives can re-enter
                 // dispatch_command and find the handler still present.
                 let result = engine.load_str_inner(&src);
+                drop(entered);
                 engine.base_dir = prev;
                 result
             }),
@@ -349,8 +345,10 @@ impl Engine {
         if self.facts.contains(&fact) {
             false
         } else {
-            if self.trace {
-                (self.output.stderr)(&format!("\x1b[2m[trace] + {}\x1b[0m\n", normal_form_fact(&fact)));
+            // Rule facts are stored too, but the `reform::rule` registration
+            // event already traces them — don't emit adds twice.
+            if !fact.is_rule() {
+                tracing::trace!(target: "reform::add", fact = %normal_form_fact(&fact), "+ fact");
             }
             self.facts.push(fact);
             self.changed = true;
@@ -414,9 +412,7 @@ impl Engine {
         self.facts.retain(|f| f != fact);
         let removed = self.facts.len() != before;
         if removed {
-            if self.trace {
-                (self.output.stderr)(&format!("\x1b[2m[trace] - {}\x1b[0m\n", normal_form_fact(fact)));
-            }
+            tracing::trace!(target: "reform::remove", fact = %normal_form_fact(fact), "- fact");
             self.changed = true;
             // If the removed fact is a rule fact, also remove the rule.
             if fact.is_rule() {
@@ -428,12 +424,12 @@ impl Engine {
     }
 
     pub fn add_rule(&mut self, rule: Rule) {
-        if self.trace {
-            (self.output.stderr)(&format!(
-                "\x1b[2m[trace] rule {} (specificity {})\x1b[0m\n",
-                rule.name, rule.specificity
-            ));
-        }
+        tracing::trace!(
+            target: "reform::rule",
+            name = %rule.name,
+            specificity = rule.specificity,
+            "rule registered"
+        );
         self.rules.push(rule);
         // Sort by specificity descending so more specific rules fire first.
         // When specificity is equal, insertion order is preserved (stable sort).
@@ -458,7 +454,12 @@ impl Engine {
             std::fs::read_to_string(path).map_err(|e| anyhow!("load {}: {e}", path.display()))?;
         let prev = self.base_dir.take();
         self.base_dir = path.parent().map(|p| p.to_path_buf());
+        // Attribute everything this file loads in a `reform::file` span.
+        let file_span =
+            tracing::trace_span!(target: "reform::file", "file", path = %path.display());
+        let entered = file_span.entered();
         let result = self.load_str_inner(&src);
+        drop(entered);
         self.base_dir = prev;
         result
     }
@@ -485,6 +486,7 @@ impl Engine {
             Some(h) => h.clone(),
             None => return Ok(false),
         };
+        let _cmd_span = tracing::trace_span!(target: "reform::cmd", "cmd", name = %name).entered();
         (handler)(self, args)?;
         Ok(true)
     }
@@ -620,19 +622,35 @@ impl Engine {
                 // facts (which causes infinite loops when a rule doesn't
                 // remove its matched facts).
                 let matched = rule.matched_facts(&snapshot, &bindings);
-                let matched_set: std::collections::HashSet<Fact> = matched.into_iter().collect();
+                let matched_set: std::collections::HashSet<Fact> =
+                    matched.iter().cloned().collect();
                 if self.fired[i].contains(&matched_set) {
                     continue;
                 }
                 self.fired[i].push(matched_set);
-                for rf in rule.removed_facts(&snapshot, &groups) {
+                // One span per firing: everything this firing removes or
+                // adds happens inside it, so trace output attributes it
+                // together. Each matched fact that survives the firing is
+                // reported here as a trace match; consumed ones instead
+                // show up below as removals.
+                let fire_span =
+                    tracing::trace_span!(target: "reform::fire", "fire", rule = %rule.name);
+                let _firing = fire_span.entered();
+                let removed = rule.removed_facts(&snapshot, &groups);
+                let removed_set: std::collections::HashSet<&Fact> = removed.iter().collect();
+                for m in &matched {
+                    if !removed_set.contains(m) {
+                        tracing::trace!(
+                            target: "reform::match",
+                            fact = %normal_form_fact(m),
+                            "matched"
+                        );
+                    }
+                }
+                for rf in removed {
                     self.remove_fact(&rf);
                 }
                 let text = rule.body.render(&bindings);
-                if self.trace {
-                    let rendered = text.trim_end();
-                    (self.output.stderr)(&format!("\x1b[2m[trace] fire {} -> {}\x1b[0m\n", rule.name, rendered));
-                }
                 if text.trim().is_empty() {
                     continue;
                 }

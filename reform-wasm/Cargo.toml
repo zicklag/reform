@@ -9,4 +9,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 reform = { path = ".." }
 wasm-bindgen = "0.2"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 js-sys = "0.3"

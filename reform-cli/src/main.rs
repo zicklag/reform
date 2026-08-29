@@ -18,9 +18,10 @@ struct Cli {
     )]
     safe: bool,
 
-    /// Trace engine activity to stderr (each line prefixed `[trace]`): facts
-    /// added (`+`) / removed (`-`), rules registered, and rule firings
-    /// (`fire <name> -> <body>`).
+    /// Trace engine activity to stderr via the `tracing` ecosystem: rules
+    /// registered (with computed specificity), rule firings (`fire <name> <-
+    /// <matched facts>`) with the facts each firing added/removed indented
+    /// beneath it, and file loads / command effects attributed.
     #[argh(
         switch,
         short = 't',
@@ -58,8 +59,9 @@ fn main() {
         Some(seed) => Engine::new_with_seed(seed),
         None => Engine::new(),
     };
-    let trace = cli.trace || std::env::var("REFORM_TRACE").is_ok();
-    engine.set_trace(trace);
+    if cli.trace || std::env::var("REFORM_TRACE").is_ok() {
+        let _ = tracing::subscriber::set_global_default(reform::trace::TraceFormat::stderr());
+    }
 
     for path in &cli.files {
         if let Err(e) = engine.load_file(path) {

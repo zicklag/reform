@@ -1594,58 +1594,45 @@ fn load_file_error() {
     assert!(res.is_err(), "load_file should fail for non-existent file");
 }
 
-// -- trace logging ---------------------------------------------------------
-
-/// Enabling trace exercises the `set_trace` path and every `if self.trace`
-/// branch: rule registration, fact addition, fact removal (via a `-` pattern),
-/// and rule firing. Trace output goes to stderr (captured by the test
-/// harness for passing tests), so we only assert the engine behavior.
-#[test]
-fn trace_emits_events() {
-    let mut e = Engine::new();
-    e.set_trace(true);
-    e.load_str("$ rule r\n    ( - a )\n    ( b )\n$ a\n$ quit\n")
-        .unwrap();
-    assert!(e.contains(&fact("b")));
-    assert!(!e.contains(&fact("a")));
-}
-
 // -- output sink ------------------------------------------------------------
 
-/// Replacing the output sink routes `println`/`print`/`find`/`facts` to the
-/// configured stdout callback and trace events to the stderr callback. This is
-/// what lets the wasm bindings render engine output into a virtual terminal.
+/// The output sink routes `println`/`print`/`find`/`facts` text to the
+/// configured stdout callback. This is what lets the wasm bindings render
+/// engine output into a virtual terminal. (Trace events don't use `Output`;
+/// they flow through the `tracing` ecosystem.)
 #[test]
-fn output_sink_captures_stdout_and_trace() {
+fn output_sink_captures_stdout() {
     use std::cell::RefCell;
     use std::rc::Rc;
 
     let mut e = Engine::new();
     let out = Rc::new(RefCell::new(String::new()));
-    let err = Rc::new(RefCell::new(String::new()));
     let out_cb = Rc::clone(&out);
-    let err_cb = Rc::clone(&err);
     // The sink closures capture `Rc`s but must be stored in the `Arc`-based
     // `Output`. This is fine: the test is single-threaded, so the non-Send
     // capture is intentional.
     #[allow(clippy::arc_with_non_send_sync)]
     e.set_output(reform::engine::Output {
         stdout: Arc::new(move |s| out_cb.borrow_mut().push_str(s)),
-        stderr: Arc::new(move |s| err_cb.borrow_mut().push_str(s)),
+        stderr: Arc::new(|s| eprint!("{s}")),
     });
-    e.set_trace(true);
     e.load_str("$ println hi\n$ print there \n$ a\n$ b\n$ facts\n$ find a\n$ quit\n")
         .unwrap();
     // println appends a newline; print does not; `$ a`/`$ b` store bare facts
     // (no `parse` prefix); facts lists every fact; find lists only matches.
     assert_eq!(out.borrow().as_str(), "hi\ntherea\nb\na\n");
-    // Trace events go to the stderr sink.
-    let errs = err.borrow();
-    assert!(errs.contains("[trace] + a"), "stderr: {errs}");
-    assert!(errs.contains("[trace] + b"), "stderr: {errs}");
     // The `output()` getter returns the same sinks that were set.
     (e.output().stdout)("via getter");
     assert_eq!(out.borrow().as_str(), "hi\ntherea\nb\na\nvia getter");
+}
+
+/// The default output routes stdout-style text (and anything a host sends to
+/// the stderr sink) to the process streams.
+#[test]
+fn default_output_uses_process_streams() {
+    let e = Engine::new();
+    (e.output().stdout)("stdout-side\n");
+    (e.output().stderr)("stderr-side\n");
 }
 
 // -- matched_facts coverage -------------------------------------------------

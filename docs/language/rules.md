@@ -112,10 +112,12 @@ There are special cases, though, where being able to tweak or override the
 priority of a rule is useful, so the optional fifth arguments of rules let
 you do exactly that. Higher priority rules will run before lower priority rules.
 
-> ℹ️ **Tip:** Running the Reform CLI with the `--trace` option will make it print
+> ℹ️ **Tip:** Running the Reform CLI with the `--trace` option will print
 out verbose debug information for all of the facts it creates and rules that it
-runs. When new rules are added it will also show the computed priority of the rule,
-which can be useful if you need to debug rule priority.
+runs. Each firing shows as `fire <name>`, with the matched-and-kept pattern
+facts (`✓`), the facts the firing removed (`-`), and the facts it added (`+`)
+indented beneath it. When new rules are added it will also show the computed
+priority of the rule, which can be useful if you need to debug rule priority.
 
 ## The Big Picture
 

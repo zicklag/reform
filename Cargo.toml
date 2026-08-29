@@ -26,4 +26,5 @@ smallvec = "1.15.2"
 peg = "0.8.6"
 fixedbitset = "0.5.7"
 meval = "0.2"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }

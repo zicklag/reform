@@ -673,8 +673,12 @@ reform [--safe] [--trace] [--seed SEED] [--version] [files...]
 - **`--safe`** disallows `$`-prefixed lines as direct facts/commands at the
   REPL; they are treated as player prompts instead.
 - **`--trace`** (or the `REFORM_TRACE` environment variable being set) prints
-  trace events to stderr: facts added (`+`) / removed (`-`), rules registered
-  (with computed specificity), and rule firings (`fire <name> -> <body>`).
+  trace events to stderr, indented to show causation: rules registered (with
+  computed specificity), `file` lines when source loads, rule firings
+  (`fire <name>`) with the firing's facts grouped beneath it — `✓` for
+  pattern facts that matched and stayed, `-` for pattern facts the firing
+  consumed, `+` for facts the body added, and `(via <command>)` suffixes on
+  facts changed outside a firing.
 - **`--seed SEED`** seeds the `random(n)` stream so `@eval` output is
   deterministic. Omit it to draw a fresh random seed from system entropy.
 - **`--version`** prints the version and exits.

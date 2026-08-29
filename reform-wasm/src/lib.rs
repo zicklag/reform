@@ -1,10 +1,13 @@
 //! WASM bindings for the Reform rule engine.
 //!
 //! Exposes a [`ReformEngine`] that wraps [`reform::engine::Engine`] and routes
-//! engine output (stdout-style commands like `println`/`find`/`facts`, plus
-//! trace events) to JS callbacks so a virtual terminal can render it. The
-//! `input` method mirrors the CLI REPL: a `$`-prefixed line is a direct fact
-//! when `allow_direct` is on, otherwise it is treated as a player prompt.
+//! engine output (stdout-style commands like `println`/`find`/`facts`) to JS
+//! callbacks so a virtual terminal can render it. Trace events flow through
+//! the `tracing` ecosystem instead: [`ReformEngine::set_trace`] installs a
+//! global [`reform::trace::TraceFormat`] renderer whose lines go to the same
+//! stderr sink, so tracing renders into the virtual terminal too. The `input`
+//! method mirrors the CLI REPL: a `$`-prefixed line is a direct fact when
+//! `allow_direct` is on, otherwise it is treated as a player prompt.
 
 use reform::engine::{Engine, Output};
 use wasm_bindgen::prelude::*;
@@ -35,10 +38,11 @@ impl ReformEngine {
         this
     }
 
-    /// Enable or disable trace logging. Trace events are emitted to the
-    /// stderr sink (default: `console.error`).
+    /// Enable or disable trace logging. Trace events render through the
+    /// global `tracing` subscriber into the current stderr sink (default:
+    /// `console.error`; replaced by [`ReformEngine::set_output`]).
     pub fn set_trace(&mut self, on: bool) {
-        self.engine.set_trace(on);
+        TRACE_FORMAT.set_enabled(on);
     }
 
     /// Whether `$`-prefixed terminal lines are inserted directly as facts
@@ -48,18 +52,27 @@ impl ReformEngine {
         self.allow_direct = on;
     }
 
-    /// Route engine stdout and stderr output to the given JS callbacks. Each
-    /// callback receives the exact characters to emit (callers append their
-    /// own newline).
+    /// Route engine stdout and stderr output (plus trace lines, when tracing
+    /// is enabled via [`ReformEngine::set_trace`]) to the given JS callbacks.
+    /// Each callback receives the exact characters to emit (callers append
+    /// their own newline).
     pub fn set_output(&mut self, stdout: js_sys::Function, stderr: js_sys::Function) {
         self.engine.set_output(Output {
             stdout: Arc::new(move |s| {
                 let _ = stdout.call1(&JsValue::UNDEFINED, &JsValue::from_str(s));
             }),
-            stderr: Arc::new(move |s| {
-                let _ = stderr.call1(&JsValue::UNDEFINED, &JsValue::from_str(s));
+            stderr: Arc::new({
+                let stderr = stderr.clone();
+                move |s| {
+                    let _ = stderr.call1(&JsValue::UNDEFINED, &JsValue::from_str(s));
+                }
             }),
         });
+        // Keep trace lines flowing to the current stderr sink.
+        let sink = Arc::new(move |s: &str| {
+            let _ = stderr.call1(&JsValue::UNDEFINED, &JsValue::from_str(s));
+        });
+        *TRACE_SINK.write().unwrap() = sink;
     }
 
     /// Load a reform source string (facts, rules, `$` commands) into the
@@ -111,7 +124,27 @@ impl Default for ReformEngine {
     }
 }
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, RwLock};
+
+/// The JS sink trace lines currently go to. Kept outside the subscriber so
+/// `set_output` can re-route tracing without reinstalling the subscriber.
+/// Defaults to `console.error` until the first `set_output`.
+static TRACE_SINK: LazyLock<RwLock<Arc<dyn Fn(&str) + Send + Sync>>> = LazyLock::new(|| {
+    RwLock::new(Arc::new(|s: &str| {
+        let _ = console_error().call1(&JsValue::UNDEFINED, &JsValue::from_str(s));
+    }))
+});
+
+/// The global trace renderer, created on the first `set_trace(true)`.
+static TRACE_FORMAT: LazyLock<Arc<reform::trace::TraceFormat>> = LazyLock::new(|| {
+    let fmt = Arc::new(reform::trace::TraceFormat::with_sink(Arc::new(|s| {
+        (TRACE_SINK.read().unwrap())(s);
+    })));
+    // A second ReformEngine in the same page shares this subscriber;
+    // set_global_default fails harmlessly on re-install.
+    let _ = tracing::subscriber::set_global_default(Arc::clone(&fmt));
+    fmt
+});
 
 /// A JS callback that logs to `console.log`.
 fn console_log() -> js_sys::Function {

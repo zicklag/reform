@@ -6,6 +6,7 @@ pub mod engine;
 pub mod parser;
 pub mod regex;
 pub mod rule;
+pub mod trace;
 
 /// An argument in a [`Fact`].
 pub type Arg = Intern<str>;
