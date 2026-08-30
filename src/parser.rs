@@ -197,7 +197,7 @@ peg::parser! {
                 " "*
                 matched:(
                     arg:plain_word()
-                ) ** " "
+                ) ** ws1()
                 " "*
             "}"
             {
@@ -253,8 +253,14 @@ peg::parser! {
         // Helpers for negative lookahead
         rule not_brackets() = not_curlies() not_backtick() not_parens()
         rule not_curlies() = !("{" / "}")
+
         rule not_backtick() = !("`")
         rule not_parens() = !( "(" / ")" )
+
+        // One or more horizontal spaces (also used as the word separator in
+        // curly-brace template sections, where any run of spaces/tabs must be
+        // tolerated so rendered facts round-trip).
+        rule ws1() = (" " / "\t")+
 
         // Parse a line that is continuing a previous fact indented at the provided
         // `base` level.

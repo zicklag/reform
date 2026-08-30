@@ -1,0 +1,34 @@
+$ rule (substitute properties of thing in template)
+  (
+    $prop of $thing is $value
+    - queue
+        $( $before )*
+        (`)
+          $( $sbefore )*
+          {
+            $prop of $thing
+          }
+          $( $safter )*
+        (`)
+        $( $after )*
+      @q
+      $( $queue )*
+  )
+  (
+    queue
+        $( $before )*
+        (`)
+          $( $sbefore )*
+          $value
+          $( $safter )*
+        (`)
+        $( $after )*
+      @q
+      $( $queue )*
+  )
+
+$ name of game is Testing
+$ author of game is John
+$ queue `Starting {name of game} by {author of game}` @q
+$ facts
+$ assert queue (`) (Starting ) Testing ( by ) John (`) @q
