@@ -1506,41 +1506,80 @@ impl Body {
     /// source text ready to be parsed by [`crate::parser::facts`].
     pub fn render(&self, b: &Bindings) -> String {
         let mut out = String::new();
-        render_chunks(&self.0, b, &mut out);
+        let mut depth = 0usize;
+        render_chunks(&self.0, b, &mut out, &mut depth);
         out
     }
 }
 
-fn render_chunks(chunks: &[BodyChunk], b: &Bindings, out: &mut String) {
+fn render_chunks(chunks: &[BodyChunk], b: &Bindings, out: &mut String, depth: &mut usize) {
     for chunk in chunks {
         match chunk {
-            BodyChunk::Text(t) => out.push_str(t),
+            BodyChunk::Text(t) => render_text(t, out, depth),
             BodyChunk::Placeholder(name) => {
                 if let Some(v) = b.get(name) {
-                    render_value(v, out);
+                    render_value(v, out, *depth == 0);
                 }
             }
-            BodyChunk::Repeat(r) => render_repeat(r, b, out),
+            BodyChunk::Repeat(r) => render_repeat(r, b, out, depth),
         }
     }
 }
-/// Render a bound value: a scalar arg as-is, or a list space-joined (recursing
-/// into nested `Many`s so a grouped placeholder at any depth renders flat).
-fn render_value(v: &BindValue, out: &mut String) {
+
+/// Append literal template text, tracking how many paren groups the template
+/// has open: an unescaped `(` opens one, an unescaped `)` closes one, and a
+/// `\` escapes the following character so parens after it stay inert.
+fn render_text(t: &str, out: &mut String, depth: &mut usize) {
+    let mut chars = t.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                out.push(c);
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+            }
+            '(' => {
+                *depth += 1;
+                out.push(c);
+            }
+            ')' => {
+                *depth = depth.saturating_sub(1);
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+}
+
+/// Render a bound value. At a bare argument position (`at_arg_position`) a
+/// value must round-trip as its own argument, so it is normalized with
+/// [`crate::normal_form_arg`], wrapping it in parens when needed. Inside a
+/// paren group opened by the template itself the user's parens already group
+/// the substituted text into one argument, so the value is only escaped
+/// ([`crate::escape_arg`]) and its exact characters — spaces included — are
+/// spliced in as-is.
+fn render_value(v: &BindValue, out: &mut String, at_arg_position: bool) {
     match v {
-        BindValue::One(arg) => out.push_str(&crate::normal_form_arg(arg)),
+        BindValue::One(arg) => {
+            if at_arg_position {
+                out.push_str(&crate::normal_form_arg(arg));
+            } else {
+                out.push_str(&crate::escape_arg(arg));
+            }
+        }
         BindValue::Many(list) => {
             for (i, child) in list.iter().enumerate() {
                 if i > 0 {
                     out.push(' ');
                 }
-                render_value(child, out);
+                render_value(child, out, at_arg_position);
             }
         }
     }
 }
 
-fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String) {
+fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String, depth: &mut usize) {
     // The list-bound placeholders appearing in this block drive the iteration.
     // Collect each one's bound list exactly once — by construction every entry
     // here is a `Many` value (that's the filter), so there is no second
@@ -1568,7 +1607,7 @@ fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String) {
         for (name, list) in &driver_lists {
             b2.map.insert(name.clone(), list[i].clone());
         }
-        render_chunks(&r.chunks, &b2, out);
+        render_chunks(&r.chunks, &b2, out, depth);
     }
 }
 

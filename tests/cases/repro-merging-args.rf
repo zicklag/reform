@@ -1,0 +1,12 @@
+$ rule (merge args)
+  (
+    - parse $( $before )* start $( $args )* end $( $after )*
+  )
+  (
+    out $( $before )* ($($args)*) $( $after )*
+  )
+
+one two three start (Hello ) World end four five
+
+$ facts
+$ assert out one two three (Hello World) four five

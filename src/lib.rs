@@ -34,8 +34,19 @@ pub fn normal_form_arg(a: &Arg) -> String {
     if !needs {
         return s.to_string();
     }
-    let mut out = String::from("(");
-    for c in s.chars() {
+    format!("({})", escape_arg(a))
+}
+
+/// Escape an argument's special characters (`\`, `(`, `)`) so that they come
+/// through fact re-parsing as literal characters.
+///
+/// This is the substitution form used inside a parenthesized argument in a
+/// rule body: the user's own parens already group the text into a single
+/// argument, so nothing is wrapped — the content is only kept from altering
+/// the group structure.
+pub fn escape_arg(a: &Arg) -> String {
+    let mut out = String::with_capacity(a.len());
+    for c in a.chars() {
         match c {
             '\\' => out.push_str("\\\\"),
             '(' => out.push_str("\\("),
@@ -43,6 +54,5 @@ pub fn normal_form_arg(a: &Arg) -> String {
             _ => out.push(c),
         }
     }
-    out.push(')');
     out
 }

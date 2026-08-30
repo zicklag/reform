@@ -456,8 +456,10 @@ A body is composed of:
 
 - **Literal text** — emitted verbatim. This includes parentheses, newlines,
   and the entire contents of generated (inner) rules.
-- **`$name` placeholders** — substituted with the matched value. A bound value
-  renders in normal form (space-joined if it is a list).
+- **`$name` placeholders** — substituted with the matched value. At a bare
+  argument position the value renders in normal form (wrapped in parens when
+  needed, space-joined if it is a list); inside template parens it is spliced
+  in escaped but unwrapped (see below).
 - **`$( ... )?/+/*` repetition blocks** — iterated over the bound lists, one
   emission per list element. A block whose placeholders are bound at the same
   nesting depth in the pattern is driven by those lists. If the driver lists
@@ -472,6 +474,31 @@ Two special escapes:
 - A bare `$` not followed by a placeholder name is literal text.
 
 A rule whose body renders to empty output creates nothing.
+
+### Substitution inside parentheses
+
+Parentheses written in a body template group the rendered text into a single
+argument, and a placeholder spliced **inside** them is escaped but never
+wrapped — your parens are the grouping. At a bare argument position, a
+substituted value is wrapped in parens when needed so it stays one argument.
+
+This is also how several captured arguments get merged into one: put a
+repetition block inside parentheses. Nothing is added between the substituted
+values — separation comes only from the template text, so a captured `(Hello )`
+keeps its trailing space and joins the merged argument.
+
+```rf
+$ rule (merge args)
+  (
+    - parse $( $before )* start $( $args )* end $( $after )*
+  )
+  (
+    out $( $before )* ($($args)*) $( $after )*
+  )
+```
+
+Parsing `one two three start (Hello ) World end four five` produces
+`out one two three (Hello World) four five`.
 
 ### Body/pattern placeholder alignment
 
@@ -830,8 +857,8 @@ Facts in normal form parse back to the identical fact, so normal form
 round-trips for arguments that don't contain a comma, a `#`, an unescaped
 `{`/`}`, or start with `$` — such arguments do not survive re-parsing (a
 comma splits, `#` starts a comment, braces split, and a leading `$` gets the
-`parse` prefix). `facts`, `find`, trace output, and body-placeholder rendering
-all use normal form.
+`parse` prefix). `facts`, `find`, trace output, and body-placeholder
+rendering at a bare argument position all use normal form.
 
 ```rf
 (Grand Canyon) is big

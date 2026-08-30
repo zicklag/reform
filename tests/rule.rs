@@ -139,6 +139,77 @@ fn render_chunks_many_binding() {
 }
 
 // ---------------------------------------------------------------------------
+// Substitution inside paren groups (the merge-args idiom)
+// ---------------------------------------------------------------------------
+
+/// A placeholder spliced inside template parens is escaped, not wrapped: the
+/// user's parens already group the rendered text into one argument. This is
+/// the "merge args into one" body idiom `($($args)*)` — a repeat block whose
+/// parsed body is Text("("), Repeat([Placeholder]), Text(")"). The verbatim
+/// trailing space of a captured `(Hello )` arg separates the merged values.
+#[test]
+fn render_placeholder_in_paren_group_splices_verbatim() {
+    let b = Body(vec![
+        BodyChunk::Text("(".to_string()),
+        BodyChunk::Repeat(RepeatBlock {
+            kind: RepetitionKind::ZeroOrMore,
+            greedy: false,
+            chunks: vec![BodyChunk::Placeholder("args".to_string())],
+        }),
+        BodyChunk::Text(")".to_string()),
+    ]);
+    let mut bindings = Bindings::new();
+    bindings.map.insert(
+        "args".to_string(),
+        BindValue::Many(vec![
+            BindValue::One(Arg::from("Hello ")),
+            BindValue::One(Arg::from("World")),
+        ]),
+    );
+    let s = b.render(&bindings);
+    assert_eq!(s, "(Hello World)");
+    let facts = reform::parser::facts(&s).unwrap();
+    assert_eq!(facts, vec![fact(&["Hello World"])]);
+}
+
+/// Inside a template paren group, values containing parens or backslashes are
+/// escaped (so they survive re-parsing as literal characters) but never
+/// wrapped; once the group closes, a bare-position placeholder wraps again.
+#[test]
+fn render_value_between_group_and_arg_position() {
+    let b = Body(vec![
+        BodyChunk::Text("(".to_string()),
+        BodyChunk::Placeholder("x".to_string()),
+        BodyChunk::Text(") ".to_string()),
+        BodyChunk::Placeholder("y".to_string()),
+    ]);
+    let mut bindings = Bindings::new();
+    bindings.bind_scalar("x", Arg::from("a)b"));
+    bindings.bind_scalar("y", Arg::from("c d"));
+    let s = b.render(&bindings);
+    assert_eq!(s, "(a\\)b) (c d)");
+    let facts = reform::parser::facts(&s).unwrap();
+    assert_eq!(facts, vec![fact(&["a)b", "c d"])]);
+}
+
+/// Template text depth tracking: an escaped `\(` must not open a group (the
+/// placeholder after it still wraps), and a stray `)` at depth zero or a
+/// dangling `\` are inert rather than panicking.
+#[test]
+fn render_text_paren_depth_tracking() {
+    let b = Body(vec![
+        BodyChunk::Text("\\(".to_string()),
+        BodyChunk::Placeholder("x".to_string()),
+    ]);
+    let mut bindings = Bindings::new();
+    bindings.bind_scalar("x", Arg::from("a b"));
+    assert_eq!(b.render(&bindings), "\\((a b)");
+
+    let b = Body(vec![BodyChunk::Text(")".to_string()), BodyChunk::Text("\\".to_string())]);
+    assert_eq!(b.render(&Bindings::new()), ")\\");
+}
+
+// ---------------------------------------------------------------------------
 // render_repeat edge cases
 // ---------------------------------------------------------------------------
 
