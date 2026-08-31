@@ -305,3 +305,15 @@ $ rule r
     assert!(err.contains("inconsistent nesting"), "got: {err}");
     assert!(err.contains("pattern"), "got: {err}");
 }
+
+/// A `$UID(name)` body form is an ID generator, not a placeholder use: the
+/// key needs no declaration in the pattern.
+#[test]
+fn uid_body_form_needs_no_pattern_declaration() {
+    let src = r#"
+$ rule r
+    ( go )
+    ( badge $UID(anything) )
+"#;
+    parse_rule(src).expect("$UID key should not require declaration");
+}

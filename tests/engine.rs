@@ -1750,3 +1750,53 @@ fn engine_debug_lists_commands() {
     assert!(s.contains("println"), "debug output: {s}");
     assert!(s.contains("quit"), "debug output: {s}");
 }
+
+// -- $UID(name) generation ----------------------------------------------------
+
+/// `$UID(name)` in a rule body generates deterministic, engine-wide unique
+/// IDs: within one firing all uses of a name share one ID, different names
+/// get different numbers, and a later firing continues the counter.
+#[test]
+fn uid_generation_is_deterministic_and_coalesced() {
+    let e = load(
+        r#"
+$ rule generate
+    ( tick $n )
+    ( win $UID(b) link $UID(b) $UID(o) )
+$ tick 1
+$ tick 2
+$ quit
+"#,
+    );
+    // First firing: b → UID_1, then o → UID_2 (allocated in render order).
+    assert!(e.contains(&fact("win UID_1 link UID_1 UID_2")));
+    // Second firing continues the engine-wide counter.
+    assert!(e.contains(&fact("win UID_3 link UID_3 UID_4")));
+    // No leakage across names or firings.
+    assert!(!e.contains(&fact("win UID_2 link UID_2 UID_3")));
+    assert!(!e.contains(&fact("win UID_1 link UID_1 UID_3")));
+}
+
+/// A generated inner rule that escapes its form as `$$UID` generates its own
+/// IDs when it fires — the outer body's render doesn't consume them.
+#[test]
+fn generated_inner_rule_generates_its_own_uids() {
+    let e = load(
+        r#"
+$ rule make_inner
+    ( go )
+    (
+        rule inner
+            ( fire me )
+            ( out $$UID(k) )
+    )
+$ go
+$ fire me
+$ quit
+"#,
+    );
+    // `make_inner` renders the inner rule text without generating IDs
+    // (`$$UID` is escaped literal text); the inner rule then fires and
+    // draws the engine's first UID.
+    assert!(e.contains(&fact("out UID_1")));
+}

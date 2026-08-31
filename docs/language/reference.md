@@ -460,6 +460,12 @@ A body is composed of:
   argument position the value renders in normal form (wrapped in parens when
   needed, space-joined if it is a list); inside template parens it is spliced
   in escaped but unwrapped (see below).
+- **`$UID(name)` ID generators** — emit a fresh `UID_n` from the engine's
+  monotonic ID counter at substitution time. All uses of the same `name`
+  within one body render share one ID; different names get different IDs in
+  render order, and each firing continues the counter, so IDs are
+  deterministic and engine-wide unique. `name` need not be declared in the
+  pattern — it is only the sharing key.
 - **`$( ... )?/+/*` repetition blocks** — iterated over the bound lists, one
   emission per list element. A block whose placeholders are bound at the same
   nesting depth in the pattern is driven by those lists. If the driver lists
@@ -468,9 +474,9 @@ A body is composed of:
 Two special escapes:
 
 - `$$` produces a literal `$` in the output. This is how a generated *inner*
-  rule writes its own `$x` placeholders or `$( ... )` blocks: `$$x` and
-  `$$( ... )` — the outer pattern binds the values, and the emitted rule gets
-  its own placeholders.
+  rule writes its own `$x` placeholders, `$( ... )` blocks, or `$UID( ... )`
+  generators: `$$x`, `$$( ... )`, `$$UID( ... )` — the outer pattern binds
+  the values, and the emitted rule gets its own placeholders and IDs.
 - A bare `$` not followed by a placeholder name is literal text.
 
 A rule whose body renders to empty output creates nothing.

@@ -207,8 +207,9 @@ pub struct Pattern(pub Vec<PatternItem>);
 
 /// A rule body: a substitution template that produces facts when the pattern
 /// matches. The body is a flat template of literal text, `$name` placeholders
-/// (substituted from the pattern's bindings at fire time), and
-/// `$( ... )?/+/*` repetition blocks (aligned with the pattern's repetitions).
+/// (substituted from the pattern's bindings at fire time), `$UID(name)`
+/// generators (a fresh `UID_n` per name per firing), and `$( ... )?/+/*`
+/// repetition blocks (aligned with the pattern's repetitions).
 /// After substitution the resulting text is parsed by `facts()` to produce
 /// real facts, so any non-placeholder text is opaque — including parens,
 /// newlines, and the entire contents of generated (inner) rules.
@@ -223,6 +224,12 @@ pub enum BodyChunk {
     Text(String),
     /// A `$name` placeholder, substituted with the matched value at fire time.
     Placeholder(String),
+    /// A `$UID(name)` ID generator: at substitution time it expands to a
+    /// fresh `UID_n` drawn from the engine's monotonic ID counter, so IDs
+    /// are deterministic across runs. `name` is the coalescing key — every
+    /// use of the same name in one body render shares one newly generated
+    /// ID; distinct names get distinct IDs.
+    Uid(String),
     /// A `$( ... )?/+/*` repetition block, iterated over the bound list.
     Repeat(RepeatBlock),
 }
@@ -456,6 +463,9 @@ fn collect_body(
                 collect_body(&r.chunks, stack, out, where_)?;
                 stack.pop();
             }
+            // `$UID(name)` is an ID generator, not a placeholder use: it
+            // declares nothing the pattern must provide.
+            BodyChunk::Uid(_) => {}
             BodyChunk::Text(_) => {}
         }
     }
@@ -1504,15 +1514,30 @@ impl Rule {
 impl Body {
     /// Render the body template with the given bindings, producing reform
     /// source text ready to be parsed by [`crate::parser::facts`].
-    pub fn render(&self, b: &Bindings) -> String {
+    ///
+    /// `next_id` is the engine's monotonic `$UID` counter: each newly
+    /// generated ID takes the next `UID_n`, so identical engine histories
+    /// produce identical IDs.
+    pub fn render(&self, b: &Bindings, next_id: &mut u64) -> String {
+        // Same `$UID(name)` within this render coalesce to one ID, freshly
+        // drawn per name. The map is per-render: a later firing of the same
+        // rule generates new IDs again.
+        let mut ids = HashMap::new();
         let mut out = String::new();
         let mut depth = 0usize;
-        render_chunks(&self.0, b, &mut out, &mut depth);
+        render_chunks(&self.0, b, &mut out, &mut depth, next_id, &mut ids);
         out
     }
 }
 
-fn render_chunks(chunks: &[BodyChunk], b: &Bindings, out: &mut String, depth: &mut usize) {
+fn render_chunks(
+    chunks: &[BodyChunk],
+    b: &Bindings,
+    out: &mut String,
+    depth: &mut usize,
+    next_id: &mut u64,
+    ids: &mut HashMap<String, String>,
+) {
     for chunk in chunks {
         match chunk {
             BodyChunk::Text(t) => render_text(t, out, depth),
@@ -1521,7 +1546,16 @@ fn render_chunks(chunks: &[BodyChunk], b: &Bindings, out: &mut String, depth: &m
                     render_value(v, out, *depth == 0);
                 }
             }
-            BodyChunk::Repeat(r) => render_repeat(r, b, out, depth),
+            BodyChunk::Uid(name) => {
+                if !ids.contains_key(name) {
+                    let id = format!("UID_{}", *next_id);
+                    // No realistic run exhausts u64; wrap instead of panic.
+                    *next_id = next_id.wrapping_add(1);
+                    ids.insert(name.clone(), id);
+                }
+                out.push_str(&ids[name]);
+            }
+            BodyChunk::Repeat(r) => render_repeat(r, b, out, depth, next_id, ids),
         }
     }
 }
@@ -1579,7 +1613,14 @@ fn render_value(v: &BindValue, out: &mut String, at_arg_position: bool) {
     }
 }
 
-fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String, depth: &mut usize) {
+fn render_repeat(
+    r: &RepeatBlock,
+    b: &Bindings,
+    out: &mut String,
+    depth: &mut usize,
+    next_id: &mut u64,
+    ids: &mut HashMap<String, String>,
+) {
     // The list-bound placeholders appearing in this block drive the iteration.
     // Collect each one's bound list exactly once — by construction every entry
     // here is a `Many` value (that's the filter), so there is no second
@@ -1607,7 +1648,7 @@ fn render_repeat(r: &RepeatBlock, b: &Bindings, out: &mut String, depth: &mut us
         for (name, list) in &driver_lists {
             b2.map.insert(name.clone(), list[i].clone());
         }
-        render_chunks(&r.chunks, &b2, out, depth);
+        render_chunks(&r.chunks, &b2, out, depth, next_id, ids);
     }
 }
 
@@ -1622,6 +1663,7 @@ fn collect_ph_names(chunks: &[BodyChunk], out: &mut Vec<String>) {
     for chunk in chunks {
         match chunk {
             BodyChunk::Placeholder(name) => out.push(name.clone()),
+            BodyChunk::Uid(_) => {}
             BodyChunk::Repeat(r) => collect_ph_names(&r.chunks, out),
             BodyChunk::Text(_) => {}
         }

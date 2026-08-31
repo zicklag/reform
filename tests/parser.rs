@@ -486,3 +486,110 @@ fn neg_lookahead_multi_line() {
     assert_eq!(inner.len(), 4);
 }
 
+
+// -- $UID(name) body form -----------------------------------------------------
+
+/// `$UID(name)` parses as a `BodyChunk::Uid` carrying the key.
+#[test]
+fn body_uid_form_parses() {
+    let b = body("$UID(room)");
+    assert_eq!(b.len(), 1);
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Uid(name)] if name == "room"),
+        "got {:?}",
+        b
+    );
+}
+
+/// Adjacent `$UID` forms parse as back-to-back chunks with no literal text
+/// between them.
+#[test]
+fn body_uid_adjacent_parse_separately() {
+    let b = body("$UID(a)$UID(b)");
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Uid(a), BodyChunk::Uid(b)]
+            if a == "a" && b == "b"),
+        "got {:?}",
+        b
+    );
+}
+
+/// `$UID(name)` mixes freely with placeholders and literal text; text after
+/// the closing paren is literal.
+#[test]
+fn body_uid_mixes_with_placeholders() {
+    let b = body("id $UID(a) $x end$UID(b)");
+    assert!(
+        matches!(&b.0[..],
+            [BodyChunk::Text(t1), BodyChunk::Uid(a), BodyChunk::Text(t2),
+             BodyChunk::Placeholder(x), BodyChunk::Text(t3), BodyChunk::Uid(b2)]
+            if t1 == "id " && a == "a" && t2 == " " && x == "x" && t3 == " end" && b2 == "b"),
+        "got {:?}",
+        b
+    );
+}
+
+/// `$UID(name)` also parses inside a `$( ... )` repeat block.
+#[test]
+fn body_uid_in_repeat_parses() {
+    let b = body("$( item $UID(t) )*");
+    assert_eq!(b.len(), 1);
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Repeat(r)]
+            if matches!(&r.chunks[..], [BodyChunk::Text(t), BodyChunk::Uid(name), BodyChunk::Text(_)]
+                if t == " item " && name == "t")),
+        "got {:?}",
+        b
+    );
+}
+
+/// A bare `$UID` (no parenthesized key) is still just a placeholder named
+/// `UID` — the form only applies with the parens.
+#[test]
+fn body_bare_uid_is_placeholder() {
+    let b = body("$UID");
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Placeholder(name)] if name == "UID"),
+        "got {:?}",
+        b
+    );
+}
+
+/// `$UID(` without a closing paren falls back to a placeholder plus literal
+/// text (the body grammar is infallible).
+#[test]
+fn body_uid_unclosed_falls_back() {
+    let b = body("$UID(x");
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Placeholder(name), BodyChunk::Text(t)]
+            if name == "UID" && t == "(x"),
+        "got {:?}",
+        b
+    );
+}
+
+/// The form is case-sensitive: `$uid(name)` stays a `uid` placeholder
+/// followed by literal text.
+#[test]
+fn body_uid_is_case_sensitive() {
+    let b = body("$uid(x)");
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Placeholder(name), BodyChunk::Text(t)]
+            if name == "uid" && t == "(x)"),
+        "got {:?}",
+        b
+    );
+}
+
+/// `$$UID(name)` in a body becomes literal text `$UID(name)` — the escape an
+/// inner generated rule uses to reserve the form for its own firing.
+#[test]
+fn body_double_dollar_before_uid() {
+    let b = body("$$UID(name)");
+    assert_eq!(b.len(), 1);
+    assert!(
+        matches!(&b.0[..], [BodyChunk::Text(t)] if t == "$UID(name)"),
+        "got {:?}",
+        b
+    );
+}

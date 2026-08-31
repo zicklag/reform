@@ -1,0 +1,25 @@
+# `$UID(name)` in a rule body expands to a fresh `UID_n` drawn from the
+# engine's monotonic ID counter at body-substitution time. Every use of the
+# same name within one body render shares one ID, different names get
+# different IDs in render order, and each firing continues the counter — so
+# the IDs are deterministic and engine-wide unique.
+
+$ rule spawn
+    (
+        - create $n a view
+    )
+    (
+        view $n id $UID(v) peer $UID(v) session $UID(s)
+    )
+
+$ create 1 a view
+$ create 2 a view
+
+# First firing: both `$UID(v)` uses coalesce onto UID_1, `$UID(s)` gets the
+# next number. Second firing continues the engine-wide counter at UID_3.
+$ assert view 1 id UID_1 peer UID_1 session UID_2
+$ assert view 2 id UID_3 peer UID_3 session UID_4
+
+# The check facts were consumed by the removal pattern.
+$ assert-not create 1 a view
+$ assert-not create 2 a view

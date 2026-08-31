@@ -134,7 +134,7 @@ fn render_chunks_many_binding() {
         "x".to_string(),
         BindValue::Many(vec![BindValue::One(Arg::from("a")), BindValue::One(Arg::from("b"))]),
     );
-    let s = b.render(&bindings);
+    let s = b.render(&bindings, &mut 0);
     assert_eq!(s, "a b");
 }
 
@@ -166,7 +166,7 @@ fn render_placeholder_in_paren_group_splices_verbatim() {
             BindValue::One(Arg::from("World")),
         ]),
     );
-    let s = b.render(&bindings);
+    let s = b.render(&bindings, &mut 0);
     assert_eq!(s, "(Hello World)");
     let facts = reform::parser::facts(&s).unwrap();
     assert_eq!(facts, vec![fact(&["Hello World"])]);
@@ -186,7 +186,7 @@ fn render_value_between_group_and_arg_position() {
     let mut bindings = Bindings::new();
     bindings.bind_scalar("x", Arg::from("a)b"));
     bindings.bind_scalar("y", Arg::from("c d"));
-    let s = b.render(&bindings);
+    let s = b.render(&bindings, &mut 0);
     assert_eq!(s, "(a\\)b) (c d)");
     let facts = reform::parser::facts(&s).unwrap();
     assert_eq!(facts, vec![fact(&["a)b", "c d"])]);
@@ -203,10 +203,10 @@ fn render_text_paren_depth_tracking() {
     ]);
     let mut bindings = Bindings::new();
     bindings.bind_scalar("x", Arg::from("a b"));
-    assert_eq!(b.render(&bindings), "\\((a b)");
+    assert_eq!(b.render(&bindings, &mut 0), "\\((a b)");
 
     let b = Body(vec![BodyChunk::Text(")".to_string()), BodyChunk::Text("\\".to_string())]);
-    assert_eq!(b.render(&Bindings::new()), ")\\");
+    assert_eq!(b.render(&Bindings::new(), &mut 0), ")\\");
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ fn render_repeat_empty_drivers() {
     let r = RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![BodyChunk::Text("x".to_string())] };
     let b = Body(vec![BodyChunk::Repeat(r)]);
     let bindings = Bindings::new();
-    let s = b.render(&bindings);
+    let s = b.render(&bindings, &mut 0);
     assert_eq!(s, "");
 }
 
@@ -232,7 +232,7 @@ fn collect_ph_names_nested_repeat() {
     let inner = BodyChunk::Repeat(RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![BodyChunk::Placeholder("y".to_string())] });
     let outer = BodyChunk::Repeat(RepeatBlock { kind: RepetitionKind::ZeroOrMore, greedy: false, chunks: vec![BodyChunk::Placeholder("x".to_string()), inner] });
     let b = Body(vec![outer]);
-    let s = b.render(&Bindings::new());
+    let s = b.render(&Bindings::new(), &mut 0);
     assert_eq!(s, "");
 }
 
@@ -428,7 +428,7 @@ fn match_reps_at_least_one_zero_inner() {
 fn render_chunks_placeholder_no_binding() {
     let b = Body(vec![BodyChunk::Placeholder("x".to_string())]);
     let bindings = Bindings::new();
-    let s = b.render(&bindings);
+    let s = b.render(&bindings, &mut 0);
     assert_eq!(s, "");
 }
 
@@ -449,7 +449,7 @@ fn render_repeat_mismatched_drivers() {
     bindings
         .map
         .insert("y".to_string(), BindValue::Many(vec![BindValue::One(Arg::from("a"))]));
-    let s = b.render(&bindings);
+    let s = b.render(&bindings, &mut 0);
     assert_eq!(s, "", "mismatched drivers should render nothing");
 }
 
@@ -519,7 +519,7 @@ fn render_repeat_empty_driver_fallback() {
     let b = Body(vec![BodyChunk::Repeat(r)]);
     let mut bindings = Bindings::new();
     bindings.bind_scalar("x", Arg::from("val"));
-    let s = b.render(&bindings);
+    let s = b.render(&bindings, &mut 0);
     assert_eq!(s, "", "scalar binding should not drive iteration");
 }
 
@@ -594,7 +594,7 @@ fn render_repeat_driver_not_many_fallback() {
     let b = Body(vec![BodyChunk::Repeat(r)]);
     let mut bindings = Bindings::new();
     bindings.bind_scalar("x", Arg::from("val"));
-    let s = b.render(&bindings);
+    let s = b.render(&bindings, &mut 0);
     assert_eq!(s, "", "scalar binding should not drive iteration");
 }
 
@@ -1116,4 +1116,66 @@ fn fact_level_optional_fallback_to_absent() {
         let matches = p.find_matches(&facts);
         assert_eq!(matches.len(), 1);
     }
+}
+
+// ---------------------------------------------------------------------------
+// $UID(name) generation
+// ---------------------------------------------------------------------------
+
+/// `$UID(name)` renders a `UID_n` from the counter; all uses of the same
+/// name in one render coalesce onto one ID, and each distinct name takes the
+/// next number in render order.
+#[test]
+fn render_uid_coalesces_by_name() {
+    let b = Body(vec![
+        BodyChunk::Uid("a".to_string()),
+        BodyChunk::Text(" ".to_string()),
+        BodyChunk::Uid("b".to_string()),
+        BodyChunk::Text(" ".to_string()),
+        BodyChunk::Uid("a".to_string()),
+    ]);
+    let mut next = 1;
+    assert_eq!(b.render(&Bindings::new(), &mut next), "UID_1 UID_2 UID_1");
+    assert_eq!(next, 3);
+}
+
+/// The counter is threaded across renders: a second render of the same body
+/// continues the sequence instead of repeating `UID_1`.
+#[test]
+fn render_uid_advances_counter_across_renders() {
+    let b = Body(vec![BodyChunk::Uid("a".to_string())]);
+    let mut next = 1;
+    assert_eq!(b.render(&Bindings::new(), &mut next), "UID_1");
+    assert_eq!(b.render(&Bindings::new(), &mut next), "UID_2");
+    assert_eq!(next, 3);
+}
+
+/// `$UID(name)` inside a `$( ... )*` repeat block coalesces across
+/// iterations — the whole render (top level and every iteration) shares the
+/// one ID drawn for a given name.
+#[test]
+fn render_uid_in_repeat_coalesces_across_iterations() {
+    let r = RepeatBlock {
+        kind: RepetitionKind::ZeroOrMore,
+        greedy: false,
+        chunks: vec![
+            BodyChunk::Placeholder("x".to_string()),
+            BodyChunk::Text(" ".to_string()),
+            BodyChunk::Uid("t".to_string()),
+            BodyChunk::Text(" ".to_string()),
+        ],
+    };
+    let b = Body(vec![BodyChunk::Repeat(r)]);
+    let mut bindings = Bindings::new();
+    bindings.map.insert(
+        "x".to_string(),
+        BindValue::Many(vec![
+            BindValue::One(Arg::from("a")),
+            BindValue::One(Arg::from("b")),
+        ]),
+    );
+    let mut next = 1;
+    let s = b.render(&bindings, &mut next);
+    assert_eq!(s, "a UID_1 b UID_1 ");
+    assert_eq!(next, 2);
 }

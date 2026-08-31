@@ -64,6 +64,10 @@ pub struct Engine {
     /// Seeded via [`Engine::new`] (entropy) or [`Engine::new_with_seed`]
     /// (deterministic); see [`Engine::set_seed`].
     rng_state: Cell<u64>,
+    /// Next number for `$UID(name)` ID generation in rule bodies. Counts up
+    /// per generated ID over the engine's lifetime, so the emitted `UID_n`
+    /// strings are deterministic given the same rule and firing history.
+    next_uid: u64,
 }
 
 impl std::fmt::Debug for Engine {
@@ -94,6 +98,7 @@ impl Default for Engine {
             commands: HashMap::new(),
             output: Output::default(),
             rng_state: Cell::new(entropy_seed()),
+            next_uid: 1,
         };
         engine.register_default_commands();
         engine
@@ -650,7 +655,7 @@ impl Engine {
                 for rf in removed {
                     self.remove_fact(&rf);
                 }
-                let text = rule.body.render(&bindings);
+                let text = rule.body.render(&bindings, &mut self.next_uid);
                 if text.trim().is_empty() {
                     continue;
                 }

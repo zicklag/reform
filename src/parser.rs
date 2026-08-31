@@ -359,14 +359,15 @@ peg::parser! {
 
         // Parse a rule body as a substitution template. The body is a flat
         // sequence of chunks: literal text, `$name` placeholders (substituted
-        // from the pattern's bindings at fire time), and `$( ... )?/+/*`
-        // repetition blocks (aligned with the pattern's repetitions). A
-        // literal `$` in the output is written `$$`. The generated text is
-        // later fed to `facts()` to produce real facts, so anything that
-        // isn't a `$`-form placeholder or repetition is opaque literal text —
-        // including parens, newlines, and the contents of generated (inner)
-        // rules. Inner rules that need their own `$x`/`$( ... )` write them
-        // as `$$x`/`$$( ... )`.
+        // from the pattern's bindings at fire time), `$UID(name)` ID
+        // generators, and `$( ... )?/+/*` repetition blocks (aligned with the
+        // pattern's repetitions). A literal `$` in the output is written
+        // `$$`. The generated text is later fed to `facts()` to produce real
+        // facts, so anything that isn't a `$`-form placeholder, `$UID`,
+        // or repetition is opaque literal text — including parens, newlines,
+        // and the contents of generated (inner) rules. Inner rules that need
+        // their own `$x`/`$( ... )`/`$UID( ... )` write them as
+        // `$$x`/`$$( ... )`/`$$UID( ... )`.
         pub rule body() -> Body =
             chunks:body_chunk()* { Body(merge_text(chunks)) }
 
@@ -374,6 +375,7 @@ peg::parser! {
         // here: it only closes a `$( ... )` block when we are inside one.
         rule body_chunk() -> BodyChunk =
             "$$" { BodyChunk::Text("$".to_string()) } /
+            uid:uid_form() { uid } /
             rep:body_repeat() { BodyChunk::Repeat(rep) } /
             ph:placeholder() { BodyChunk::Placeholder(ph) } /
             "$" { BodyChunk::Text("$".to_string()) } /
@@ -385,6 +387,7 @@ peg::parser! {
         // parenthesized arg like `( )` stays inside the block.
         rule body_chunk_in_repeat() -> BodyChunk =
             "$$" { BodyChunk::Text("$".to_string()) } /
+            uid:uid_form() { uid } /
             rep:body_repeat() { BodyChunk::Repeat(rep) } /
             ph:placeholder() { BodyChunk::Placeholder(ph) } /
             "$" { BodyChunk::Text("$".to_string()) } /
@@ -451,9 +454,24 @@ peg::parser! {
         rule neg_lookahead() -> Vec<ArgTemplate> =
             "$(" args:arg_templates_multi() ")!" { args }
 
+        // The name part of `$name` placeholders: a run of characters none of
+        // which end a placeholder or introduce a body form (whitespace,
+        // `#`, `$`, parens, repetition markers, punctuation).
+        rule placeholder_name() -> &'input str =
+            $((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "." / "," / ";" / ":" / "'" / "!") [_])+)
         rule placeholder() -> String =
-            "$" name:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "." / "," / ";" / ":" / "'" / "!") [_])+)
+            "$" name:placeholder_name()
             { name.to_string() }
+
+        // `$UID(name)` generates a fresh, deterministic `UID_n` at
+        // body-substitution time, drawn from the engine's monotonic ID
+        // counter. Every use of the same `name` in one body render shares
+        // one newly generated ID; different names (and later firings) get
+        // different IDs. Ordered before `placeholder()`, which would
+        // otherwise capture only `$UID` and treat `(name)` as literal text.
+        rule uid_form() -> BodyChunk =
+            "$UID(" name:placeholder_name() ")"
+            { BodyChunk::Uid(name.to_string()) }
         rule literal_word() -> Arg =
             word:$((!(" " / "\n" / "\t" / "#" / "$" / "(" / ")" / "?" / "+" / "*" / "!") [_])+)
             { word.into() }
